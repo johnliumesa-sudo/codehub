@@ -1,0 +1,85 @@
+/* Settings modal */
+.modal.settings-modal {
+  width: min(860px, 100%);
+  height: min(640px, 90vh);
+  padding: 0;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  overflow: hidden;
+}
+.settings-nav { background: var(--bg-1); border-right: 1px solid var(--border); padding: 18px 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.settings-me { display: flex; gap: 10px; align-items: center; padding: 6px 8px 14px; margin-bottom: 8px; border-bottom: 1px solid var(--border); min-width: 0; }
+.settings-me > div { display: grid; min-width: 0; }
+.settings-me strong, .settings-me .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-me .muted { font-size: 11px; }
+.settings-nav-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); padding: 8px 10px 6px; font-weight: 600; }
+.settings-nav-item { text-align: left; background: none; border: 0; padding: 8px 10px; border-radius: var(--radius-sm); color: var(--text-dim); cursor: pointer; }
+.settings-nav-item:hover { background: var(--bg-hover); color: var(--text); }
+.settings-nav-item.on { background: var(--accent-soft); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+
+.settings-body { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.settings-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px 14px; border-bottom: 1px solid var(--border); }
+.settings-head h2 { margin: 0; font-size: 18px; }
+.settings-close { background: none; border: 1px solid var(--border); color: var(--text-dim); width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; }
+.settings-close:hover { color: var(--text); background: var(--bg-hover); }
+.settings-scroll { overflow-y: auto; padding: 20px 24px 24px; flex: 1; }
+
+.settings-section { display: grid; gap: 16px; }
+.settings-card { display: grid; gap: 12px; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-1); }
+.settings-card.row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.settings-card h3 { margin: 0 0 2px; font-size: 14px; }
+.settings-card p { margin: 0; font-size: 13px; }
+.settings-card.danger-zone { border-color: rgba(255, 92, 122, 0.3); }
+.settings-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.settings-form { display: grid; gap: 14px; }
+.settings-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; flex-wrap: wrap; }
+.settings-actions > span { margin-right: auto; font-size: 13px; }
+.settings-ok { color: var(--ok); font-size: 13px; }
+.settings-note { font-size: 12px; color: var(--text-faint); margin: 0; }
+.settings-note code, .gh-saved code { font-family: var(--mono); font-size: 12px; background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
+.settings-label-row { display: flex; justify-content: space-between; }
+.settings-count { color: var(--text-faint); text-transform: none; letter-spacing: 0; }
+.settings-loading { display: grid; place-items: center; padding: 60px 0; }
+.settings-loading.sm { padding: 12px 0; }
+.settings-loading.sm .spinner { width: 20px; height: 20px; }
+.settings-deriving { display: flex; align-items: center; gap: 12px; padding: 14px; background: var(--bg-3); border-radius: var(--radius-sm); color: var(--text-dim); }
+.settings-dl { display: grid; grid-template-columns: 90px 1fr; gap: 8px 12px; margin: 0; font-size: 13px; }
+.settings-dl dt { color: var(--text-faint); }
+.settings-dl dd { margin: 0; overflow-wrap: anywhere; }
+.settings-dl code { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+
+/* Profile preview */
+.profile-preview { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-1); }
+.profile-banner { height: 64px; transition: background .2s; }
+.profile-preview-body { display: flex; align-items: flex-end; gap: 14px; padding: 0 18px 14px; margin-top: -28px; }
+.profile-avatar { width: 64px; height: 64px; font-size: 22px; border: 5px solid var(--bg-1); transition: background .2s; }
+.profile-preview-text { display: grid; padding-bottom: 4px; min-width: 0; }
+.profile-preview-text strong { font-size: 16px; }
+.profile-preview-text .muted { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; text-transform: none; }
+.swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; box-shadow: 0 0 0 2px var(--bg-2) inset; transition: transform .12s; }
+.swatch:hover { transform: scale(1.08); }
+.swatch.on { border-color: var(--text); }
+
+/* Fingerprint */
+.fingerprint-row { display: flex; align-items: center; gap: 10px; }
+.fingerprint { flex: 1; font-family: var(--mono); font-size: 14px; letter-spacing: .04em; padding: 10px 12px; background: var(--bg-3); border-radius: var(--radius-sm); color: var(--ok); overflow-wrap: anywhere; }
+
+/* GitHub */
+.gh-saved { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--bg-3); border-radius: var(--radius-sm); font-size: 13px; }
+.gh-saved .btn { margin-left: auto; }
+.gh-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(60,207,145,.18); flex: none; }
+.gh-dot.off { background: var(--text-faint); box-shadow: none; }
+.gh-account { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.gh-account img { width: 36px; height: 36px; border-radius: 50%; }
+.gh-account > div { display: grid; font-size: 13px; min-width: 0; }
+.gh-account .muted { font-size: 12px; overflow-wrap: anywhere; }
+
+@media (max-width: 680px) {
+  .modal.settings-modal { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: 90vh; }
+  .settings-nav { flex-direction: row; overflow-x: auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .settings-me, .settings-nav-label { display: none; }
+  .settings-nav-item { white-space: nowrap; }
+  .settings-card.row { flex-direction: column; align-items: stretch; }
+}

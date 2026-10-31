@@ -1,0 +1,572 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      ".read": "auth != null",
+      ".indexOn": [
+        "name"
+      ],
+      "$uid": {
+        ".write": "$uid === auth.uid",
+        "name": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 64"
+        },
+        "color": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 32"
+        },
+        "status": {
+          ".validate": "newData.isString() && newData.val().length >= 0 && newData.val().length <= 128"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+        "pubKey": {
+          ".validate": "newData.hasChildren(['kty', 'crv', 'x', 'y'])",
+          "kty": {
+            ".validate": "newData.val() === 'EC'"
+          },
+          "crv": {
+            ".validate": "newData.val() === 'P-256'"
+          },
+          "x": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 64"
+          },
+          "y": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 64"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "vaults": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid",
+        ".validate": "newData.hasChildren(['salt', 'iter', 'wrappedPriv'])",
+        "salt": {
+          ".validate": "newData.isString() && newData.val().length >= 16 && newData.val().length <= 64"
+        },
+        "iter": {
+          ".validate": "newData.isNumber() && newData.val() >= 100000"
+        },
+        "wrappedPriv": {
+          ".validate": "newData.hasChildren(['iv', 'ct'])",
+          "iv": {
+            ".validate": "newData.isString() && newData.val().length === 16"
+          },
+          "ct": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 4096"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "ghToken": {
+          ".validate": "newData.hasChildren(['iv', 'ct'])",
+          "iv": {
+            ".validate": "newData.isString() && newData.val().length === 16"
+          },
+          "ct": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 4096"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "presence": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "$uid === auth.uid",
+        ".validate": "newData.hasChildren(['state', 'lastChanged'])",
+        "state": {
+          ".validate": "newData.val() === 'online' || newData.val() === 'idle' || newData.val() === 'offline'"
+        },
+        "lastChanged": {
+          ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "userServers": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        "$sid": {
+          ".write": "$uid === auth.uid || (!newData.exists() && (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin'))",
+          ".validate": "newData.hasChildren(['joinedAt'])",
+          "joinedAt": {
+            ".validate": "newData.isNumber()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "servers": {
+      "$sid": {
+        ".read": "root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+        ".write": "(!newData.exists() && data.child('meta').child('ownerId').val() === auth.uid) || (!data.exists() && newData.child('meta').child('ownerId').val() === auth.uid && newData.child('members').child(auth.uid).child('role').val() === 'owner' && newData.child('keys').child(auth.uid).exists())",
+        "meta": {
+          ".write": "(!data.exists() && newData.child('ownerId').val() === auth.uid) || (data.exists() && newData.exists() && (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin') && newData.child('ownerId').val() === data.child('ownerId').val())",
+          ".validate": "newData.hasChildren(['nameEnc', 'ownerId', 'createdAt'])",
+          "nameEnc": {
+            ".validate": "newData.hasChildren(['iv', 'ct'])",
+            "iv": {
+              ".validate": "newData.isString() && newData.val().length === 16"
+            },
+            "ct": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2048"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "ownerId": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 128"
+          },
+          "color": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 32"
+          },
+          "createdAt": {
+            ".validate": "newData.isNumber()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "members": {
+          "$uid": {
+            ".write": "($uid === auth.uid && !root.child('servers').child($sid).child('meta').exists() && newData.child('role').val() === 'owner' && newData.parent().parent().child('meta').child('ownerId').val() === auth.uid) || ($uid === auth.uid && !data.exists() && newData.child('role').val() === 'member' && !root.child('servers').child($sid).child('bans').child(auth.uid).exists() && newData.child('invite').isString() && root.child('servers').child($sid).child('invites').child(newData.child('invite').val()).exists() && (root.child('servers').child($sid).child('invites').child(newData.child('invite').val()).child('expiresAt').val() === 0 || root.child('servers').child($sid).child('invites').child(newData.child('invite').val()).child('expiresAt').val() > now) && (root.child('servers').child($sid).child('invites').child(newData.child('invite').val()).child('maxUses').val() === 0 || root.child('servers').child($sid).child('invites').child(newData.child('invite').val()).child('uses').val() < root.child('servers').child($sid).child('invites').child(newData.child('invite').val()).child('maxUses').val())) && newData.parent().parent().child('invites').child(newData.child('invite').val()).child('uses').val() === root.child('servers').child($sid).child('invites').child(newData.child('invite').val()).child('uses').val() + 1 || ($uid === auth.uid && !newData.exists() && data.child('role').val() !== 'owner') || (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' && $uid !== auth.uid && data.exists() && (!newData.exists() || newData.child('role').val() === 'admin' || newData.child('role').val() === 'member')) || (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin' && $uid !== auth.uid && data.child('role').val() === 'member' && (!newData.exists() || newData.child('role').val() === 'member'))",
+            ".validate": "newData.hasChildren(['role', 'joinedAt'])",
+            "role": {
+              ".validate": "newData.val() === 'admin' || newData.val() === 'member' || (newData.val() === 'owner' && newData.parent().parent().parent().child('meta').child('ownerId').val() === $uid)"
+            },
+            "joinedAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "invite": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 128"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "keys": {
+          "$uid": {
+            ".write": "($uid === auth.uid && (!newData.exists() || newData.parent().parent().child('members').child(auth.uid).exists())) || (!newData.exists() && !newData.parent().parent().child('members').child($uid).exists() && (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin' && root.child('servers').child($sid).child('members').child($uid).child('role').val() === 'member')))",
+            ".validate": "newData.hasChildren(['epk', 'iv', 'ct'])",
+            "epk": {
+              ".validate": "newData.hasChildren(['kty', 'crv', 'x', 'y'])",
+              "kty": {
+                ".validate": "newData.val() === 'EC'"
+              },
+              "crv": {
+                ".validate": "newData.val() === 'P-256'"
+              },
+              "x": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 64"
+              },
+              "y": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 64"
+              },
+              "$other": {
+                ".validate": false
+              }
+            },
+            "iv": {
+              ".validate": "newData.isString() && newData.val().length === 16"
+            },
+            "ct": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 256"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "invites": {
+          "$iid": {
+            ".read": "auth != null",
+            ".write": "(root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin') && (!newData.exists() || data.exists() || newData.child('createdBy').val() === auth.uid)",
+            ".validate": "newData.hasChildren(['createdBy', 'createdAt', 'expiresAt', 'maxUses', 'uses'])",
+            "createdBy": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 128"
+            },
+            "createdAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "expiresAt": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "maxUses": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "uses": {
+              ".write": "data.isNumber() && newData.val() === data.val() + 1 && !root.child('servers').child($sid).child('members').child(auth.uid).exists() && newData.parent().parent().parent().child('members').child(auth.uid).child('invite').val() === $iid",
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "channels": {
+          "$cid": {
+            ".write": "(newData.parent().parent().child('members').child(auth.uid).child('role').val() === 'owner' || newData.parent().parent().child('members').child(auth.uid).child('role').val() === 'admin')",
+            ".validate": "newData.hasChildren(['type', 'enc', 'position', 'createdAt'])",
+            "type": {
+              ".validate": "newData.val() === 'text' || newData.val() === 'code'"
+            },
+            "enc": {
+              ".validate": "newData.hasChildren(['iv', 'ct'])",
+              "iv": {
+                ".validate": "newData.isString() && newData.val().length === 16"
+              },
+              "ct": {
+                ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 8192"
+              },
+              "$other": {
+                ".validate": false
+              }
+            },
+            "position": {
+              ".validate": "newData.isNumber()"
+            },
+            "createdAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "bans": {
+          "$uid": {
+            ".write": "(root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' && $uid !== auth.uid) || (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin' && $uid !== auth.uid && newData.exists() && (root.child('servers').child($sid).child('members').child($uid).child('role').val() === 'member' || !root.child('servers').child($sid).child('members').child($uid).exists()))",
+            ".validate": "newData.val() === true"
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "messages": {
+      "$sid": {
+        ".write": "!newData.exists() && root.child('servers').child($sid).child('meta').child('ownerId').val() === auth.uid",
+        "$cid": {
+          ".read": "root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+          ".write": "!newData.exists() && (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin')",
+          ".indexOn": [
+            "ts",
+            "pinned"
+          ],
+          "$mid": {
+            ".write": "((!data.exists() && newData.child('uid').val() === auth.uid && root.child('servers').child($sid).child('members').child(auth.uid).exists() && root.child('servers').child($sid).child('channels').child($cid).exists()) && !newData.child('reactions').exists() && !newData.child('pinned').exists() && !newData.child('deleted').exists() && !newData.child('editedAt').exists()) || (data.exists() && !newData.exists() && (data.child('uid').val() === auth.uid || (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin')))",
+            ".validate": "newData.hasChildren(['uid', 'ts']) && (newData.hasChildren(['iv', 'ct']) || newData.child('deleted').val() === true)",
+            "uid": {
+              ".validate": "newData.isString()"
+            },
+            "ts": {
+              ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+            },
+            "iv": {
+              ".write": "root.child('servers').child($sid).child('members').child(auth.uid).exists() && (data.parent().child('uid').val() === auth.uid || (!newData.exists() && (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin')))",
+              ".validate": "newData.isString() && newData.val().length === 16"
+            },
+            "ct": {
+              ".write": "root.child('servers').child($sid).child('members').child(auth.uid).exists() && (data.parent().child('uid').val() === auth.uid || (!newData.exists() && (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin')))",
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 87400"
+            },
+            "editedAt": {
+              ".write": "root.child('servers').child($sid).child('members').child(auth.uid).exists() && (data.parent().child('uid').val() === auth.uid || (!newData.exists() && (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin')))",
+              ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+            },
+            "replyTo": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 40"
+            },
+            "deleted": {
+              ".write": "root.child('servers').child($sid).child('members').child(auth.uid).exists() && (data.parent().child('uid').val() === auth.uid || (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin'))",
+              ".validate": "newData.val() === true"
+            },
+            "pinned": {
+              ".write": "(root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin') || (!newData.exists() && data.parent().child('uid').val() === auth.uid)",
+              ".validate": "newData.val() === true"
+            },
+            "reactions": {
+              ".write": "!newData.exists() && root.child('servers').child($sid).child('members').child(auth.uid).exists() && (data.parent().child('uid').val() === auth.uid || (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin'))",
+              "$emoji": {
+                ".validate": "$emoji.length <= 64",
+                "$ruid": {
+                  ".write": "$ruid === auth.uid && root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+                  ".validate": "newData.val() === true && $ruid === auth.uid"
+                }
+              }
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+      }
+    },
+    "typing": {
+      "ch": {
+        "$sid": {
+          "$cid": {
+            ".read": "root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+            "$uid": {
+              ".write": "$uid === auth.uid && (root.child('servers').child($sid).child('members').child(auth.uid).exists() || !newData.exists())",
+              ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+            }
+          }
+        }
+      },
+      "dm": {
+        "$dmId": {
+          ".read": "($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid))",
+          "$uid": {
+            ".write": "$uid === auth.uid && ($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid))",
+            ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+          }
+        }
+      },
+      "$other": {
+        ".validate": false
+      }
+    },
+    "reads": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid",
+        "$scope": {
+          ".validate": "newData.isNumber()"
+        }
+      }
+    },
+    "dms": {
+      "$dmId": {
+        ".read": "($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid))",
+        "members": {
+          "$uid": {
+            ".write": "($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid)) && ($dmId.beginsWith($uid + '_') || $dmId.endsWith('_' + $uid))",
+            ".validate": "newData.val() === true"
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "dmMessages": {
+      "$dmId": {
+        ".read": "($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid))",
+        ".indexOn": [
+          "ts",
+          "pinned"
+        ],
+        "$mid": {
+          ".write": "((!data.exists() && newData.child('uid').val() === auth.uid && ($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid))) && !newData.child('reactions').exists() && !newData.child('pinned').exists() && !newData.child('deleted').exists() && !newData.child('editedAt').exists()) || (data.exists() && !newData.exists() && (data.child('uid').val() === auth.uid))",
+          ".validate": "newData.hasChildren(['uid', 'ts']) && (newData.hasChildren(['iv', 'ct']) || newData.child('deleted').val() === true)",
+          "uid": {
+            ".validate": "newData.isString()"
+          },
+          "ts": {
+            ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+          },
+          "iv": {
+            ".write": "($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid)) && (data.parent().child('uid').val() === auth.uid)",
+            ".validate": "newData.isString() && newData.val().length === 16"
+          },
+          "ct": {
+            ".write": "($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid)) && (data.parent().child('uid').val() === auth.uid)",
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 87400"
+          },
+          "editedAt": {
+            ".write": "($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid)) && (data.parent().child('uid').val() === auth.uid)",
+            ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+          },
+          "replyTo": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 40"
+          },
+          "deleted": {
+            ".write": "($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid)) && (data.parent().child('uid').val() === auth.uid)",
+            ".validate": "newData.val() === true"
+          },
+          "pinned": {
+            ".write": "($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid))",
+            ".validate": "newData.val() === true"
+          },
+          "reactions": {
+            ".write": "!newData.exists() && ($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid)) && (data.parent().child('uid').val() === auth.uid)",
+            "$emoji": {
+              ".validate": "$emoji.length <= 64",
+              "$ruid": {
+                ".write": "$ruid === auth.uid && ($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid))",
+                ".validate": "newData.val() === true && $ruid === auth.uid"
+              }
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "userDms": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".indexOn": [
+          "lastTs"
+        ],
+        "$dmId": {
+          ".write": "($uid === auth.uid && (($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid)) || !newData.exists())) || (($dmId.beginsWith(auth.uid + '_') || $dmId.endsWith('_' + auth.uid)) && newData.exists() && ($dmId.beginsWith($uid + '_') || $dmId.endsWith('_' + $uid)))",
+          "peer": {
+            ".validate": "newData.isString() && newData.val() !== $uid && ($dmId.beginsWith(newData.val() + '_') || $dmId.endsWith('_' + newData.val()))"
+          },
+          "lastTs": {
+            ".validate": "newData.isNumber()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "collab": {
+      "$sid": {
+        ".write": "!newData.exists() && root.child('servers').child($sid).child('meta').child('ownerId').val() === auth.uid",
+        "$cid": {
+          ".read": "root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+          ".write": "!newData.exists() && (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin')",
+          "repo": {
+            ".write": "root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+            ".validate": "newData.hasChildren(['iv', 'ct'])",
+            "iv": {
+              ".validate": "newData.isString() && newData.val().length === 16"
+            },
+            "ct": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 4096"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "files": {
+            "$fid": {
+              ".write": "root.child('servers').child($sid).child('members').child(auth.uid).exists() && (data.exists() || !newData.exists() || newData.child('createdBy').val() === auth.uid)",
+              ".validate": "newData.hasChildren(['enc', 'createdBy', 'createdAt'])",
+              "enc": {
+                ".validate": "newData.hasChildren(['iv', 'ct'])",
+                "iv": {
+                  ".validate": "newData.isString() && newData.val().length === 16"
+                },
+                "ct": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 8192"
+                },
+                "$other": {
+                  ".validate": false
+                }
+              },
+              "createdBy": {
+                ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())"
+              },
+              "createdAt": {
+                ".validate": "newData.isNumber()"
+              },
+              "updatedAt": {
+                ".validate": "newData.isNumber()"
+              },
+              "$other": {
+                ".validate": false
+              }
+            }
+          },
+          "updates": {
+            "$fid": {
+              ".write": "!newData.exists() && root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+              "$pushId": {
+                ".write": "root.child('servers').child($sid).child('members').child(auth.uid).exists() && (!newData.exists() || (!data.exists() && newData.child('uid').val() === auth.uid))",
+                ".validate": "newData.hasChildren(['iv', 'ct', 'uid', 'ts'])",
+                "iv": {
+                  ".validate": "newData.isString() && newData.val().length === 16"
+                },
+                "ct": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 1400000"
+                },
+                "uid": {
+                  ".validate": "newData.isString()"
+                },
+                "ts": {
+                  ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+                },
+                "$other": {
+                  ".validate": false
+                }
+              }
+            }
+          },
+          "snapshots": {
+            "$fid": {
+              ".write": "root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+              ".validate": "newData.hasChildren(['iv', 'ct', 'upTo', 'ts'])",
+              "iv": {
+                ".validate": "newData.isString() && newData.val().length === 16"
+              },
+              "ct": {
+                ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2800000"
+              },
+              "upTo": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 64"
+              },
+              "ts": {
+                ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+              },
+              "$other": {
+                ".validate": false
+              }
+            }
+          },
+          "awareness": {
+            "$fid": {
+              ".write": "!newData.exists() && root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+              "$uid": {
+                ".write": "$uid === auth.uid && (root.child('servers').child($sid).child('members').child(auth.uid).exists() || !newData.exists())",
+                ".validate": "newData.hasChildren(['iv', 'ct', 'ts'])",
+                "iv": {
+                  ".validate": "newData.isString() && newData.val().length === 16"
+                },
+                "ct": {
+                  ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 16384"
+                },
+                "ts": {
+                  ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+                },
+                "$other": {
+                  ".validate": false
+                }
+              }
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    }
+  }
+}
