@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { initials } from '../../lib/profiles.js';
 import { isEmojiOnly, mentionsName, renderMarkdown } from '../../lib/markdown.js';
 import { QUICK_REACTIONS, emojiFromKey, emojiKey } from '../../lib/messages.js';
+import { parseInviteLink } from '../../lib/servers.js';
 import CodeSnippet from './CodeSnippet.jsx';
 
 function fmtTime(ts) {
@@ -38,6 +39,24 @@ export function previewText(m) {
   return '';
 }
 
+// Server invite links in a message become a card. Joining reuses the app's invite flow: setting
+// the hash hands the link to App.jsx, which stashes it for the workspace's join prompt.
+function InviteCard({ invite, name, mine }) {
+  const join = () => {
+    location.hash = `/join/${invite.sid}/${invite.inviteId}/${invite.key}`;
+  };
+  return (
+    <div className="msg-invite">
+      <div className="msg-invite-icon">{(name || '?').trim().charAt(0).toUpperCase() || '#'}</div>
+      <div className="msg-invite-text">
+        <span className="msg-invite-label">{mine ? 'You sent a server invite' : "You've been invited to join a server"}</span>
+        <strong>{name || 'Encrypted server'}</strong>
+      </div>
+      {!mine && <button type="button" className="btn primary sm" onClick={join}>Join</button>}
+    </div>
+  );
+}
+
 function Message(props) {
   const {
     m, grouped, author, me, profiles, reply, replyAuthor, knownNames, editing, highlighted,
@@ -51,6 +70,7 @@ function Message(props) {
     [text, me.name, knownNames],
   );
   const jumbo = useMemo(() => isEmojiOnly(text) && !m.body?.code, [text, m.body]);
+  const invite = useMemo(() => parseInviteLink(text), [text]);
   const mentioned = useMemo(() => m.uid !== me.uid && mentionsName(text, me.name), [text, me.name, m.uid, me.uid]);
   const isReplyToMe = reply && !reply.missing && reply.uid === me.uid && m.uid !== me.uid;
 
@@ -134,6 +154,7 @@ function Message(props) {
                 />
               )}
               {m.body?.code && <CodeSnippet code={m.body.code} onCopied={onCopied} />}
+              {invite && <InviteCard invite={invite} name={m.body?.invite?.name} mine={m.uid === me.uid} />}
               {m.editedAt && <span className="msg-edited" title={`Edited ${fmtFull(m.editedAt)}`}>(edited)</span>}
               {grouped && m.pinned && <span className="msg-pin-flag" title="Pinned">📌</span>}
             </>

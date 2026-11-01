@@ -41,5 +41,5 @@ export default function App() {
   if (user === undefined) return <div className="splash"><div className="spinner" /></div>;
   if (!user) return <AuthScreen />;
   if (!unlocked || !isUnlocked()) return <VaultScreen user={user} onUnlocked={() => setUnlocked(true)} />;
-  return <Workspace user={user} onLock={() => { lock(); setUnlocked(false); }} />;
+  return <Workspace user={user} />;
 }

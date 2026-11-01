@@ -289,7 +289,7 @@ function useDebounced(value, ms) {
 }
 
 // Prefix search on users/ ordered by name (needs `.indexOn: ["name"]` and read on users/).
-async function searchUsersByName(q) {
+export async function searchUsersByName(q) {
   const variants = [...new Set([q, q.toLowerCase(), q[0].toUpperCase() + q.slice(1)])];
   const out = {};
   await Promise.all(

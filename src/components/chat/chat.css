@@ -300,3 +300,10 @@
   .msg-toolbar, .chat-side, .chat-toast, .emoji-popover, .composer-suggest { animation: none !important; }
   .sk-line { animation: none; }
 }
+
+/* Server invite card (invite links in messages) */
+.msg-invite { display: flex; align-items: center; gap: 12px; max-width: 420px; margin-top: 6px; padding: 12px 14px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--border); }
+.msg-invite-icon { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 14px; background: linear-gradient(135deg, var(--accent), #a66bff); color: #fff; font-weight: 700; font-size: 18px; }
+.msg-invite-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.msg-invite-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-invite-label { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); }

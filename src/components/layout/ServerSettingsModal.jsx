@@ -17,6 +17,7 @@ import {
   unbanMember,
   updateServer,
 } from '../../lib/servers.js';
+import { sendServerInvite, useFriends } from '../../lib/friends.js';
 import { useDbValue } from './hooks.js';
 import { ColorPicker } from './modals.jsx';
 import { Avatar, ConfirmButton, Icon, Modal, copyText, useToast } from './ui.jsx';
@@ -148,7 +149,58 @@ function Overview({ sid, meta, myRole, me, onLeft, onDeleted }) {
 
 // ---------- Invites ----------
 
-function Invites({ sid, me, autoCreate, onAutoCreated }) {
+// Friends and DM contacts who aren't members yet; each gets a single-use invite in an encrypted DM.
+function InviteByDm({ sid, me, serverName, memberUids }) {
+  const toast = useToast();
+  const friends = useFriends(me.uid);
+  const { value: dmsVal } = useDbValue(`userDms/${me.uid}`);
+  const [sent, setSent] = useState({}); // uid -> 'busy' | 'sent'
+  const uids = useMemo(() => {
+    const set = new Set(friends.list.filter((f) => f.state === 'friends').map((f) => f.uid));
+    Object.values(dmsVal || {}).forEach((d) => d?.peer && set.add(d.peer));
+    memberUids.forEach((u) => set.delete(u));
+    set.delete(me.uid);
+    return [...set];
+  }, [friends.list, dmsVal, memberUids, me.uid]);
+  const profiles = useProfiles(uids);
+  const presence = usePresences(uids);
+  const sorted = [...uids].sort((a, b) => (profiles[a]?.name || '').localeCompare(profiles[b]?.name || ''));
+
+  const send = async (uid) => {
+    setSent((s) => ({ ...s, [uid]: 'busy' }));
+    try {
+      await sendServerInvite(me, uid, sid, serverName);
+      setSent((s) => ({ ...s, [uid]: 'sent' }));
+      toast(`Invite sent to ${profiles[uid]?.name || 'them'}`, 'success');
+    } catch (e) {
+      setSent((s) => ({ ...s, [uid]: undefined }));
+      toast(errMsg(e), 'error');
+    }
+  };
+
+  return (
+    <>
+      <div className="ly-list-head">Invite friends by DM</div>
+      {sorted.length === 0 ? (
+        <p className="muted">Friends and people you've messaged show up here. Add friends from the Friends page on the home screen.</p>
+      ) : (
+        <div className="ly-invite-friends">
+          {sorted.map((uid) => (
+            <div key={uid} className="ly-person">
+              <Avatar profile={profiles[uid]} size={32} presence={presence[uid] || 'offline'} ring="var(--bg-2)" />
+              <span className="ly-dm-text"><span className="ly-dm-name">{profiles[uid]?.name || '…'}</span></span>
+              <button className="btn sm" disabled={!!sent[uid]} onClick={() => send(uid)}>
+                {sent[uid] === 'busy' ? <span className="spinner ly-spinner-sm" /> : sent[uid] === 'sent' ? <><Icon name="check" size={13} /> Sent</> : <><Icon name="send" size={13} /> Invite</>}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function Invites({ sid, me, serverName, memberUids, autoCreate, onAutoCreated }) {
   const { loading, value, error } = useDbValue(`servers/${sid}/invites`);
   const [expires, setExpires] = useState(EXPIRY[2][1]);
   const [maxUses, setMaxUses] = useState(0);
@@ -195,6 +247,8 @@ function Invites({ sid, me, autoCreate, onAutoCreated }) {
 
   return (
     <div className="ly-form">
+      <InviteByDm sid={sid} me={me} serverName={serverName} memberUids={memberUids} />
+      <div className="ly-list-head">Invite link</div>
       <div className="ly-invite-make">
         <label className="field">
           Expire after
@@ -400,7 +454,7 @@ export default function ServerSettingsModal({ sid, meta, myRole, me, members, in
       </div>
       <div className="ly-settings-body">
         {tab === 'overview' && <Overview sid={sid} meta={meta} myRole={myRole} me={me} onLeft={onLeft} onDeleted={onLeft} />}
-        {tab === 'invites' && <Invites sid={sid} me={me} autoCreate={autoInvite} onAutoCreated={() => setAutoInvite(false)} />}
+        {tab === 'invites' && <Invites sid={sid} me={me} serverName={meta.name} memberUids={members.map((m) => m.uid)} autoCreate={autoInvite} onAutoCreated={() => setAutoInvite(false)} />}
         {tab === 'members' && <Members sid={sid} members={members} myRole={myRole} me={me} onMessage={onMessage} />}
         {tab === 'bans' && <Bans sid={sid} canUnban={myRole === 'owner'} />}
       </div>

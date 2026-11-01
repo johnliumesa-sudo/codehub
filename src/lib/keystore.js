@@ -2,18 +2,17 @@
 import { get, onValue, ref, set, update } from 'firebase/database';
 import { db } from './firebase.js';
 import {
-  PBKDF2_ITERATIONS,
-  b64u,
   decryptJSON,
   decryptText,
   deriveDmKey,
   deriveVaultKey,
   encryptJSON,
   encryptText,
+  exportRoomKey,
   generateIdentity,
+  generateRoomKey,
   importPrivateKey,
   importRoomKey,
-  randomBytes,
   unwrapKey,
   wrapKeyFor,
 } from './crypto.js';
@@ -48,32 +47,73 @@ export function lock() {
   state.pubKeys.clear();
 }
 
-export async function hasVault(uid) {
-  return (await get(ref(db, `vaults/${uid}/salt`))).exists();
+/*
+ * Vault modes
+ *  - auto (default): a random AES key is stored next to the wrapped private key at
+ *    vaults/{uid}/autoKey. Only the signed-in owner can read it (rules), so signing in is enough
+ *    to unlock. Trade-off: anyone with admin access to the Firebase project could read both.
+ *  - legacy passphrase vaults ({salt, iter}) from before auto-unlock. They are unlocked once with
+ *    the old passphrase and converted to auto (migrateLegacyVault).
+ */
+
+/** 'none' | 'auto' | 'passphrase' */
+export async function vaultMode(uid) {
+  const v = (await get(ref(db, `vaults/${uid}`))).val();
+  if (!v?.wrappedPriv) return 'none';
+  return v.autoKey ? 'auto' : 'passphrase';
 }
 
-// First-time setup: create identity + vault, publish public key.
-export async function createVault(uid, passphrase) {
-  const salt = b64u(randomBytes(16));
-  const vaultKey = await deriveVaultKey(passphrase, salt, PBKDF2_ITERATIONS);
+async function writeAutoVault(uid, privJwk, ghToken) {
+  const vaultKey = await generateRoomKey();
+  const vault = {
+    autoKey: await exportRoomKey(vaultKey),
+    wrappedPriv: await encryptJSON(vaultKey, privJwk, `vault-priv:${uid}`),
+  };
+  if (ghToken) vault.ghToken = await encryptText(vaultKey, ghToken, `vault-gh:${uid}`);
+  await set(ref(db, `vaults/${uid}`), vault);
+  return vaultKey;
+}
+
+/** First sign-in (or "start over"): new identity in an auto vault, public key published. */
+export async function createVault(uid) {
   const { pubJwk, privJwk } = await generateIdentity();
-  const wrappedPriv = await encryptJSON(vaultKey, privJwk, `vault-priv:${uid}`);
-  await set(ref(db, `vaults/${uid}`), { salt, iter: PBKDF2_ITERATIONS, wrappedPriv });
+  const vaultKey = await writeAutoVault(uid, privJwk, null);
   await update(ref(db, `users/${uid}`), { pubKey: pubJwk });
   await loadSession(uid, vaultKey, privJwk, pubJwk);
 }
 
-// Throws if the passphrase is wrong (AES-GCM auth failure).
-export async function unlockVault(uid, passphrase) {
+/** Unlock an auto vault. Creates one when the user has none. Returns false for a legacy vault. */
+export async function openVault(uid) {
+  const v = (await get(ref(db, `vaults/${uid}`))).val();
+  if (!v?.wrappedPriv) {
+    await createVault(uid);
+    return true;
+  }
+  if (!v.autoKey) return false;
+  const vaultKey = await importRoomKey(v.autoKey);
+  const privJwk = await decryptJSON(vaultKey, v.wrappedPriv, `vault-priv:${uid}`);
+  await finishUnlock(uid, vaultKey, privJwk);
+  return true;
+}
+
+/** Unlock a legacy passphrase vault and convert it to auto-unlock. Throws 'Wrong passphrase'. */
+export async function migrateLegacyVault(uid, passphrase) {
   const vault = (await get(ref(db, `vaults/${uid}`))).val();
   if (!vault) throw new Error('No vault found');
-  const vaultKey = await deriveVaultKey(passphrase, vault.salt, vault.iter);
+  const oldKey = await deriveVaultKey(passphrase, vault.salt, vault.iter);
   let privJwk;
   try {
-    privJwk = await decryptJSON(vaultKey, vault.wrappedPriv, `vault-priv:${uid}`);
+    privJwk = await decryptJSON(oldKey, vault.wrappedPriv, `vault-priv:${uid}`);
   } catch {
     throw new Error('Wrong passphrase');
   }
+  let ghToken = null;
+  if (vault.ghToken) ghToken = await decryptText(oldKey, vault.ghToken, `vault-gh:${uid}`).catch(() => null);
+  const vaultKey = await writeAutoVault(uid, privJwk, ghToken);
+  await finishUnlock(uid, vaultKey, privJwk);
+}
+
+async function finishUnlock(uid, vaultKey, privJwk) {
   const pubJwk = { kty: 'EC', crv: 'P-256', x: privJwk.x, y: privJwk.y };
   await loadSession(uid, vaultKey, privJwk, pubJwk);
   // Self-heal: if publishing the public key failed during createVault (or it was clobbered),
@@ -92,23 +132,6 @@ async function loadSession(uid, vaultKey, privJwk, pubJwk) {
   state.privKey = await importPrivateKey(privJwk);
   state.pubJwk = pubJwk;
   state.pubKeys.set(uid, Promise.resolve(pubJwk));
-}
-
-// Re-encrypt the private key under a new passphrase.
-export async function changePassphrase(passphrase) {
-  requireUnlocked();
-  const uid = state.uid;
-  const vault = (await get(ref(db, `vaults/${uid}`))).val();
-  const privJwk = await decryptJSON(state.vaultKey, vault.wrappedPriv, `vault-priv:${uid}`);
-  const salt = b64u(randomBytes(16));
-  const vaultKey = await deriveVaultKey(passphrase, salt, PBKDF2_ITERATIONS);
-  const updates = { salt, iter: PBKDF2_ITERATIONS, wrappedPriv: await encryptJSON(vaultKey, privJwk, `vault-priv:${uid}`) };
-  if (vault.ghToken) {
-    const token = await decryptText(state.vaultKey, vault.ghToken, `vault-gh:${uid}`);
-    updates.ghToken = await encryptText(vaultKey, token, `vault-gh:${uid}`);
-  }
-  await set(ref(db, `vaults/${uid}`), updates);
-  state.vaultKey = vaultKey;
 }
 
 function requireUnlocked() {

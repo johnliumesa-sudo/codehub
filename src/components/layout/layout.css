@@ -339,3 +339,41 @@ label.field .input { text-transform: none; letter-spacing: 0; font-size: 14px; c
 @media (prefers-reduced-motion: reduce) {
   .ly-app *, .ly-toasts *, .ly-backdrop, .ly-modal { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Friends (home) ---------- */
+.fr-root { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.fr-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 20px; border-bottom: 1px solid var(--border); }
+.fr-title { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; padding-right: 16px; border-right: 1px solid var(--border); }
+.fr-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.fr-tab { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: var(--text-dim); padding: 5px 11px; border-radius: 7px; font: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer; }
+.fr-tab:hover { background: var(--bg-hover); color: var(--text); }
+.fr-tab.on { background: var(--bg-3); color: var(--text); }
+.fr-tab.add { background: var(--ok); color: #06210f; }
+.fr-tab.add.on { background: none; color: var(--ok); }
+.fr-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; display: inline-grid; place-items: center; }
+.fr-body { flex: 1; overflow-y: auto; padding: 16px 20px; min-height: 0; }
+.fr-count { font-size: 11.5px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; padding: 0 8px 8px; }
+.fr-row { display: flex; align-items: center; gap: 12px; padding: 10px 8px; border-top: 1px solid var(--border); border-radius: 8px; }
+.fr-row:hover { background: var(--bg-hover); }
+.fr-row .ly-dm-text { flex: 1; }
+.fr-actions { display: flex; gap: 8px; }
+.fr-act { width: 34px; height: 34px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--bg-2); color: var(--text-dim); cursor: pointer; }
+.fr-act:hover { color: var(--text); background: var(--bg-3); }
+.fr-act.ok:hover { color: var(--ok); }
+.fr-act.danger:hover { color: var(--danger); }
+.fr-tag { font-size: 12.5px; color: var(--text-faint); }
+.fr-empty { text-align: center; padding: 32px 0; }
+.fr-add { max-width: 640px; }
+.fr-add h3 { margin: 0 0 4px; }
+.fr-add > p { margin: 0 0 14px; }
+.fr-results { margin-top: 12px; }
+.ly-friends-link { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; margin-bottom: 6px; border: 0; border-radius: 8px; background: none; color: var(--text-dim); font: inherit; font-weight: 600; cursor: pointer; }
+.ly-friends-link:hover { background: var(--bg-hover); color: var(--text); }
+.ly-friends-link.active { background: var(--bg-3); color: var(--text); }
+.ly-friends-link .fr-badge { margin-left: auto; }
+.ly-invite-friends { display: grid; gap: 2px; max-height: 220px; overflow-y: auto; margin-bottom: 16px; }
+@media (max-width: 760px) {
+  .fr-head { padding: 10px 14px; }
+  .fr-title { border-right: 0; padding-right: 0; }
+  .fr-body { padding: 12px 14px; }
+}

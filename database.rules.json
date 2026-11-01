@@ -48,7 +48,10 @@
       "$uid": {
         ".read": "$uid === auth.uid",
         ".write": "$uid === auth.uid",
-        ".validate": "newData.hasChildren(['salt', 'iter', 'wrappedPriv'])",
+        ".validate": "newData.hasChild('wrappedPriv') && (newData.hasChild('autoKey') || newData.hasChildren(['salt', 'iter']))",
+        "autoKey": {
+          ".validate": "newData.isString() && newData.val().length === 43"
+        },
         "salt": {
           ".validate": "newData.isString() && newData.val().length >= 16 && newData.val().length <= 64"
         },
@@ -442,6 +445,24 @@
             ".validate": "newData.isNumber()"
           },
           "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
+    "friends": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        "$other": {
+          ".write": "auth != null && $uid !== $other && ($uid === auth.uid || $other === auth.uid)",
+          ".validate": "newData.hasChildren(['state', 'ts'])",
+          "state": {
+            ".validate": "($uid === auth.uid && newData.val() === 'out' && newData.parent().parent().parent().child($other).child($uid).child('state').val() === 'in') || ($uid === auth.uid && newData.val() === 'friends' && data.val() === 'in' && newData.parent().parent().parent().child($other).child($uid).child('state').val() === 'friends') || ($other === auth.uid && newData.val() === 'in' && newData.parent().parent().parent().child($other).child($uid).child('state').val() === 'out') || ($other === auth.uid && newData.val() === 'friends' && data.val() === 'out' && newData.parent().parent().parent().child($other).child($uid).child('state').val() === 'friends')"
+          },
+          "ts": {
+            ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+          },
+          "$x": {
             ".validate": false
           }
         }

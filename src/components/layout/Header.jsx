@@ -38,8 +38,8 @@ export default function Header({
           <DmTitle peer={peer} />
         ) : (
           <div className="ly-head-title">
-            <Icon name="message" size={18} className="ly-head-icon" />
-            <span className="ly-head-name">Direct messages</span>
+            <Icon name="users" size={18} className="ly-head-icon" />
+            <span className="ly-head-name">Friends</span>
           </div>
         )
       ) : (

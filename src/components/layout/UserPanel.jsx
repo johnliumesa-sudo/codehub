@@ -1,7 +1,7 @@
 import { usePresence } from '../../lib/presence.js';
 import { Avatar, Icon, PRESENCE_LABEL } from './ui.jsx';
 
-export default function UserPanel({ me, onSettings, onLock }) {
+export default function UserPanel({ me, onSettings }) {
   const presence = usePresence(me.uid);
   return (
     <div className="ly-userpanel">
@@ -11,9 +11,6 @@ export default function UserPanel({ me, onSettings, onLock }) {
           <span className="ly-user-name">{me.name}</span>
           <span className="ly-user-status">{me.status || PRESENCE_LABEL[presence]}</span>
         </span>
-      </button>
-      <button className="btn ghost sm ly-icon-btn" onClick={onLock} title="Lock vault (keeps you signed in)" aria-label="Lock vault">
-        <Icon name="lock" size={17} />
       </button>
       <button className="btn ghost sm ly-icon-btn" onClick={onSettings} title="Settings" aria-label="Settings">
         <Icon name="gear" size={17} />

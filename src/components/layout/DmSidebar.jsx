@@ -14,7 +14,7 @@ function relTime(ts) {
   return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function DmSidebar({ dms, loading, error, activeDmId, reads, myUid, onSelect, onNewDm, onHide }) {
+export default function DmSidebar({ dms, loading, error, activeDmId, reads, myUid, onSelect, onNewDm, onHide, onFriends, friendRequests = 0 }) {
   const [filter, setFilter] = useState('');
   const peers = useMemo(() => dms.map((d) => d.peer), [dms]);
   const profiles = useProfiles(peers);
@@ -38,6 +38,10 @@ export default function DmSidebar({ dms, loading, error, activeDmId, reads, myUi
         </div>
       </header>
       <div className="ly-side-scroll">
+        <button className={`ly-friends-link ${activeDmId ? '' : 'active'}`} onClick={onFriends}>
+          <Icon name="users" size={18} /> Friends
+          {friendRequests > 0 && <span className="fr-badge" title="Pending friend requests">{friendRequests}</span>}
+        </button>
         <section className="ly-section">
           <div className="ly-section-head">
             <span className="ly-section-title static">Direct messages</span>

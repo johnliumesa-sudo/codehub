@@ -12,7 +12,9 @@ const perLineFor = (vw) => Math.max(6, Math.min(9, Math.floor((vw - 2 * GAP - CH
 const widthFor = (perLine) => perLine * CELL + CHROME;
 
 // emoji-mart's React wrapper builds the picker once; keep its props stable so it isn't re-rendered.
-const StablePicker = memo(function StablePicker({ onSelectRef, onOutsideRef, perLine }) {
+// Outside clicks are handled by EmojiPopover itself: emoji-mart's onClickOutside listens for
+// `click` on document and catches the very click that opened the picker, closing it at once.
+const StablePicker = memo(function StablePicker({ onSelectRef, perLine }) {
   return (
     <Picker
       data={data}
@@ -24,7 +26,6 @@ const StablePicker = memo(function StablePicker({ onSelectRef, onOutsideRef, per
       perLine={perLine}
       autoFocus
       onEmojiSelect={(e) => onSelectRef.current?.(e)}
-      onClickOutside={(e) => onOutsideRef.current?.(e)}
     />
   );
 });
@@ -37,16 +38,11 @@ export default function EmojiPopover({ anchorRect, onSelect, onClose, keepOpen =
   const boxRef = useRef(null);
   const [pos, setPos] = useState(null);
   const onSelectRef = useRef(null);
-  const onOutsideRef = useRef(null);
   const [perLine] = useState(() => perLineFor(window.innerWidth));
 
   onSelectRef.current = (e) => {
     onSelect(e.native, e);
     if (!keepOpen) onClose();
-  };
-  onOutsideRef.current = (e) => {
-    if (boxRef.current && e?.target && boxRef.current.contains(e.target)) return;
-    onClose();
   };
 
   useLayoutEffect(() => {
@@ -66,9 +62,14 @@ export default function EmojiPopover({ anchorRect, onSelect, onClose, keepOpen =
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     const onResize = () => onClose();
+    const onDown = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) onClose();
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('resize', onResize);
+    document.addEventListener('mousedown', onDown, true);
     return () => {
+      document.removeEventListener('mousedown', onDown, true);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('resize', onResize);
     };
@@ -81,7 +82,7 @@ export default function EmojiPopover({ anchorRect, onSelect, onClose, keepOpen =
       style={pos ? { left: pos.left, top: pos.top } : { visibility: 'hidden' }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <StablePicker onSelectRef={onSelectRef} onOutsideRef={onOutsideRef} perLine={perLine} />
+      <StablePicker onSelectRef={onSelectRef} perLine={perLine} />
     </div>,
     document.body,
   );

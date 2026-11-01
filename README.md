@@ -5,8 +5,8 @@ Servers, text channels, DMs, reactions, replies, pins, typing indicators and pre
 chat side; a shared CodeMirror editor backed by Yjs, plus a GitHub panel (browse, diff, commit,
 branch, pull request) on the collab side.
 
-Built with Vite + React 18 and Firebase. It uses only **Email/Password Authentication** and the
-**Realtime Database**. No Firestore, Storage, Cloud Functions or other auth providers.
+Built with Vite + React 18 and Firebase. It uses **Email/Password and Google Authentication** and the
+**Realtime Database**. No Firestore, Storage or Cloud Functions.
 
 ---
 
@@ -17,7 +17,7 @@ Built with Vite + React 18 and Firebase. It uses only **Email/Password Authentic
 The app is already wired to Firebase project `codehub-c1e74` (`src/lib/firebase.js`,
 `.firebaserc`). In that project you have already:
 
-- enabled **Authentication → Sign-in method → Email/Password**, and
+- enabled **Authentication → Sign-in method → Email/Password** and **Google**, and
 - created a **Realtime Database** (`https://codehub-c1e74-default-rtdb.firebaseio.com`).
 
 That is everything the app needs. The site is hosted on GitHub Pages (see section 3).
@@ -40,10 +40,16 @@ domain by default. If you serve from another host, add it under
 
 First run:
 
-1. **Sign up** with email and password.
-2. **Choose a vault passphrase.** It encrypts your private key in the browser. It is separate from
-   your password and **cannot be recovered**.
-3. Create a server, or open an invite link someone sent you.
+1. **Sign up** with email and password, or **Continue with Google**. Your encryption keys are
+   created and unlocked automatically; there is no separate passphrase.
+2. Add friends from the **Friends** page (home screen), create a server, and invite friends by DM
+   from **Server menu → Invite people**, or share an invite link.
+
+### Test locally against emulators
+
+`npm run emulators` (needs Java) starts the Auth and Database emulators with `database.rules.json`;
+`npm run dev:emu` serves the app on http://localhost:5174 against them. Nothing touches the live
+project, so you can sign up throwaway test accounts in two browser windows.
 
 ---
 
@@ -134,7 +140,7 @@ server, and anyone with database access, sees only `{ iv, ct }`.
 | Server names, channel names and topics | Server key |
 | Collab file paths and contents (Yjs updates and snapshots), cursors and selections, linked repo name | Server key |
 | Direct messages | Per-pair DM key: ECDH(P-256) + HKDF |
-| Your private identity key, GitHub token | Vault key: PBKDF2-SHA256 (600k iterations) from your passphrase |
+| Your private identity key, GitHub token | Vault key: random AES-256 key stored at `vaults/{uid}/autoKey`, readable only by you |
 
 - **Identity:** each user has an ECDH P-256 key pair. The public key is published at
   `users/{uid}/pubKey`. The private key exists only encrypted in your vault and, once you unlock,
@@ -184,9 +190,11 @@ Deny by default, then:
   leaked backup or a compromised Firebase project), they can decrypt **past and future** messages
   until a new server is created. Old invite links keep containing a valid key. Revoking an invite
   stops new joins, but anyone who saw the link knows the key.
-- **The passphrase is unrecoverable.** Nobody can reset it. If you forget it you lose your
-  identity key, and with it access to your DMs and to server keys wrapped for you. You would need
-  a new vault (a new identity) and new invites. Use a password manager.
+- **Keys unlock with your login.** The key that unlocks your private identity key is stored in
+  the database under rules that let only your account read it. That removes the passphrase, but
+  it means anyone with **admin access to the Firebase project** (or your account) could read your
+  keys and decrypt your messages. Other signed-in users still can't. Accounts created with the
+  old passphrase are asked for it once, then converted.
 - **Trust in the served code.** As with any web-based E2EE app, whoever serves the JavaScript
   could ship code that leaks keys. Self-host and pin your build if that matters to you.
 - **Public keys are not verified automatically.** Without comparing safety numbers, a malicious

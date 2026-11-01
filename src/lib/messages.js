@@ -4,7 +4,7 @@
 //   { kind: 'channel', sid, cid, title, scope }  |  { kind: 'dm', dmId, peerUid, title, scope }
 //
 // Stored message: { uid, ts, iv, ct, editedAt?, replyTo?, deleted?, reactions?, pinned? }
-// The {iv, ct} box is AES-GCM over the JSON body { text, code?: { lang, content, filename? } }
+// The {iv, ct} box is AES-GCM over the JSON body { text, code?: { lang, content, filename? }, invite?: { name } }
 // with AAD `msg:{sid}/{cid}/{mid}:{uid}` (channels) or `dm:{dmId}/{mid}:{uid}` (DMs). Binding the
 // author uid means a server that rewrites `uid` makes the message undecryptable instead of
 // misattributed. Messages written before this change used the uid-less AAD and are still read.
@@ -95,6 +95,7 @@ function cleanBody(body) {
     out.code = { lang: body.code.lang || 'plaintext', content: body.code.content };
     if (body.code.filename) out.code.filename = String(body.code.filename).slice(0, 200);
   }
+  if (body.invite) out.invite = { name: String(body.invite.name || '').slice(0, 64) };
   return out;
 }
 
@@ -115,6 +116,9 @@ function checkBody(body) {
     if (typeof c !== 'object' || Array.isArray(c) || typeof c.content !== 'string' || !optStr(c.lang) || !optStr(c.filename)) {
       throw new Error('Malformed message body');
     }
+  }
+  if (body.invite !== undefined && body.invite !== null) {
+    if (typeof body.invite !== 'object' || Array.isArray(body.invite) || !optStr(body.invite.name)) throw new Error('Malformed message body');
   }
   return body;
 }

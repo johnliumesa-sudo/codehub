@@ -17,10 +17,11 @@ function RailButton({ active, unread, label, color, onClick, children, className
       <button
         className="ly-rail-btn"
         style={color ? { '--srv': color } : undefined}
-        onClick={onClick}
+        onClick={(e) => { setTip(null); onClick?.(e); }}
         onMouseEnter={show}
         onMouseLeave={() => setTip(null)}
-        onFocus={show}
+        // Keyboard focus only: a mouse click also focuses the button, which left the tip stuck.
+        onFocus={(e) => e.currentTarget.matches(':focus-visible') && show(e)}
         onBlur={() => setTip(null)}
         aria-label={label}
         aria-current={active ? 'page' : undefined}

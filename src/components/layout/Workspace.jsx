@@ -35,6 +35,8 @@ import {
   useUserServers,
 } from './hooks.js';
 import { ChannelModal, CreateJoinModal, NewDmModal, PendingInviteModal } from './modals.jsx';
+import FriendsView from './FriendsView.jsx';
+import { useFriends } from '../../lib/friends.js';
 import { ConfirmButton, ErrorBoundary, Icon, Modal, ToastProvider, useToast } from './ui.jsx';
 import './layout.css';
 
@@ -99,7 +101,7 @@ export default function Workspace(props) {
   );
 }
 
-function WorkspaceFrame({ user, onLock }) {
+function WorkspaceFrame({ user }) {
   const uid = user.uid;
   const toast = useToast();
   const profile = useProfile(uid);
@@ -178,6 +180,8 @@ function WorkspaceFrame({ user, onLock }) {
   const reads = readsVal || {};
   const peerOf = useCallback((dmId) => peerFromDmId(dmId, uid), [uid]);
   const { loading: dmsLoading, dms, error: dmsError } = useUserDms(uid, peerOf);
+  const friends = useFriends(uid);
+  const friendRequests = friends.list.filter((f) => f.state === 'in').length;
 
   const sid = nav.sid;
   useEffect(() => {
@@ -209,7 +213,7 @@ function WorkspaceFrame({ user, onLock }) {
   const dmPeer = useProfile(dmPeerUid);
 
   // Unread on the home button (any DM newer than its read marker, excluding the open one).
-  const homeUnread = dms.some((d) => (sid || d.dmId !== dmId) && d.lastTs > (reads[dmScope(d.dmId)] || 0));
+  const homeUnread = friendRequests > 0 || dms.some((d) => (sid || d.dmId !== dmId) && d.lastTs > (reads[dmScope(d.dmId)] || 0));
 
   // ---------- right panel ----------
   const rightOptions = sid ? (tab === 'collab' ? ['chat', 'members'] : ['members']) : [];
@@ -309,17 +313,7 @@ function WorkspaceFrame({ user, onLock }) {
     content = chatConv ? (
       <ChatView key={chatConv.scope} conv={chatConv} me={me} />
     ) : (
-      <EmptyState
-        icon="lock"
-        title="Your private conversations"
-        action={
-          <button className="btn primary" onClick={() => setModal({ type: 'newDm' })}>
-            <Icon name="message" size={15} /> New message
-          </button>
-        }
-      >
-        Direct messages are end-to-end encrypted with a key derived from your identity and theirs. Not even the server can read them.
-      </EmptyState>
+      <FriendsView me={me} friends={friends} onMessage={messageUser} />
     );
   } else if (meta.status === 'loading' || chLoading) {
     content = <Loading />;
@@ -438,6 +432,11 @@ function WorkspaceFrame({ user, onLock }) {
               myUid={uid}
               onSelect={selectDm}
               onNewDm={() => setModal({ type: 'newDm' })}
+              onFriends={() => {
+                setNav((n) => ({ ...n, dmId: null }));
+                if (mobile) setNavOpen(false);
+              }}
+              friendRequests={friendRequests}
               onHide={async (d) => {
                 try {
                   await hideDm(uid, d.dmId);
@@ -448,7 +447,7 @@ function WorkspaceFrame({ user, onLock }) {
               }}
             />
           )}
-          <UserPanel me={me} onSettings={() => setModal({ type: 'settings' })} onLock={onLock} />
+          <UserPanel me={me} onSettings={() => setModal({ type: 'settings' })} />
         </div>
       </div>
       {mobile && navOpen && <div className="ly-scrim" onClick={() => setNavOpen(false)} />}
@@ -482,7 +481,7 @@ function WorkspaceFrame({ user, onLock }) {
       )}
 
       {/* ---------- modals ---------- */}
-      {modal?.type === 'settings' && <SettingsModal user={user} me={me} onClose={() => setModal(null)} onLock={onLock} />}
+      {modal?.type === 'settings' && <SettingsModal user={user} me={me} onClose={() => setModal(null)} />}
       {modal?.type === 'createJoin' && (
         <CreateJoinModal
           me={me}

@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { sendPasswordResetEmail, signOut, updateProfile } from 'firebase/auth';
-import { get, ref, update } from 'firebase/database';
+import { ref, update } from 'firebase/database';
 import { auth, db } from '../../lib/firebase.js';
-import { decryptJSON, deriveVaultKey, keyFingerprint } from '../../lib/crypto.js';
-import { changePassphrase, loadGithubToken, myPublicKey, saveGithubToken } from '../../lib/keystore.js';
+import { keyFingerprint } from '../../lib/crypto.js';
+import { loadGithubToken, myPublicKey, saveGithubToken } from '../../lib/keystore.js';
 import { AVATAR_COLORS, initials, useProfile } from '../../lib/profiles.js';
 import { stopPresence } from '../../lib/presence.js';
 import { NAME_MAX, PasswordInput, authErrorMessage } from '../auth/AuthScreen.jsx';
-import { StrengthMeter } from '../auth/VaultScreen.jsx';
-import { MIN_PASSPHRASE, passphraseStrength } from '../auth/strength.js';
 import './settings.css';
 
 const STATUS_MAX = 128;
@@ -127,13 +125,8 @@ function ProfileTab({ user }) {
 
 // ---------------- Security ----------------
 
-function SecurityTab({ user, onLock }) {
+function SecurityTab() {
   const [fp, setFp] = useState('');
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState(null);
   const [copied, setCopied] = useState(false);
   const mounted = useMounted();
 
@@ -142,37 +135,6 @@ function SecurityTab({ user, onLock }) {
     if (!pub) return;
     keyFingerprint(pub).then((f) => mounted.current && setFp(f)).catch(() => {});
   }, [mounted]);
-
-  const strength = passphraseStrength(next);
-  const valid = current && next.length >= MIN_PASSPHRASE && strength.score >= 2 && next === confirm && next !== current;
-
-  async function change(e) {
-    e.preventDefault();
-    if (!valid || busy) return;
-    setBusy(true);
-    setMsg(null);
-    await new Promise((r) => setTimeout(r, 30));
-    try {
-      // Verify the current passphrase without touching session state.
-      const vault = (await get(ref(db, `vaults/${user.uid}`))).val();
-      if (!vault) throw new Error('No vault found.');
-      const oldKey = await deriveVaultKey(current, vault.salt, vault.iter);
-      try {
-        await decryptJSON(oldKey, vault.wrappedPriv, `vault-priv:${user.uid}`);
-      } catch {
-        throw new Error('Current passphrase is incorrect.');
-      }
-      await changePassphrase(next);
-      if (mounted.current) {
-        setCurrent(''); setNext(''); setConfirm('');
-        setMsg({ ok: true, text: 'Passphrase changed. Use the new one next time you unlock.' });
-      }
-    } catch (err) {
-      if (mounted.current) setMsg({ ok: false, text: err?.message || 'Could not change passphrase.' });
-    } finally {
-      if (mounted.current) setBusy(false);
-    }
-  }
 
   async function copyFp() {
     try {
@@ -197,46 +159,14 @@ function SecurityTab({ user, onLock }) {
           <button type="button" className="btn sm" onClick={copyFp} disabled={!fp}>{copied ? 'Copied' : 'Copy'}</button>
         </div>
       </div>
-
-      <form onSubmit={change} className="settings-card">
-        <h3>Change encryption passphrase</h3>
-        <p className="muted">Re-encrypts your private key on this device. Your messages and keys stay the same.</p>
-        {busy ? (
-          <div className="settings-deriving"><div className="spinner" /><span>Deriving keys (600,000 PBKDF2 rounds)…</span></div>
-        ) : (
-          <div className="settings-form">
-            <label className="field">
-              Current passphrase
-              <PasswordInput value={current} onChange={setCurrent} autoComplete="current-password" />
-            </label>
-            <label className="field">
-              New passphrase
-              <PasswordInput value={next} onChange={setNext} autoComplete="new-password" />
-            </label>
-            {next && <StrengthMeter value={next} />}
-            <label className="field">
-              Confirm new passphrase
-              <PasswordInput value={confirm} onChange={setConfirm} autoComplete="new-password" />
-            </label>
-            {confirm && next !== confirm && <span className="error-text">Passphrases don't match.</span>}
-            {next && current && next === current && <span className="error-text">New passphrase must be different.</span>}
-          </div>
-        )}
-        <div className="settings-actions">
-          {msg && <span className={msg.ok ? 'settings-ok' : 'error-text'}>{msg.text}</span>}
-          <button className="btn primary" disabled={!valid || busy}>Change passphrase</button>
-        </div>
-      </form>
-
-      {onLock && (
-        <div className="settings-card row">
-          <div>
-            <h3>Lock vault</h3>
-            <p className="muted">Forget decrypted keys in this tab. You'll need your passphrase to continue.</p>
-          </div>
-          <button type="button" className="btn" onClick={onLock}>Lock now</button>
-        </div>
-      )}
+      <div className="settings-card">
+        <h3>How your keys are stored</h3>
+        <p className="muted">
+          Your private key is unlocked automatically when you sign in, so there's no extra passphrase.
+          Messages are still encrypted on your device and the server stores only ciphertext. The key
+          that unlocks your private key is readable only by your account.
+        </p>
+      </div>
     </div>
   );
 }
@@ -421,7 +351,7 @@ function AccountTab({ user, onClose }) {
       <div className="settings-card row">
         <div>
           <h3>Account password</h3>
-          <p className="muted">We'll email you a link to set a new sign-in password. Your encryption passphrase is unaffected.</p>
+          <p className="muted">We'll email you a link to set a new sign-in password. Your encryption keys are unaffected.</p>
         </div>
         <button type="button" className="btn" onClick={resetPw} disabled={!!busy}>{busy === 'reset' ? 'Sending…' : 'Send reset link'}</button>
       </div>
@@ -443,10 +373,9 @@ function AccountTab({ user, onClose }) {
  * Props:
  *  - user: Firebase auth user (required)
  *  - onClose(): close the modal (required)
- *  - onLock(): optional; lock the vault (Workspace's onLock). Shows a "Lock now" button when given.
  *  - initialTab: optional 'profile' | 'security' | 'github' | 'account'
  */
-export default function SettingsModal({ user, onClose, onLock, initialTab = 'profile' }) {
+export default function SettingsModal({ user, onClose, initialTab = 'profile' }) {
   const [tab, setTab] = useState(TABS.some(([id]) => id === initialTab) ? initialTab : 'profile');
   const profile = useProfile(user?.uid);
 
@@ -487,7 +416,7 @@ export default function SettingsModal({ user, onClose, onLock, initialTab = 'pro
           </header>
           <div className="settings-scroll">
             {tab === 'profile' && <ProfileTab user={user} />}
-            {tab === 'security' && <SecurityTab user={user} onLock={onLock ? () => { onClose && onClose(); onLock(); } : null} />}
+            {tab === 'security' && <SecurityTab />}
             {tab === 'github' && <GithubTab />}
             {tab === 'account' && <AccountTab user={user} onClose={onClose} />}
           </div>
