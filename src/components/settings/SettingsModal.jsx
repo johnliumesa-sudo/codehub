@@ -6,6 +6,7 @@ import { keyFingerprint } from '../../lib/crypto.js';
 import { loadGithubToken, myPublicKey, saveGithubToken } from '../../lib/keystore.js';
 import { AVATAR_COLORS, initials, useProfile } from '../../lib/profiles.js';
 import { stopPresence } from '../../lib/presence.js';
+import { deleteAccount, reauthenticate, signInMethod } from '../../lib/account.js';
 import { NAME_MAX, PasswordInput, authErrorMessage } from '../auth/AuthScreen.jsx';
 import './settings.css';
 
@@ -363,7 +364,75 @@ function AccountTab({ user, onClose }) {
         <button type="button" className="btn danger" onClick={doSignOut} disabled={!!busy}>{busy === 'signout' ? 'Signing out…' : 'Sign out'}</button>
       </div>
       {msg && <div className={msg.ok ? 'settings-ok' : 'error-text'}>{msg.text}</div>}
+      <DeleteAccount user={user} disabled={!!busy} />
     </div>
+  );
+}
+
+function DeleteAccount({ user, disabled }) {
+  const method = signInMethod(user);
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState('');
+  const [password, setPassword] = useState('');
+  const [step, setStep] = useState('');
+  const [error, setError] = useState('');
+  const mounted = useMounted();
+  const ready = confirm.trim().toUpperCase() === 'DELETE' && (method !== 'password' || password);
+
+  async function run(e) {
+    e.preventDefault();
+    if (!ready || step) return;
+    setError('');
+    try {
+      setStep('Confirming it’s you…');
+      await reauthenticate(password);
+      // On success the auth listener signs the app out and unmounts this modal.
+      await deleteAccount((t) => mounted.current && setStep(t));
+    } catch (err) {
+      if (!mounted.current) return;
+      setStep('');
+      setError(err?.code ? authErrorMessage(err) : err?.message || 'Deleting your account failed. Try again.');
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="settings-card row danger-zone">
+        <div>
+          <h3>Delete account</h3>
+          <p className="muted">Permanently deletes your account, your messages and DMs, and any servers you own.</p>
+        </div>
+        <button type="button" className="btn danger" onClick={() => setOpen(true)} disabled={disabled}>Delete account…</button>
+      </div>
+    );
+  }
+  return (
+    <form className="settings-card danger-zone settings-form" onSubmit={run}>
+      <div>
+        <h3>Delete account</h3>
+        <p className="muted">
+          This can’t be undone. It removes your profile, keys and friends; every message you sent in servers; your
+          direct-message conversations (for both people); and the servers you own, with all their channels and files.
+        </p>
+      </div>
+      <label className="field">
+        <span>Type DELETE to confirm</span>
+        <input className="input" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" autoFocus disabled={!!step} />
+      </label>
+      {method === 'password' && (
+        <label className="field">
+          <span>Password</span>
+          <PasswordInput value={password} onChange={setPassword} autoComplete="current-password" />
+        </label>
+      )}
+      {method === 'google' && <p className="settings-note">You’ll be asked to sign in with Google again.</p>}
+      {error && <div className="error-text">{error}</div>}
+      <div className="settings-actions">
+        <span className="muted">{step}</span>
+        <button type="button" className="btn ghost" onClick={() => { setOpen(false); setConfirm(''); setPassword(''); setError(''); }} disabled={!!step}>Cancel</button>
+        <button type="submit" className="btn danger" disabled={!ready || !!step}>{step ? 'Deleting…' : 'Delete my account'}</button>
+      </div>
+    </form>
   );
 }
 

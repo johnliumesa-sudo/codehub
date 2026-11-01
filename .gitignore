@@ -4,3 +4,4 @@ dist
 ._*
 .firebase
 *-debug.log
+.smbdelete*

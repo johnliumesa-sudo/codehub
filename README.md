@@ -206,6 +206,11 @@ Deny by default, then:
 - **GitHub PAT scopes:** the token can do anything its permissions allow on the selected
   repositories, from your browser. Keep the repository list narrow, the expiry short, and revoke
   the token on GitHub if a device is lost. Locking or signing out clears it from memory.
+- **Deleting your account** (Settings → Account) asks you to sign in again, then removes your
+  profile, keys, friends, read markers, every message you sent in servers, the servers you own,
+  and your DM conversations (both people's messages: once your profile is gone the rules let you
+  wipe DM threads you were part of). Collab edits you made and reactions you left stay. A DM you
+  hid from your list before deleting is not found and stays.
 - Deleting a server removes its data but cannot remove the server from other members' personal
   server lists (`userServers/{uid}`), and a kick or ban does not remove the kicked user's entry
   either. The client shows such servers as unavailable (dashed icon); clicking it removes the

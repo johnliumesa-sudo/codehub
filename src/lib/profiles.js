@@ -22,7 +22,7 @@ function subscribe(uid, fn) {
     e.unsub = onValue(
       ref(db, `users/${uid}`),
       (s) => {
-        e.value = s.val() ? { uid, ...s.val() } : { uid, name: 'Unknown user', color: '#777' };
+        e.value = s.val() ? { uid, ...s.val() } : { uid, name: 'Deleted user', color: '#777', deleted: true };
         e.listeners.forEach((l) => l(e.value));
       },
       // RTDB cancels listeners for good on permission_denied (e.g. sign-out). Forget the entry so
