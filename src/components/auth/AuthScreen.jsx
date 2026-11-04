@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  getRedirectResult,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -114,6 +115,14 @@ export default function AuthScreen() {
   const [notice, setNotice] = useState('');
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
+
+  // Google sign-in falls back to a redirect when the popup is blocked. Any error from that
+  // round trip only surfaces through getRedirectResult, so check for it when we come back.
+  useEffect(() => {
+    getRedirectResult(auth).catch((err) => {
+      if (mounted.current) setError(authErrorMessage(err));
+    });
+  }, []);
 
   const switchMode = (m) => {
     setMode(m);
@@ -303,7 +312,7 @@ export default function AuthScreen() {
 
           {mode === 'signup' && (
             <p className="auth-fine">
-              Your account password signs you in. After this you'll set a separate <strong>encryption passphrase</strong> that never leaves your device.
+              Your account password signs you in. Your encryption keys are set up automatically, so there's no separate passphrase to remember.
             </p>
           )}
 
