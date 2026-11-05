@@ -14,11 +14,11 @@ Built with Vite + React 18 and Firebase. It uses **Email/Password and Google Aut
 
 ### Firebase project (already done)
 
-The app is already wired to Firebase project `codehub-c1e74` (`src/lib/firebase.js`,
+The app is already wired to Firebase project `codehub-dc9a4` (`src/lib/firebase.js`,
 `.firebaserc`). In that project you have already:
 
 - enabled **Authentication → Sign-in method → Email/Password** and **Google**, and
-- created a **Realtime Database** (`https://codehub-c1e74-default-rtdb.firebaseio.com`).
+- created a **Realtime Database** (`https://codehub-dc9a4-default-rtdb.firebaseio.com`).
 
 That is everything the app needs. The site is hosted on GitHub Pages (see section 3).
 
@@ -68,7 +68,7 @@ npx firebase-tools deploy --only database   # or: npm run deploy
 ```
 
 `firebase.json` already points at `database.rules.json`, and `.firebaserc` already selects
-`codehub-c1e74`.
+`codehub-dc9a4`.
 
 ### Option B: Paste the rules into the console
 

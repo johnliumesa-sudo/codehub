@@ -4,14 +4,14 @@ import { connectDatabaseEmulator, getDatabase } from 'firebase/database';
 
 // Firebase web config is public by design; access is enforced by database.rules.json.
 const firebaseConfig = {
-  apiKey: 'AIzaSyAY6pYqwvdZtxHTB-ih9OjTaaESlp-2Sog',
-  authDomain: 'codehub-c1e74.firebaseapp.com',
-  databaseURL: 'https://codehub-c1e74-default-rtdb.firebaseio.com',
-  projectId: 'codehub-c1e74',
-  storageBucket: 'codehub-c1e74.firebasestorage.app',
-  messagingSenderId: '991271446721',
-  appId: '1:991271446721:web:d3cc83c7f0ac643228cc40',
-  measurementId: 'G-GZ21JGS7SN',
+  apiKey: 'AIzaSyAjkYA-NXFzC6-6KuY2ayvKEOJ4w-GnVeA',
+  authDomain: 'codehub-dc9a4.firebaseapp.com',
+  databaseURL: 'https://codehub-dc9a4-default-rtdb.firebaseio.com',
+  projectId: 'codehub-dc9a4',
+  storageBucket: 'codehub-dc9a4.firebasestorage.app',
+  messagingSenderId: '541796055224',
+  appId: '1:541796055224:web:4b4a61e891d1a868ebdc4d',
+  measurementId: 'G-0PGZC98BNP',
 };
 
 export const app = initializeApp(firebaseConfig);
