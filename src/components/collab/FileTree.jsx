@@ -84,7 +84,7 @@ function InlineInput({ initial = '', placeholder, onSubmit, onCancel, files, exc
   );
 }
 
-export default function FileTree({ files, loading, error, activeFid, presence, profiles, onOpen, onCreate, onRename, onDelete }) {
+export default function FileTree({ files, loading, error, activeFid, presence, profiles, onOpen, onCreate, onRename, onDelete, readOnly = false }) {
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [creating, setCreating] = useState(null); // folder prefix string or null
   const [renaming, setRenaming] = useState(null); // fid
@@ -122,7 +122,7 @@ export default function FileTree({ files, loading, error, activeFid, presence, p
                 <Icon name="chevron" size={12} className={`cx-chev ${open ? 'open' : ''}`} />
                 <Icon name="folder" size={15} className="cx-folder-ico" />
                 <span className="cx-name">{d.name}</span>
-                <button
+                {!readOnly && <button
                   className="cx-row-act"
                   title={`New file in ${d.path}`}
                   onClick={(e) => {
@@ -136,7 +136,7 @@ export default function FileTree({ files, loading, error, activeFid, presence, p
                   }}
                 >
                   <Icon name="plus" size={13} />
-                </button>
+                </button>}
               </div>
               {open && (
                 <>
@@ -192,7 +192,7 @@ export default function FileTree({ files, loading, error, activeFid, presence, p
                 <span className="cx-name">{f.name}</span>
                 {f.repo && <Icon name="github" size={12} className="cx-gh-mark" title={`From ${f.repo}`} />}
                 <AvatarStack people={people} size={16} max={3} />
-                <span className="cx-row-acts">
+                {!readOnly && <span className="cx-row-acts">
                   {!f.broken && (
                     <button className="cx-row-act" title="Rename" onClick={(e) => { e.stopPropagation(); setRenaming(f.fid); }}>
                       <Icon name="edit" size={13} />
@@ -201,7 +201,7 @@ export default function FileTree({ files, loading, error, activeFid, presence, p
                   <button className="cx-row-act danger" title="Delete" onClick={(e) => { e.stopPropagation(); setConfirmDel(f.fid); }}>
                     <Icon name="trash" size={13} />
                   </button>
-                </span>
+                </span>}
               </div>
               {confirmDel === f.fid && (
                 <div className="cx-confirm" style={{ marginLeft: 22 + depth * 14 }}>
@@ -221,9 +221,11 @@ export default function FileTree({ files, loading, error, activeFid, presence, p
     <div className="cx-tree">
       <div className="cx-pane-head">
         <span className="cx-pane-title">Files</span>
-        <button className="btn ghost sm" title="New file" onClick={() => setCreating('')}>
-          <Icon name="plus" size={14} /> New
-        </button>
+        {!readOnly && (
+          <button className="btn ghost sm" title="New file" onClick={() => setCreating('')}>
+            <Icon name="plus" size={14} /> New
+          </button>
+        )}
       </div>
       {files.length > 6 && (
         <div className="cx-filter">
@@ -253,7 +255,7 @@ export default function FileTree({ files, loading, error, activeFid, presence, p
           <div className="cx-tree-empty">
             <Icon name="code" size={26} />
             <p>No files yet.</p>
-            <button className="btn sm primary" onClick={() => setCreating('')}>Create a file</button>
+            {!readOnly && <button className="btn sm primary" onClick={() => setCreating('')}>Create a file</button>}
           </div>
         ) : shown.length === 0 ? (
           <div className="muted cx-pad">No matches</div>

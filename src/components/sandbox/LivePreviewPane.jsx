@@ -1,0 +1,421 @@
+// Live preview + run console for a collab workspace (channel workspace or codespace).
+//
+// Props: { ctx, onClose, initialWidth? }
+//   ctx: the CollabView extras contract (space, key, me, files, activeFid, activePath, provider, …).
+// The active file re-renders 400 ms after the last edit (observing ctx.provider.ytext). Other
+// workspace files are decrypted once via loadWorkspaceFiles and reloaded with the refresh button.
+// Everything runs in SandboxFrame (opaque origin, CSP, no network). Nothing leaves the client.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { renderMarkdown } from '../../lib/markdown.js';
+import { loadWorkspaceFiles } from '../../lib/collab/read.js';
+import { MAX_CONSOLE_LINES, autoEntry, buildPreviewHtml, cleanPath, formatSize, isHtmlPath, extOf } from '../../lib/sandbox.js';
+import SandboxFrame from './SandboxFrame.jsx';
+import { Icon } from './icons.jsx';
+import './sandbox.css';
+
+const DEBOUNCE_MS = 400;
+const WIDTH_KEY = 'codehub.sbx.width';
+const CONSOLE_KEY = 'codehub.sbx.consoleHeight';
+const PREVIEWABLE = new Set(['html', 'htm', 'xhtml', 'md', 'markdown', 'svg', 'js', 'mjs', 'cjs']);
+
+function lsNum(key, fallback) {
+  try {
+    const n = Number(localStorage.getItem(key));
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function lsPut(key, value) {
+  try {
+    localStorage.setItem(key, String(Math.round(value)));
+  } catch {
+    /* storage disabled */
+  }
+}
+
+/** Debounced text of the active editor's Y.Text; null until the provider has synced. */
+function useLiveText(provider) {
+  const [text, setText] = useState(null);
+  useEffect(() => {
+    setText(null);
+    if (!provider || provider.destroyed) return undefined;
+    let timer = null;
+    const read = () => {
+      if (!provider.destroyed && provider.status === 'synced') setText(provider.ytext.toString());
+    };
+    read();
+    const onChange = () => {
+      clearTimeout(timer);
+      timer = setTimeout(read, DEBOUNCE_MS);
+    };
+    provider.ytext.observe(onChange);
+    // Status changes (connecting -> synced) come through the provider's own subscription.
+    const unsub = typeof provider.subscribe === 'function' ? provider.subscribe(() => read()) : null;
+    return () => {
+      clearTimeout(timer);
+      try {
+        provider.ytext.unobserve(onChange);
+      } catch {
+        /* provider already destroyed */
+      }
+      unsub?.();
+    };
+  }, [provider]);
+  return text;
+}
+
+/** Drag-to-resize helper. axis 'x' grows to the left (width), 'y' grows upward (height). */
+function useDrag(axis, value, setValue, { min, max, storeKey }) {
+  const [dragging, setDragging] = useState(false);
+  const onPointerDown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const start = axis === 'x' ? e.clientX : e.clientY;
+    const startValue = value;
+    let last = value;
+    setDragging(true);
+    const move = (ev) => {
+      const delta = start - (axis === 'x' ? ev.clientX : ev.clientY);
+      last = Math.min(max(), Math.max(min, startValue + delta));
+      setValue(last);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      setDragging(false);
+      lsPut(storeKey, last);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+  const onKeyDown = (e) => {
+    const step = e.shiftKey ? 60 : 20;
+    const grow = axis === 'x' ? e.key === 'ArrowLeft' : e.key === 'ArrowUp';
+    const shrink = axis === 'x' ? e.key === 'ArrowRight' : e.key === 'ArrowDown';
+    if (!grow && !shrink) return;
+    e.preventDefault();
+    const next = Math.min(max(), Math.max(min, value + (grow ? step : -step)));
+    setValue(next);
+    lsPut(storeKey, next);
+  };
+  return { dragging, onPointerDown, onKeyDown };
+}
+
+let lineSeq = 0;
+
+export default function LivePreviewPane({ ctx, onClose, initialWidth }) {
+  const { space, key, files: liveFiles = [], activePath, provider } = ctx || {};
+  const rootRef = useRef(null);
+
+  // ---- sibling files (decrypted once, refreshed on demand) ----
+  const [siblings, setSiblings] = useState({ status: 'idle', files: [], error: null, loadedAt: 0 });
+  const loadSeq = useRef(0);
+  const reload = useCallback(async () => {
+    if (!space || !key) return;
+    const seq = ++loadSeq.current;
+    setSiblings((s) => ({ ...s, status: 'loading', error: null }));
+    try {
+      const list = await loadWorkspaceFiles(space, key, { maxFiles: 200 });
+      if (seq !== loadSeq.current) return;
+      setSiblings({ status: 'ready', files: list || [], error: null, loadedAt: Date.now() });
+    } catch (err) {
+      if (seq !== loadSeq.current) return;
+      setSiblings((s) => ({ ...s, status: 'error', error: err?.message || String(err) }));
+    }
+  }, [space, key]);
+  useEffect(() => {
+    const seqRef = loadSeq; // cleanup bumps the counter itself, so in-flight loads are dropped
+    reload();
+    return () => {
+      seqRef.current++;
+    };
+  }, [reload]);
+
+  const liveText = useLiveText(provider);
+
+  // Workspace files as the preview sees them: decrypted siblings, with the active file's live text.
+  const merged = useMemo(() => {
+    const list = siblings.files.map((f) => ({ path: cleanPath(f.path), text: f.text }));
+    if (activePath && typeof liveText === 'string') {
+      const p = cleanPath(activePath);
+      const i = list.findIndex((f) => f.path === p);
+      if (i >= 0) list[i] = { path: p, text: liveText };
+      else list.push({ path: p, text: liveText });
+    }
+    return list;
+  }, [siblings.files, activePath, liveText]);
+
+  // Files created/renamed since the last load (refresh to include them).
+  const stale = useMemo(() => {
+    if (siblings.status !== 'ready') return 0;
+    const have = new Set(siblings.files.map((f) => cleanPath(f.path)));
+    return liveFiles.filter((f) => f.path && !have.has(cleanPath(f.path)) && cleanPath(f.path) !== cleanPath(activePath || '')).length;
+  }, [siblings, liveFiles, activePath]);
+
+  // ---- entry selection ----
+  const [entrySel, setEntrySel] = useState('auto');
+  const entryOptions = useMemo(
+    () => merged.filter((f) => PREVIEWABLE.has(extOf(f.path))).map((f) => f.path).sort((a, b) => (isHtmlPath(b) - isHtmlPath(a)) || a.localeCompare(b)),
+    [merged],
+  );
+  useEffect(() => {
+    if (entrySel !== 'auto' && siblings.status === 'ready' && !merged.some((f) => f.path === entrySel)) setEntrySel('auto');
+  }, [entrySel, merged, siblings.status]);
+  const entry = entrySel === 'auto' ? autoEntry(activePath, merged) : entrySel;
+
+  const waitingForText = !!activePath && !!provider && liveText === null && !merged.some((f) => f.path === cleanPath(activePath));
+  const result = useMemo(() => {
+    if (!entry) return { html: '', missing: [], error: null };
+    if (!merged.some((f) => f.path === entry)) {
+      return { html: '', missing: [], error: siblings.status === 'loading' || waitingForText ? null : `Can't read ${entry}` };
+    }
+    return buildPreviewHtml(entry, merged, { renderMarkdown });
+  }, [entry, merged, siblings.status, waitingForText]);
+
+  // ---- run / stop ----
+  const [running, setRunning] = useState(true);
+  const [runNonce, setRunNonce] = useState(0);
+
+  // ---- console ----
+  const [lines, setLines] = useState([]);
+  const buffer = useRef([]);
+  const raf = useRef(0);
+  const flush = useCallback(() => {
+    raf.current = 0;
+    const batch = buffer.current;
+    buffer.current = [];
+    if (!batch.length) return;
+    setLines((prev) => {
+      let next = prev;
+      for (const item of batch) {
+        if (item.level === 'clear') {
+          next = [{ id: ++lineSeq, level: 'meta', text: 'Console was cleared', count: 1 }];
+          continue;
+        }
+        const last = next[next.length - 1];
+        if (last && last.level === item.level && last.text === item.text) {
+          next = [...next.slice(0, -1), { ...last, count: last.count + 1 }];
+        } else {
+          next = [...next, { id: ++lineSeq, level: item.level, text: item.text, count: 1 }];
+        }
+      }
+      return next.length > MAX_CONSOLE_LINES ? next.slice(next.length - MAX_CONSOLE_LINES) : next;
+    });
+  }, []);
+  const onConsole = useCallback(
+    ({ level, args }) => {
+      buffer.current.push({ level, text: args.join(' ') });
+      if (buffer.current.length > MAX_CONSOLE_LINES * 2) buffer.current = buffer.current.slice(-MAX_CONSOLE_LINES);
+      if (!raf.current) raf.current = requestAnimationFrame(flush);
+    },
+    [flush],
+  );
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  const clearConsole = () => {
+    buffer.current = [];
+    setLines([]);
+  };
+  // A new document (or an explicit re-run) starts with a clean console.
+  useEffect(() => {
+    buffer.current = [];
+    setLines([]);
+  }, [result.html, runNonce, running]);
+
+  const logRef = useRef(null);
+  const stick = useRef(true);
+  useEffect(() => {
+    const el = logRef.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [lines]);
+
+  const counts = useMemo(() => {
+    let errors = 0;
+    let warnings = 0;
+    for (const l of lines) {
+      if (l.level === 'error') errors += l.count;
+      else if (l.level === 'warn') warnings += l.count;
+    }
+    return { errors, warnings };
+  }, [lines]);
+
+  // ---- layout: width + console height ----
+  const [width, setWidth] = useState(() => lsNum(WIDTH_KEY, initialWidth || 460));
+  const [consoleOpen, setConsoleOpen] = useState(true);
+  const [consoleHeight, setConsoleHeight] = useState(() => lsNum(CONSOLE_KEY, 170));
+  const maxWidth = () => {
+    const host = rootRef.current?.parentElement;
+    // Floating (PreviewButton portal): the host shrink-wraps the pane, so its max-width is the limit.
+    const room = host?.classList.contains('sbx-float') ? parseFloat(host.style.maxWidth) || window.innerWidth : host?.clientWidth || window.innerWidth;
+    return Math.max(320, Math.round(room * 0.85));
+  };
+  const maxConsole = () => Math.max(80, (rootRef.current?.clientHeight || 600) - 140);
+  const dragX = useDrag('x', width, setWidth, { min: 280, max: maxWidth, storeKey: WIDTH_KEY });
+  const dragY = useDrag('y', consoleHeight, setConsoleHeight, { min: 60, max: maxConsole, storeKey: CONSOLE_KEY });
+  const dragging = dragX.dragging || dragY.dragging;
+
+  const entryName = entry ? entry.split('/').pop() : null;
+  const showFrame = running && !result.error && !!result.html;
+
+  return (
+    <aside
+      ref={rootRef}
+      className={`sbx-pane ${dragging ? 'dragging' : ''}`}
+      style={{ width }}
+      aria-label="Live preview"
+    >
+      <div
+        className="sbx-resize-x"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize preview"
+        tabIndex={0}
+        onPointerDown={dragX.onPointerDown}
+        onKeyDown={dragX.onKeyDown}
+      />
+      <header className="sbx-bar">
+        <span className="sbx-title">
+          <Icon name="eye" size={14} /> Preview
+        </span>
+        <select
+          className="sbx-entry"
+          value={entrySel}
+          onChange={(e) => setEntrySel(e.target.value)}
+          title="Which file to render"
+          aria-label="File to preview"
+        >
+          <option value="auto">{entryName ? `Auto: ${entryName}` : 'Auto (active file)'}</option>
+          {entryOptions.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+        <div className="sbx-bar-spacer" />
+        <button
+          className="btn ghost sm sbx-icon-btn"
+          onClick={() => {
+            reload();
+            setRunNonce((n) => n + 1);
+          }}
+          disabled={siblings.status === 'loading'}
+          title={stale ? `Reload workspace files (${stale} new)` : 'Reload other workspace files and re-run'}
+          aria-label="Reload workspace files"
+        >
+          {siblings.status === 'loading' ? <span className="spinner sbx-spin" /> : <Icon name="refresh" size={14} />}
+          {stale > 0 && <span className="sbx-badge">{stale}</span>}
+        </button>
+        {running ? (
+          <button className="btn sm sbx-stop" onClick={() => setRunning(false)} title="Stop: removes the frame (kills runaway loops)">
+            <Icon name="stop" size={12} fill="currentColor" /> Stop
+          </button>
+        ) : (
+          <button className="btn sm primary" onClick={() => setRunning(true)} title="Run the preview">
+            <Icon name="play" size={12} fill="currentColor" /> Run
+          </button>
+        )}
+        {onClose && (
+          <button className="btn ghost sm sbx-icon-btn" onClick={onClose} aria-label="Close preview" title="Close preview">
+            <Icon name="close" size={14} />
+          </button>
+        )}
+      </header>
+
+      {siblings.status === 'error' && (
+        <div className="sbx-banner warn">
+          Couldn’t load the other workspace files: {siblings.error}. Previewing the active file only.
+        </div>
+      )}
+      {result.missing?.length > 0 && !result.error && (
+        <div className="sbx-banner" title={result.missing.join('\n')}>
+          Not found in the workspace: {result.missing.slice(0, 3).join(', ')}
+          {result.missing.length > 3 ? ` +${result.missing.length - 3} more` : ''}
+        </div>
+      )}
+
+      <div className="sbx-stage">
+        {!activePath && entrySel === 'auto' ? (
+          <div className="sbx-empty">
+            <Icon name="file" size={26} />
+            <p>Open a file to preview it.</p>
+            <p className="muted">HTML pages, Markdown, SVG and JavaScript render here.</p>
+          </div>
+        ) : result.error ? (
+          <div className="sbx-empty">
+            <Icon name="alert" size={26} />
+            <p>{result.error}</p>
+          </div>
+        ) : !running ? (
+          <div className="sbx-empty">
+            <Icon name="stop" size={24} />
+            <p>Stopped.</p>
+            <button className="btn sm primary" onClick={() => setRunning(true)}>
+              <Icon name="play" size={12} fill="currentColor" /> Run
+            </button>
+          </div>
+        ) : !showFrame ? (
+          <div className="sbx-empty">
+            <span className="spinner" />
+          </div>
+        ) : (
+          <SandboxFrame key={runNonce} html={result.html} mode="preview" onConsole={onConsole} title={`Preview of ${entryName || 'file'}`} />
+        )}
+      </div>
+
+      <section className={`sbx-console ${consoleOpen ? 'open' : ''}`} style={consoleOpen ? { height: consoleHeight } : undefined}>
+        {consoleOpen && (
+          <div
+            className="sbx-resize-y"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize console"
+            tabIndex={0}
+            onPointerDown={dragY.onPointerDown}
+            onKeyDown={dragY.onKeyDown}
+          />
+        )}
+        <header className="sbx-console-bar">
+          <button className="sbx-console-toggle" onClick={() => setConsoleOpen((o) => !o)} aria-expanded={consoleOpen}>
+            <Icon name="terminal" size={13} /> Console
+            {counts.errors > 0 && <span className="sbx-count error">{counts.errors}</span>}
+            {counts.warnings > 0 && <span className="sbx-count warn">{counts.warnings}</span>}
+          </button>
+          <div className="sbx-bar-spacer" />
+          {showFrame && result.html && <span className="sbx-size muted">{formatSize(result.html.length)}</span>}
+          <button className="btn ghost sm sbx-icon-btn" onClick={clearConsole} title="Clear console" aria-label="Clear console">
+            <Icon name="trash" size={13} />
+          </button>
+        </header>
+        {consoleOpen && (
+          <div
+            className="sbx-log"
+            ref={logRef}
+            role="log"
+            aria-live="polite"
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+            }}
+          >
+            {lines.length === 0 ? (
+              <div className="sbx-log-empty muted">{running ? 'console.log output and errors show up here.' : 'Not running.'}</div>
+            ) : (
+              lines.map((l) => (
+                <div key={l.id} className={`sbx-line ${l.level}`}>
+                  {l.count > 1 && <span className="sbx-repeat">{l.count}</span>}
+                  {/* Text only: never dangerouslySetInnerHTML for frame output. */}
+                  <span className="sbx-text">{l.text}</span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </section>
+      <footer className="sbx-foot muted">
+        <Icon name="lock" size={11} /> Sandboxed: no network, no access to your account or keys. Previews never leave this device.
+      </footer>
+    </aside>
+  );
+}

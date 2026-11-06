@@ -84,12 +84,14 @@ export function useServerMeta(sid, nonce) {
   };
 }
 
+const NO_DEC = Object.freeze({});
+
 /** servers/{sid}/channels decrypted & sorted. */
 export function useChannels(sid, nonce) {
   const { loading, value, error } = useDbValue(sid ? `servers/${sid}/channels` : null, nonce);
   // cacheKey -> {name, topic} | {failed:true}; scoped to the nonce so failures are retried after a re-join.
   const [decSt, setDecSt] = useState({ nonce, map: {} });
-  const dec = decSt.nonce === nonce ? decSt.map : {};
+  const dec = decSt.nonce === nonce ? decSt.map : NO_DEC;
 
   useEffect(() => {
     if (!value) return undefined;
@@ -165,7 +167,7 @@ export function useLastMessages(basePath, ids, nonce) {
   return map;
 }
 
-/** servers/{sid}/members -> [{uid, role, joinedAt}] */
+/** servers/{sid}/members -> [{uid, role, joinedAt, roleId?}] */
 export function useMembers(sid, nonce) {
   const { loading, value, error } = useDbValue(sid ? `servers/${sid}/members` : null, nonce);
   const members = useMemo(
@@ -174,6 +176,7 @@ export function useMembers(sid, nonce) {
         uid,
         role: m?.role === 'owner' || m?.role === 'admin' ? m.role : 'member',
         joinedAt: m?.joinedAt || 0,
+        ...(typeof m?.roleId === 'string' && m.roleId ? { roleId: m.roleId } : {}),
       })),
     [value],
   );

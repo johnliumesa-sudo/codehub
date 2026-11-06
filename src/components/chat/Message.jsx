@@ -4,6 +4,9 @@ import { isEmojiOnly, mentionsName, renderMarkdown } from '../../lib/markdown.js
 import { QUICK_REACTIONS, emojiFromKey, emojiKey } from '../../lib/messages.js';
 import { parseInviteLink } from '../../lib/servers.js';
 import CodeSnippet from './CodeSnippet.jsx';
+import { CosmeticBadge, useNameColor } from '../shop/Cosmetics.jsx';
+import AdminBadge from '../admin/AdminBadge.jsx';
+import ReportButton from '../admin/ReportButton.jsx';
 
 function fmtTime(ts) {
   if (typeof ts !== 'number') return '';
@@ -61,8 +64,9 @@ function Message(props) {
   const {
     m, grouped, author, me, profiles, reply, replyAuthor, knownNames, editing, highlighted,
     canDelete, canEdit, canPin, onReply, onEdit, onEditSave, onEditCancel, onDelete, onReact,
-    onOpenReactPicker, onPin, onJump, onCopied,
+    onOpenReactPicker, onPin, onJump, onCopied, reportTarget,
   } = props;
+  const nameColor = useNameColor(m.uid);
 
   const text = m.body?.text || '';
   const html = useMemo(
@@ -128,7 +132,9 @@ function Message(props) {
         <div className="msg-content">
           {!grouped && (
             <div className="msg-meta">
-              <span className="msg-author" style={{ color: author?.color || 'var(--text)' }}>{author?.name || '…'}</span>
+              <span className="msg-author" style={{ color: nameColor || author?.color || 'var(--text)' }}>{author?.name || '…'}</span>
+              <CosmeticBadge uid={m.uid} />
+              <AdminBadge uid={m.uid} />
               <span className="msg-time" title={fmtFull(m.ts)}>{isSending ? 'sending…' : fmtTime(m.ts)}</span>
               {m.pinned && <span className="msg-pin-flag" title="Pinned">📌</span>}
             </div>
@@ -217,6 +223,16 @@ function Message(props) {
             <button type="button" className={`tb-btn${m.pinned ? ' on' : ''}`} title={m.pinned ? 'Unpin' : 'Pin'} onClick={() => onPin(m.mid, !m.pinned)}>
               <PinSmall />
             </button>
+          )}
+          {m.uid !== me.uid && reportTarget && (
+            <ReportButton
+              kind="message"
+              target={reportTarget}
+              excerpt={m.body?.text || m.body?.code?.content || ''}
+              iconOnly
+              label="Report message"
+              className="tb-btn"
+            />
           )}
           {canDelete && (
             <button type="button" className="tb-btn danger" title="Delete (Shift-click to skip confirm)" onClick={(e) => onDelete(m.mid, e.shiftKey)}>

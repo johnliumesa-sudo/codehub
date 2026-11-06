@@ -2,6 +2,9 @@
 //
 // Conversation descriptor (from the layout module):
 //   { kind: 'channel', sid, cid, title, scope }  |  { kind: 'dm', dmId, peerUid, title, scope }
+//   | { kind: 'group', gid, epoch, ownerId, title, scope }
+// Group messages are { uid, ts, epoch, iv, ct, … } with AAD `gmsg:{gid}/{mid}:{uid}` under the
+// group key of that message's `epoch` (no legacy AAD).
 //
 // Stored message: { uid, ts, iv, ct, editedAt?, replyTo?, deleted?, reactions?, pinned? }
 // The {iv, ct} box is AES-GCM over the JSON body { text, code?: { lang, content, filename? }, invite?: { name } }
@@ -26,6 +29,7 @@ import {
 import { db } from './firebase.js';
 import { decryptJSON, encryptJSON } from './crypto.js';
 import { getDmKey, getServerKey } from './keystore.js';
+import { getGroupKey, groupMessageAad, groupMessagesPath, groupScope, groupSendExtras, groupTypingPath } from './groups.js';
 
 export const PAGE_SIZE = 50;
 export const MAX_TEXT = 4000; // characters of message text
@@ -35,29 +39,35 @@ export const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '🔥'
 // ---------- Paths ----------
 
 export function messagesPath(conv) {
+  if (conv.kind === 'group') return groupMessagesPath(conv.gid);
   return conv.kind === 'dm' ? `dmMessages/${conv.dmId}` : `messages/${conv.sid}/${conv.cid}`;
 }
 
 export function legacyMessageAad(conv, mid) {
+  if (conv.kind === 'group') return null; // groups never had uid-less AADs
   return conv.kind === 'dm' ? `dm:${conv.dmId}/${mid}` : `msg:${conv.sid}/${conv.cid}/${mid}`;
 }
 
 export function messageAad(conv, mid, uid) {
+  if (conv.kind === 'group') return groupMessageAad(conv.gid, mid, uid);
   return `${legacyMessageAad(conv, mid)}:${uid}`;
 }
 
 // Read-marker scope (reads/{uid}/{scope}).
 export function typingScope(conv) {
   if (conv.scope) return conv.scope;
+  if (conv.kind === 'group') return groupScope(conv.gid);
   return conv.kind === 'dm' ? `dm_${conv.dmId}` : `${conv.sid}_${conv.cid}`;
 }
 
 // Typing path under typing/ — split by kind so the rules can enforce membership.
 export function typingPath(conv) {
+  if (conv.kind === 'group') return groupTypingPath(conv.gid); // 'grp/{gid}'
   return conv.kind === 'dm' ? `dm/${conv.dmId}` : `ch/${conv.sid}/${conv.cid}`;
 }
 
 export function getConvKey(conv) {
+  if (conv.kind === 'group') return getGroupKey(conv.gid, conv.epoch);
   return conv.kind === 'dm' ? getDmKey(conv.dmId, conv.peerUid) : getServerKey(conv.sid);
 }
 
@@ -126,6 +136,23 @@ function checkBody(body) {
 export function decryptMessage(key, conv, mid, raw) {
   if (!raw || raw.deleted || !raw.iv || !raw.ct) return Promise.resolve(null);
   if (typeof raw.uid !== 'string' || !raw.uid) return Promise.reject(new Error('Message has no author'));
+  if (conv.kind === 'group') {
+    // Each group message opens with the key of its own epoch; the passed key is ignored.
+    const gaad = groupMessageAad(conv.gid, mid, raw.uid);
+    const gKey = `${gaad}|${raw.epoch}|${raw.iv}`;
+    let gp = decryptCache.get(gKey);
+    if (!gp) {
+      const box = { iv: raw.iv, ct: raw.ct };
+      gp = getGroupKey(conv.gid, raw.epoch).then((k) => decryptJSON(k, box, gaad)).then(checkBody);
+      // A missing key can be fixed later (owner re-wraps / rotates), so failures aren't cached.
+      gp.catch(() => {
+        if (decryptCache.get(gKey) === gp) decryptCache.delete(gKey);
+      });
+      if (decryptCache.size > MAX_CACHE) decryptCache.delete(decryptCache.keys().next().value);
+      decryptCache.set(gKey, gp);
+    }
+    return gp;
+  }
   const aad = messageAad(conv, mid, raw.uid);
   const cacheKey = `${aad}|${raw.iv}`;
   let p = decryptCache.get(cacheKey);
@@ -186,11 +213,20 @@ export async function sendMessage(conv, me, body, { replyTo } = {}) {
   const clean = cleanBody(body);
   const err = validateBody(clean);
   if (err) throw new Error(err);
-  const key = await getConvKey(conv);
+  let key;
+  let epoch = null;
+  if (conv.kind === 'group') {
+    // The rules require msg.epoch === meta.epoch; conv.epoch is live (ChatView remounts on rotation).
+    epoch = conv.epoch;
+    key = await getGroupKey(conv.gid, epoch);
+  } else {
+    key = await getConvKey(conv);
+  }
   const msgRef = push(ref(db, messagesPath(conv)));
   const mid = msgRef.key;
   const box = await encryptJSON(key, clean, messageAad(conv, mid, me.uid));
   const record = { uid: me.uid, ts: serverTimestamp(), iv: box.iv, ct: box.ct };
+  if (epoch !== null) record.epoch = epoch;
   if (replyTo) record.replyTo = replyTo;
   const sent = set(msgRef, record);
 
@@ -209,6 +245,16 @@ export async function sendMessage(conv, me, body, { replyTo } = {}) {
       }).catch((e) => console.warn('[chat] could not update DM index', e));
     });
   }
+  if (conv.kind === 'group') {
+    // groups/{gid}/last drives sorting + unread for every member; my read marker gets the same ts.
+    done = sent.then(() => {
+      const ts = serverTimestamp();
+      return update(ref(db), {
+        ...groupSendExtras(conv, me, ts),
+        [`reads/${me.uid}/${groupScope(conv.gid)}`]: ts,
+      }).catch((e) => console.warn('[chat] could not update group activity', e));
+    });
+  }
   return { mid, done };
 }
 
@@ -216,7 +262,13 @@ export async function editMessage(conv, mid, body, authorUid) {
   const clean = cleanBody(body);
   const err = validateBody(clean);
   if (err) throw new Error(err);
-  const key = await getConvKey(conv);
+  let key;
+  if (conv.kind === 'group') {
+    const epoch = (await get(ref(db, `${messagesPath(conv)}/${mid}/epoch`))).val();
+    key = await getGroupKey(conv.gid, epoch);
+  } else {
+    key = await getConvKey(conv);
+  }
   const box = await encryptJSON(key, clean, messageAad(conv, mid, authorUid));
   await update(ref(db, `${messagesPath(conv)}/${mid}`), { iv: box.iv, ct: box.ct, editedAt: serverTimestamp() });
 }

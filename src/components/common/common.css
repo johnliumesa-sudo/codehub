@@ -1,0 +1,27 @@
+/* Shared components (UserPicker). Prefix: cmn- */
+
+.cmn-picker { display: grid; gap: 8px; min-width: 0; }
+.cmn-picker-search { position: relative; }
+.cmn-picker-clear { border: 0; background: none; color: var(--text-faint); padding: 3px; border-radius: 5px; cursor: pointer; display: grid; }
+.cmn-picker-clear:hover { color: var(--text); background: var(--bg-hover); }
+
+.cmn-picker-list { display: grid; gap: 2px; max-height: 280px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; align-content: start; }
+.cmn-picker-section { display: grid; gap: 1px; }
+.cmn-picker-section + .cmn-picker-section { margin-top: 6px; }
+.cmn-picker-head { font-size: 11.5px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; padding: 4px 8px; }
+
+.cmn-picker-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: none; color: var(--text); cursor: pointer; text-align: left; min-width: 0; }
+.cmn-picker-row:hover:not(:disabled) { background: var(--bg-hover); }
+.cmn-picker-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cmn-picker-row:disabled { cursor: not-allowed; }
+.cmn-picker-row.nokey { opacity: .5; }
+.cmn-picker-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.cmn-picker-name { display: flex; align-items: center; gap: 6px; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmn-picker-sub { font-size: 12px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 1em; }
+.cmn-picker-sub:empty { display: none; }
+.cmn-picker-tag { font-size: 10.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 1px 7px; flex: none; }
+.cmn-picker-add { color: var(--text-faint); flex: none; }
+.cmn-picker-row:hover .cmn-picker-add { color: var(--accent); }
+
+.cmn-picker-empty { text-align: center; padding: 16px 0; margin: 0; font-size: 13px; }
+.cmn-picker-hint { font-size: 12px; margin: 4px 8px 0; }

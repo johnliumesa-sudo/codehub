@@ -73,7 +73,7 @@ export function DiffModal({ link, file, getText, token, onClose }) {
   );
 }
 
-export function CommitModal({ sid, cid, sKey, link, file, getText, token, onClose, notify }) {
+export function CommitModal({ space, sid, cid, sKey, link, file, getText, token, onClose, notify }) {
   const { loading, error, remote } = useRemoteFile(link, file.path, token);
   const [message, setMessage] = useState(`Update ${file.path.split('/').pop()}`);
   const [busy, setBusy] = useState(false);
@@ -97,7 +97,7 @@ export function CommitModal({ sid, cid, sKey, link, file, getText, token, onClos
         { path: file.path, text, message: message.trim(), branch: link.branch, sha: remote?.sha },
         token,
       );
-      await updateFileMeta({ sid, cid, key: sKey, fid: file.fid, meta: { path: file.path, repo: repoName, ref: link.branch, sha: res.contentSha } });
+      await updateFileMeta({ space, sid, cid, key: sKey, fid: file.fid, meta: { path: file.path, repo: repoName, ref: link.branch, sha: res.contentSha } });
       notify(`Committed to ${link.branch}`, 'ok', res.commitUrl);
       onClose();
     } catch (e2) {

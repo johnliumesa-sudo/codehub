@@ -3,6 +3,7 @@ import { initials } from '../../lib/profiles.js';
 import { channelScope } from '../../lib/servers.js';
 import { isUnread, useChannelIds, useLastMessages, useServerMeta } from './hooks.js';
 import { Icon } from './ui.jsx';
+import { isMuted, useNotifPrefs } from '../../lib/notify.js';
 
 function RailButton({ active, unread, label, color, onClick, children, className = '' }) {
   // Tooltip is position:fixed so the scrollable rail never clips it.
@@ -41,7 +42,11 @@ const ServerIcon = memo(function ServerIcon({ sid, nonce, active, onSelect, onSt
   const meta = useServerMeta(sid, nonce);
   const cids = useChannelIds(meta.status === 'ready' ? sid : null, nonce);
   const last = useLastMessages(meta.status === 'ready' ? `messages/${sid}` : null, cids, nonce);
-  const unread = !active && cids.some((cid) => isUnread(last[cid], reads[channelScope(sid, cid)], myUid));
+  const notifPrefs = useNotifPrefs(myUid);
+  const unread =
+    !active &&
+    !isMuted(notifPrefs, `srv_${sid}`) &&
+    cids.some((cid) => isUnread(last[cid], reads[channelScope(sid, cid)], myUid) && !isMuted(notifPrefs, channelScope(sid, cid), Date.now(), { sid }));
 
   if (meta.status === 'denied' || meta.status === 'missing') {
     return (
@@ -64,12 +69,22 @@ const ServerIcon = memo(function ServerIcon({ sid, nonce, active, onSelect, onSt
   );
 });
 
-export default function ServerRail({ servers, loading, activeSid, homeUnread, onHome, onSelect, onStale, onCreateJoin, reads, myUid, refreshTick = 0 }) {
+export default function ServerRail({ servers, loading, activeSid, homeUnread, onHome, onSelect, onStale, onCreateJoin, reads, myUid, refreshTick = 0, codespacesActive = false, onCodespaces, arcadeActive = false, onArcade, shopActive = false, onShop }) {
   return (
     <nav className="ly-rail" aria-label="Servers">
-      <RailButton active={!activeSid} unread={homeUnread} label="Direct messages" onClick={onHome} className="home">
+      <RailButton active={!activeSid && !codespacesActive && !arcadeActive && !shopActive} unread={homeUnread} label="Direct messages" onClick={onHome} className="home">
         <Icon name="home" size={22} stroke={2.2} />
       </RailButton>
+      {onCodespaces && (
+        <RailButton active={codespacesActive} label="Codespaces" onClick={onCodespaces} className="home">
+          <Icon name="code" size={22} stroke={2.2} />
+        </RailButton>
+      )}
+      {onArcade && (
+        <RailButton active={arcadeActive} label="Arcade (public games)" onClick={onArcade} className="home arcade">
+          <Icon name="gamepad" size={22} stroke={2} />
+        </RailButton>
+      )}
       <div className="ly-rail-sep" />
       <div className="ly-rail-list">
         {loading && [0, 1].map((i) => <div key={i} className="ly-rail-item"><span className="ly-rail-btn ghost"><span className="ly-rail-skeleton" /></span></div>)}
@@ -79,6 +94,11 @@ export default function ServerRail({ servers, loading, activeSid, homeUnread, on
         <RailButton label="Create or join a server" onClick={onCreateJoin} className="add">
           <Icon name="plus" size={22} />
         </RailButton>
+        {onShop && (
+          <RailButton label="Add-on shop" active={shopActive} onClick={onShop} className="shop">
+            <span className="shop-rail-glyph" aria-hidden="true">🛍️</span>
+          </RailButton>
+        )}
       </div>
     </nav>
   );

@@ -8,6 +8,10 @@ import { AVATAR_COLORS, initials, useProfile } from '../../lib/profiles.js';
 import { stopPresence } from '../../lib/presence.js';
 import { deleteAccount, reauthenticate, signInMethod } from '../../lib/account.js';
 import { NAME_MAX, PasswordInput, authErrorMessage } from '../auth/AuthScreen.jsx';
+import AddonsTab from '../shop/AddonsTab.jsx';
+import PromoTab from '../admin/PromoTab.jsx';
+import PrivacyTab from '../safety/PrivacyTab.jsx';
+import NotificationsTab from '../safety/NotificationsTab.jsx';
 import './settings.css';
 
 const STATUS_MAX = 128;
@@ -15,7 +19,11 @@ const STATUS_MAX = 128;
 const TABS = [
   ['profile', 'My profile'],
   ['security', 'Encryption & keys'],
+  ['privacy', 'Privacy'],
+  ['notifications', 'Notifications'],
   ['github', 'GitHub'],
+  ['addons', 'Add-ons'],
+  ['admin', 'Codes & admin'],
   ['account', 'Account'],
 ];
 
@@ -444,7 +452,7 @@ function DeleteAccount({ user, disabled }) {
  *  - onClose(): close the modal (required)
  *  - initialTab: optional 'profile' | 'security' | 'github' | 'account'
  */
-export default function SettingsModal({ user, onClose, initialTab = 'profile' }) {
+export default function SettingsModal({ user, onClose, initialTab = 'profile', onOpenShop, onOpenAdmin, describeScope }) {
   const [tab, setTab] = useState(TABS.some(([id]) => id === initialTab) ? initialTab : 'profile');
   const profile = useProfile(user?.uid);
 
@@ -486,7 +494,11 @@ export default function SettingsModal({ user, onClose, initialTab = 'profile' })
           <div className="settings-scroll">
             {tab === 'profile' && <ProfileTab user={user} />}
             {tab === 'security' && <SecurityTab />}
+            {tab === 'privacy' && <PrivacyTab user={user} />}
+            {tab === 'notifications' && <NotificationsTab user={user} describeScope={describeScope} />}
             {tab === 'github' && <GithubTab />}
+            {tab === 'addons' && <AddonsTab me={{ ...(profile || {}), uid: user.uid }} onOpenShop={onOpenShop} />}
+            {tab === 'admin' && <PromoTab user={user} onOpenAdmin={onOpenAdmin} />}
             {tab === 'account' && <AccountTab user={user} onClose={onClose} />}
           </div>
         </section>

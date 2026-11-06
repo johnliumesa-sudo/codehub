@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { keyFingerprint, safetyNumber } from '../../lib/crypto.js';
-import { getPublicKey, myPublicKey } from '../../lib/keystore.js';
+import { get, ref } from 'firebase/database';
+import { db } from '../../lib/firebase.js';
+import { myPublicKey } from '../../lib/keystore.js';
+import VerifyToggle from '../safety/VerifyToggle.jsx';
 
 // Shows the DM safety number so both people can compare it out-of-band.
 export default function SafetyNumberModal({ peerUid, peerName, onClose }) {
@@ -11,7 +14,10 @@ export default function SafetyNumberModal({ peerUid, peerName, onClose }) {
     (async () => {
       try {
         const mine = myPublicKey();
-        const theirs = await getPublicKey(peerUid);
+        // Read the peer key live (not the session cache) so what is shown is what gets verified.
+        const snap = await get(ref(db, `users/${peerUid}/pubKey`));
+        if (!snap.exists()) throw new Error('This person has no encryption key yet');
+        const theirs = snap.val();
         const [number, myFp, theirFp] = await Promise.all([safetyNumber(mine, theirs), keyFingerprint(mine), keyFingerprint(theirs)]);
         if (alive) setState({ number, myFp, theirFp });
       } catch (e) {
@@ -47,6 +53,7 @@ export default function SafetyNumberModal({ peerUid, peerName, onClose }) {
               <div><span className="muted small">Your key</span><code>{state.myFp}</code></div>
               <div><span className="muted small">{peerName || 'Their'} key</span><code>{state.theirFp}</code></div>
             </div>
+            <VerifyToggle peerUid={peerUid} peerName={peerName} shownFp={state.theirFp} />
             <p className="muted small">The number changes if either of you creates a new identity key.</p>
           </>
         )}

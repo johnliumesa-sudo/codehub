@@ -6,6 +6,8 @@ import AuthScreen from './components/auth/AuthScreen.jsx';
 import VaultScreen from './components/auth/VaultScreen.jsx';
 import Workspace from './components/layout/Workspace.jsx';
 import { resetProfiles } from './lib/profiles.js';
+import { resetShopCache } from './lib/shop.js';
+import { resetAdminBadges } from './lib/admin.js';
 
 // Invite links look like  #/join/{sid}/{inviteId}/{keyB64}. The key lives in the
 // fragment, which browsers never send to any server. Stash it until the vault unlocks.
@@ -28,6 +30,8 @@ export default function App() {
       if (!u) {
         lock();
         resetProfiles();
+        resetShopCache();
+        resetAdminBadges();
         setUnlocked(false);
       }
       setUser(u);

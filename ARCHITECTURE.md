@@ -10,7 +10,10 @@ GitHub access uses a user-supplied Personal Access Token, stored encrypted in th
 - `src/lib/keystore.js` — session keys: `hasVault, createVault, unlockVault, changePassphrase, lock,
   isUnlocked, myPublicKey, getPublicKey(uid), getServerKey(sid), cacheServerKey(sid,key),
   wrapServerKeyFor(sid, uid, key), importInviteKey(sid, keyB64) -> {key, wrapped}, getDmKey(dmId, peerUid),
-  saveGithubToken(token|null), loadGithubToken(), wrapContext(sid, uid)`.
+  saveGithubToken(token|null), loadGithubToken(), wrapContext(sid, uid)`, plus (feature additions)
+  `currentUid(), unwrapForMe(wrapped, context), wrapFor(uid, key, context), onLock(fn) -> unsubscribe,
+  vaultEncryptJSON(value, aad), vaultDecryptJSON(box, aad)`. `lock()` runs every `onLock` handler, so each module-level
+  key cache (groups, codespaces, roles, audit) is cleared on lock.
 - `src/lib/profiles.js` — `useProfile(uid)`, `useProfiles(uids) -> {uid: profile}`, `initials(name)`, `AVATAR_COLORS`.
 - `src/App.jsx` — auth gate: `<AuthScreen/>` → `<VaultScreen user onUnlocked/>` → `<Workspace user onLock/>`.
   Captures invite links `#/join/{sid}/{inviteId}/{keyB64}` into
@@ -108,3 +111,261 @@ Message ids are RTDB `push()` keys (chronological). Mentions: `@name` rendered c
    membership checks, roles, invite join conditions, ban, author-only edit/delete with admin delete, reactions only
    own uid key, typing/reads/presence own only, vault owner-only), and `README.md` (setup, deploy, security model,
    limitations).
+
+
+---
+
+# Feature extensions (20 features, 8 workstreams)
+
+This part extends the contract above and wins wherever the two disagree. All of it is enforced by
+`database.rules.json`, and the client is untrusted. `database.rules.json` is the single source of truth for rules.
+
+## Key wraps and AAD strings (exact; each container kind has its own prefix)
+| What | Key | Wrap context / AAD |
+|---|---|---|
+| Group key wrap | random AES-256, one per epoch | `group:{gid}:{epoch}:{uid}` |
+| Group name | group key (current epoch) | `group-name:{gid}` |
+| Group message JSON body | group key of `msg.epoch` | `gmsg:{gid}/{mid}:{authorUid}` (no legacy AAD) |
+| Codespace key wrap | random AES-256 | `codespace:{csid}:{uid}` |
+| Codespace name | codespace key | `cs-name:{csid}` |
+| Codespace file meta / Yjs update / snapshot | codespace key | `csfile:{csid}/{fid}` / `csupd:{csid}/{fid}` / `cssnap:{csid}/{fid}` |
+| Codespace awareness / repo link | codespace key | `csaw:{csid}/{fid}/{uid}` / `csrepo:{csid}` |
+| Codespace deterministic fid material | n/a | `csfid:{csid}:{keyB64}:{path}` |
+| Channel-workspace checkpoint `{label,text}` | server key | `cchk:{sid}/{cid}/{fid}/{cpid}` |
+| Codespace checkpoint `{label,text}` | codespace key | `cschk:{csid}/{fid}/{cpid}` |
+| Server role name (text) | server key | `role:{sid}/{rid}` |
+| Moderation audit entry `{action,target?,detail?}` | server key | `audit:{sid}/{aid}:{byUid}` |
+| Snippet `{title,lang,code,tags[]}` | vault key | `vault-snip:{uid}/{id}` |
+
+The existing strings are unchanged: `cfile: cupd: csnap: caw: crepo: cfid: msg: dm: server-name: channel:`.
+
+## Realtime Database layout (additions)
+```
+# Groups (F1), E2EE per epoch
+groups/{gid}/meta               { ownerId, nameEnc:{iv,ct}, epoch:int>=1, createdAt, needsRotate?:true }
+groups/{gid}/members/{uid}      { role:'owner'|'member', joinedAt, addedBy }
+groups/{gid}/keys/{epoch}/{uid} { epk, iv, ct }        // write-once; owner writes, member may delete own
+groups/{gid}/last               { ts (=now), uid (=me) } // any member, on every send (sorting + unread)
+groupMessages/{gid}/{mid}       { uid, ts, epoch, iv, ct, editedAt?, replyTo?, deleted?, reactions?, pinned? }  // .indexOn ts, pinned, uid
+userGroups/{uid}/{gid}          { addedAt }            // own index; the owner writes/removes members' entries
+typing/grp/{gid}/{uid}          ts
+reads/{uid}/grp_{gid}           ts
+
+# Codespaces (F2, F8)
+codespaces/{csid}/meta          { ownerId, nameEnc:{iv,ct}, createdAt, template? }
+codespaces/{csid}/members/{uid} { role:'owner'|'editor'|'viewer', joinedAt, addedBy }
+codespaces/{csid}/keys/{uid}    { epk, iv, ct }
+userCodespaces/{uid}/{csid}     { addedAt }
+csCollab/{csid}/{repo|files|updates|snapshots|awareness|checkpoints}   // same shapes as collab/{sid}/{cid}
+
+# Checkpoints (F9) and snippets (F20)
+collab/{sid}/{cid}/checkpoints/{fid}/{cpid}  { uid, ts, iv, ct }   // server key; create-only
+csCollab/{csid}/checkpoints/{fid}/{cpid}     { uid, ts, iv, ct }   // codespace key
+snippets/{uid}/{id}                          { ts, iv, ct }        // vault key; owner only
+
+# Shop (F3), PLAINTEXT
+shop/items/{itemId}       { name<=48, desc<=280, kind:'theme'|'editorTheme'|'editorExt'|'badge'|'nameColor', price:int 0..10000,
+                            data, active:bool, updatedAt(=now), updatedBy(=auth.uid) }   // signed-in read; app admins write
+                            data: theme {tokens:{bg0|bg1|bg2|bg3|bgHover|border|text|textDim|textFaint|accent|accent2|ok|warn|danger:'#rrggbb'}}
+                                  editorTheme|editorExt {builtinId:[a-z0-9-]{1,32}} · badge {glyph:1..8 chars} · nameColor {color:'#rrggbb'}
+wallets/{uid}             { balance:int>=0, lastClaim, lastItem? }   // owner read/write; never deletable
+inventory/{uid}/{itemId}  { at(=now), price }                        // owner read; create-once; never deletable
+equipped/{uid}            { theme?, editorTheme?, badge?, nameColor?: itemId, ext?: { {itemId}: true } }  // signed-in read; owner writes
+
+# Games (F4), PUBLIC PLAINTEXT
+games/{gameId}            { ownerId, title<=80, desc<=500, createdAt, updatedAt, likes:int>=0, size:int<=262144 }  // .indexOn createdAt, likes, ownerId
+gameCode/{gameId}         { html: string <= 262144 }   // fetched only on Play
+gameLikes/{gameId}/{uid}  true                          // count in games/{id}/likes moved ±1 atomically with the entry
+publishLog/{uid}          ts                            // write-only; one publish/update per 60 s (=== now)
+
+# Server roles, timeouts, audit (F5, F14, F15)
+servers/{sid}/roles/{rid}           { nameEnc:{iv,ct}, color:'#rrggbb', position:int 1..899,
+                                      perms:{ manageChannels, manageInvites, kick, ban, manageMessages, manageRoles, timeout, viewAudit: bool }, createdAt }
+servers/{sid}/members/{uid}/roleId  rid (optional; at most one custom role per member)
+servers/{sid}/timeouts/{uid}        untilMs (> now, <= now + 28 days); readable by members
+audit/{sid}/{aid}                   { by (=auth.uid), ts (=now), iv, ct }   // read: owner, admins, viewAudit; append-only; owner deletes it with the server
+
+# App admin, reports, announcements (F6, F16, F17), PLAINTEXT
+config/adminPromo          string          // set in the Firebase console only; .read/.write false for every client
+promoAttempts/{uid}        { code, at }    // last guess; one write per 30 s per account; nobody can read it
+admins/{uid}               { at }          // readable by self only; created only if promoAttempts/{uid}.code === config/adminPromo and at is under 2 min old
+adminBadges/{uid}          true            // public admin shield (signed-in read); self may set if admin, or remove
+reports/{rid}              { by, kind: game|user|shopItem|message, target<=256, reason: spam|abuse|malware|nsfw|other, note?<=500, excerpt?<=2000, ts }  // admin read/delete only
+reportLog/{uid}            ts              // 1 report per 30 s, written in the same update as reports/{rid}
+announcements/current      { text<=280, level: info|warn, ts, by }   // signed-in read; admin write
+
+# Safety & notifications (F11, F12, F19), private to the owner, not E2EE
+blocks/{uid}/{otherUid}         true
+verified/{uid}/{peerUid}        { fp, ts }     // fp = keyFingerprint(peer pubKey) at verification
+notifPrefs/{uid}/settings       { desktop, preview, mentionsOnly: bool }
+notifPrefs/{uid}/scopes/{scope} { level: 'all'|'mentions'|'none', until?: number }
+```
+Scopes: read/unread scopes are `{sid}_{cid}`, `dm_{dmId}` and `grp_{gid}`. `cs_{csid}` is reserved and unused. Mute
+scopes also include `srv_{sid}`, which mutes a whole server; a channel's own preference overrides it.
+
+## Server permissions (F5)
+- Rank: owner 1000, admin 900, a member with a valid `roleId` gets that role's position, and a plain member is 0.
+- The owner and admins implicitly hold every permission. A custom-role member holds `p` iff `roles/{roleId}/perms/{p} === true`.
+- A dangling roleId fails closed: it gives rank 0 and no permissions.
+- OUTRANKS:
+  - The owner outranks everyone except themselves.
+  - An admin outranks plain `member`-role members only.
+  - A custom-role member outranks members with no valid role, or with a strictly lower position.
+- The rules expand the macros literally. The client mirrors them in `src/lib/roles.js`
+  (`rankOf`, `can`, `permsFor`, `outranks`), and the UI uses `perms` from `permsFor` instead of `canManage`/`canModerate`.
+  Legacy `owner`/`admin` role strings keep working unchanged.
+- Rule additions beyond the core permission model:
+  - A custom role with `ban` can remove a member, but only in the same update that writes `bans/{uid}`.
+  - A timed-out member can't send, edit, react or type in that server.
+- Audit `writeAudit` call sites:
+  - MemberRoleControls: kick, ban, timeout, role.assign.
+  - RoleEditor/RolesTab: role.*.
+  - ServerSettingsModal: member.role, unban, invite.*.
+  - ChannelModal: channel.*.
+
+## Groups (F1)
+- **Create:** one multi-path update with meta (epoch 1), members, `keys/1/*`, last, `userGroups/*` and my read marker.
+- **Add members:** owner only. New members get the current epoch key and, by default, every older epoch key the owner
+  can open, so they can read history. The update rewrites `meta/epoch` unchanged, so it fails cleanly if the key rotates
+  at the same time.
+- **Remove a member:** owner only. One update does all of this, and the rules accept a removal only together with epoch+1:
+  - members/{x} = null
+  - keys/*/{x} = null
+  - userGroups/{x}/{gid} = null
+  - meta/epoch = e+1
+  - re-encrypted nameEnc
+  - needsRotate = null
+  - keys/{e+1}/{each remaining member}
+- **Leave:** a non-owner deletes their own entries and sets `meta/needsRotate`. The owner's client then rotates, at most
+  once per 30 s per group.
+- **Chat:** reuses ChatView with `conv = { kind:'group', gid, epoch, ownerId, title, scope:'grp_'+gid }`.
+  - ChatView remounts when the epoch changes.
+  - `messages.js` adds `epoch` to each record, decrypts with that message's epoch key, and writes `groups/{gid}/last`
+    plus my read marker after each send.
+  - The owner moderates, and any member may pin.
+
+## Collab spaces (src/lib/collab/space.js)
+All collab code takes a **space** instead of `(sid, cid)`. The legacy arguments still work.
+- `channelSpace(sid, cid)`: base `collab/{sid}/{cid}`, keyed by the server key. Its strings are byte-identical to the original ones.
+- `codespaceSpace(csid)`: base `csCollab/{csid}`, keyed by the codespace key.
+- `src/lib/collab/read.js` does one-shot reads that never write: `loadDocText`, `loadWorkspaceFiles`, `loadWorkspaceFileList`.
+
+CollabView:
+- Props: `{ space?, sid, cid, me, serverName, title?, readOnly? }`. Read-only mode never writes updates, snapshots or
+  compaction; it still sends awareness.
+- The toolbar renders `<CollabExtras ctx/>` (`src/components/collab/CollabExtras.jsx`), which composes PreviewButton,
+  PublishGameButton, CheckpointsButton, SnippetsButton and ExportImportMenu.
+- `ctx = { space, key, me, readOnly, title, files, activeFid, activePath, provider, insertText, getSelection, openFile, notify }`.
+- The live preview is a controlled split (LivePreviewPane) to the right of the editor.
+- An empty workspace offers "Add files from template" and Export/Import.
+- `deleteFile` also nulls `checkpoints/{fid}`.
+
+## Codespaces (F2, F8)
+- Standalone E2EE workspaces with owner/editor/viewer roles. Viewers can only read and send their own cursor.
+- **Create:** one update (meta, owner membership, owner key, index entry). Template files are then seeded with
+  `createFile({space})`. Templates live in `src/lib/codespaceTemplates.js`.
+- **Delete:** one update nulls `codespaces/{csid}`, `csCollab/{csid}` and every member's index entry.
+- **Navigation:** `nav.view === 'codespaces'` plus `nav.csid`.
+
+## Shop and add-ons (F3)
+- Items are data only. Behavior comes from first-party modules in `src/lib/addons/`, selected by `builtinId`.
+- App themes write only a fixed token→CSS-variable map (plus a derived `--accent-soft`) through `style.setProperty`, using
+  validated hex values. Badge glyphs render as React text.
+- `AddonRuntime` is mounted once in Workspace. `useEditorAddons()` feeds a CollabEditor Compartment that replaces `oneDark`.
+- **Purchase:** one multi-path update: `wallets/{uid}/balance -= price`, `wallets/{uid}/lastItem = itemId`, and
+  `inventory/{uid}/{itemId} = {at, price}`.
+- **Claim:** +100 coins, at least 20 h after the last claim (server `now`). The first claim creates the wallet with 100.
+
+## Sandbox: games and live preview (F4, F7)
+- `src/lib/sandbox.js` + `SandboxFrame`: `<iframe sandbox="allow-scripts" srcdoc referrerPolicy="no-referrer" allow="">`.
+  - It never gets allow-same-origin, allow-popups, allow-top-navigation, allow-forms or allow-modals.
+  - `buildSrcdoc` prepends a CSP meta: `default-src 'none'; script-src 'unsafe-inline' blob: data:; style-src 'unsafe-inline';
+    img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'`.
+- Console bridge (preview mode only):
+  - The frame posts `{__sbx: token, level, args}`. The parent accepts a message only if `e.source === iframe.contentWindow`
+    and the token matches; the token is fresh for every render.
+  - Output is text only, capped at 200 lines.
+- Bundling inlines workspace-relative CSS, JS and SVG. Size limits: preview ≤ 2 MB, game ≤ 262144 chars.
+- **Publish:** one update of `games/{id}`, `gameCode/{id}` and `publishLog/{me}`.
+- **Like:** one update of `gameLikes/{id}/{me}` and the like count ±1.
+- **Unpublish** (owner or app admin): one update nulls all three nodes.
+- **Navigation:** `nav.view === 'arcade'`.
+
+## App admins, reports, announcements (F6, F16, F17)
+- **Admin check:** in the rules, `root.child('admins').child(auth.uid).exists()`. In the client, `useIsAppAdmin()`.
+  Other users' badges come from `useAdminBadge(uid)`.
+- **Promo flow:** `set(promoAttempts/{me}, {code, at: serverTimestamp()})`, then `update({admins/{me}, adminBadges/{me}})`.
+  A PERMISSION_DENIED on the second write means the code is invalid. The secret appears nowhere in source, rules or docs.
+- Admins get **no** rules access to any E2EE path (servers, messages, dms, dmMessages, groups, groupMessages, codespaces,
+  csCollab, collab, vaults, snippets) and never receive wrapped keys.
+- **Message report targets** (plaintext ids from `messageTarget(conv, m)`): `msg:{sid}/{cid}/{mid}:{authorUid}`,
+  `dm:{dmId}/{mid}:{authorUid}` and `gmsg:{gid}/{mid}:{authorUid}`. An excerpt is sent only after an explicit opt-in.
+- **Announcement dismissal** is stored in `localStorage['codehub.annDismissed']`.
+
+## Safety & notifications (F11, F12, F13, F19)
+- **Blocking, enforced by the rules.** Someone you blocked can't:
+  - create messages in your DM, or react or pin there;
+  - rewrite your userDms entry;
+  - write friend pairs involving you;
+  - add you to a group or codespace.
+
+  The peer in a DM is `$dmId.replace(auth.uid,'').replace('_','')`, which is safe because uids never contain `_`.
+  Inside servers and groups, blocking is client-side only (`BlockedGate`).
+- **Verification.** The peer key is always read live from `users/{peer}/pubKey`.
+  - Status is one of verified, unverified, changed or nokey.
+  - A changed key shows a banner plus a one-time confirmation before sending, once per tab.
+- **Safe links.** `LinkGuardHost`, mounted once, intercepts external http(s) links (capture phase) and shows a
+  confirmation with warnings. App-owned links opt out with `data-trusted-link`. Trusted domains are kept per device in
+  `localStorage['codehub.trustedDomains']`.
+- **Notifications.** `Notifier` subscribes to `limitToLast(1)` per source (text channels, DMs, groups) and decrypts locally.
+  - It skips my own messages, blocked authors, muted scopes and the conversation in focus.
+  - Previews are off by default.
+  - Muted scopes show no unread badge: every `isUnread` call site is wrapped with `!isMuted`.
+
+## Productivity (F9, F10, F18, F20)
+- `src/lib/checkpoints.js`: restore is one Yjs transaction with a minimal replace. The UI caps a file at 20 checkpoints.
+- `src/lib/zip.js`: export is a store-only zip, and an **unencrypted** download. Import accepts STORED and DEFLATE entries,
+  text files only, at most 200 files, 900 KB each and 5 MB total.
+- `src/lib/palette.js` + CommandPalette:
+  - Ctrl/⌘ K or Ctrl/⌘ Shift P.
+  - It lists only names this session can already decrypt.
+  - Recents are opaque ids in `localStorage['codehub.paletteRecent']`.
+- `src/lib/snippets.js`: snippets are vault-encrypted, with a UI cap of 500. They can be inserted into the editor
+  (through `ctx.insertText`) or the chat composer.
+
+## Workspace navigation
+`nav = { sid, dmId, gid, tab, chatCid, codeCid, right:{chat, collab, group}, view: null|'codespaces'|'arcade'|'shop', csid }`.
+It is persisted per user in localStorage and holds ids only. While `view` is set, no server or conversation is shown.
+Every navigation action clears `view`.
+
+## Plaintext by design (documented to users)
+- **Shop:** catalog, wallets, inventory, equipped cosmetics.
+- **Games:** game code, likes, publishLog.
+- **App admin:** announcements, reports (including any excerpt the reporter opts into), adminBadges.
+- **Codespaces:** template id; membership, roles and joinedAt/addedBy.
+- **Server roles:** role color, position and permissions; roleId assignments; timeouts; audit by/ts.
+- **Groups:** membership, roles, epochs, the message `epoch` field and `groups/{gid}/last`.
+- **Private to the owner but not E2EE:** blocks, verified fingerprints, notification prefs.
+
+## Limitations
+- Codespace keys don't rotate when a member is removed.
+- After a voluntary leave, group key rotation waits until the owner is online.
+- Blocking inside servers and groups is client-side only.
+- Notifications work only while a tab is open.
+- The audit log is best effort.
+- Promo guessing is rate-limited per account only.
+- These caps are enforced in the UI only: 25 members, 20 checkpoints per file, 500 snippets.
+- Admins can never decrypt E2EE content.
+- Account deletion can't remove `wallets`, `inventory`, `publishLog`, `reportLog`, `promoAttempts`, `admins` or filed
+  reports. That is by design.
+
+## Module ownership (additions)
+- groups: `src/lib/groups.js`, `src/components/groups/*`, `src/components/common/UserPicker.jsx`
+- codespaces: `src/lib/collab/{space,read}.js`, `src/lib/codespaces.js`, `src/lib/codespaceTemplates.js`, `src/components/codespaces/*`
+- shop: `src/lib/shop.js`, `src/lib/addons/*`, `src/components/shop/*`
+- games: `src/lib/{games,sandbox}.js`, `src/components/{games,sandbox}/*`
+- roles: `src/lib/{roles,moderation}.js`, `src/components/roles/*`
+- admin: `src/lib/{admin,reports,announcements}.js`, `src/components/admin/*`
+- safety: `src/lib/{blocks,verify,linkguard,notify}.js`, `src/components/safety/*`
+- productivity: `src/lib/{checkpoints,zip,palette,snippets}.js`, `src/components/productivity/*`
+- integrator glue: `src/components/collab/CollabExtras.jsx`, plus the existing shared files

@@ -1,15 +1,16 @@
-// Workspace-level data for a code channel: file list, linked GitHub repo, per-file presence.
+// Workspace-level data for a collab space (server code channel or codespace): file list, linked
+// GitHub repo, per-file presence. Every function takes a `space` (collab/space.js); the legacy
+// (sid, cid) forms are still accepted and mapped to channelSpace(sid, cid).
 import { useEffect, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { onValue, push, ref, serverTimestamp, set, update } from 'firebase/database';
 import { db } from '../firebase.js';
 import { b64u, decryptJSON, encryptJSON, exportRoomKey } from '../crypto.js';
-import { AAD, LIMITS, PayloadTooLargeError, sealBytes } from './codec.js';
+import { LIMITS, PayloadTooLargeError, sealBytes } from './codec.js';
 import { isValidBranchName, isValidRepoName } from './github.js';
 import { TEXT_NAME } from './provider.js';
 import { serverNow } from './time.js';
-
-const basePath = (sid, cid) => `collab/${sid}/${cid}`;
+import { resolveSpace, spaceArgs, spaceKey } from './space.js';
 
 export function normalizePath(p) {
   return String(p || '')
@@ -30,8 +31,13 @@ export function validatePath(path, files, exceptFid) {
 
 // ---------- files ----------
 
-/** Live, decrypted file list. files: [{fid, path, repo?, ref?, sha?, createdBy, createdAt, updatedAt, broken?}] */
-export function useCollabFiles(sid, cid, key) {
+/**
+ * Live, decrypted file list. files: [{fid, path, repo?, ref?, sha?, createdBy, createdAt, updatedAt, broken?}]
+ * useCollabFiles(space, key) — or legacy useCollabFiles(sid, cid, key).
+ */
+export function useCollabFiles(...args) {
+  const [space, key] = spaceArgs(...args);
+  const sk = spaceKey(space);
   const [state, setState] = useState({ files: [], loading: true, error: null });
   const cacheRef = useRef(new Map()); // fid -> { ct, meta }
 
@@ -42,7 +48,7 @@ export function useCollabFiles(sid, cid, key) {
     cacheRef.current = new Map();
     setState({ files: [], loading: true, error: null });
     const unsub = onValue(
-      ref(db, `${basePath(sid, cid)}/files`),
+      ref(db, `${space.base}/files`),
       async (snap) => {
         const my = ++seq;
         try {
@@ -56,7 +62,7 @@ export function useCollabFiles(sid, cid, key) {
                 try {
                   // Untrusted: any member can encrypt any JSON here. Only keep known string fields,
                   // and treat a path that isn't already normalised (e.g. contains `..`) as broken.
-                  const m = await decryptJSON(key, v.enc, AAD.file(sid, cid, fid));
+                  const m = await decryptJSON(key, v.enc, space.aad.file(fid));
                   if (!m || typeof m !== 'object' || typeof m.path !== 'string' || !m.path) throw new Error('bad meta');
                   const path = normalizePath(m.path);
                   if (!path || path !== m.path || path.length > 300) throw new Error('bad path');
@@ -84,7 +90,7 @@ export function useCollabFiles(sid, cid, key) {
       alive = false;
       unsub();
     };
-  }, [sid, cid, key]);
+  }, [sk, key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return state;
 }
@@ -99,8 +105,10 @@ const SEED_KEY = '-0seed';
  * file at the same moment converge on ONE workspace file. Keyed with the room key, so the server
  * can't test guesses of (encrypted) paths against the id.
  */
-export async function importFid({ sid, cid, key, path }) {
-  const material = new TextEncoder().encode(`cfid:${sid}/${cid}:${await exportRoomKey(key)}:${path}`);
+export async function importFid({ space, sid, cid, key, path }) {
+  const sp = resolveSpace({ space, sid, cid });
+  // channelSpace: `cfid:${sid}/${cid}:${keyB64}:${path}` (unchanged); codespaces: `csfid:...`.
+  const material = new TextEncoder().encode(sp.fidMaterial(await exportRoomKey(key), path));
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', material));
   return `gh_${b64u(digest.subarray(0, 16))}`;
 }
@@ -114,8 +122,9 @@ const isDenied = (e) => /permission[_ ]denied/i.test(String(e?.code || e?.messag
  * With `fid` (see importFid) the create only succeeds if that file doesn't exist yet; otherwise
  * it resolves to { fid, existed: true } without touching anything.
  */
-export async function createFile({ sid, cid, key, uid, meta, content = '', fid: fixedFid }) {
-  const base = basePath(sid, cid);
+export async function createFile({ space, sid, cid, key, uid, meta, content = '', fid: fixedFid }) {
+  const sp = resolveSpace({ space, sid, cid });
+  const base = sp.base;
   const fid = fixedFid || push(ref(db, `${base}/files`)).key;
   const clean = { path: meta.path };
   if (meta.repo) clean.repo = meta.repo;
@@ -123,7 +132,7 @@ export async function createFile({ sid, cid, key, uid, meta, content = '', fid: 
   if (meta.sha) clean.sha = meta.sha;
   const writes = {
     [`files/${fid}`]: {
-      enc: await encryptJSON(key, clean, AAD.file(sid, cid, fid)),
+      enc: await encryptJSON(key, clean, sp.aad.file(fid)),
       createdBy: uid,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -136,7 +145,7 @@ export async function createFile({ sid, cid, key, uid, meta, content = '', fid: 
     doc.destroy();
     let box;
     try {
-      box = await sealBytes(key, bytes, AAD.update(sid, cid, fid), LIMITS.update);
+      box = await sealBytes(key, bytes, sp.aad.update(fid), LIMITS.update);
     } catch (err) {
       if (err instanceof PayloadTooLargeError) throw new Error('This file is too large to open in the workspace.');
       throw err;
@@ -154,42 +163,57 @@ export async function createFile({ sid, cid, key, uid, meta, content = '', fid: 
   return fixedFid ? { fid, existed: false } : fid;
 }
 
-export async function updateFileMeta({ sid, cid, key, fid, meta }) {
+export async function updateFileMeta({ space, sid, cid, key, fid, meta }) {
+  const sp = resolveSpace({ space, sid, cid });
   const clean = { path: meta.path };
   if (meta.repo) clean.repo = meta.repo;
   if (meta.ref) clean.ref = meta.ref;
   if (meta.sha) clean.sha = meta.sha;
-  await update(ref(db, `${basePath(sid, cid)}/files/${fid}`), {
-    enc: await encryptJSON(key, clean, AAD.file(sid, cid, fid)),
+  await update(ref(db, `${sp.base}/files/${fid}`), {
+    enc: await encryptJSON(key, clean, sp.aad.file(fid)),
     updatedAt: serverTimestamp(),
   });
 }
 
-export async function deleteFile({ sid, cid, fid }) {
-  await update(ref(db, basePath(sid, cid)), {
+// Also removes the file's checkpoints (F9) — needs the `checkpoints` rules branch (WS8 insert for
+// collab/$sid/$cid, WS2 csCollab/$csid); falls back to the old path set if the rules predate it.
+export async function deleteFile({ space, sid, cid, fid }) {
+  const sp = resolveSpace({ space, sid, cid });
+  const writes = {
     [`files/${fid}`]: null,
     [`updates/${fid}`]: null,
     [`snapshots/${fid}`]: null,
     [`awareness/${fid}`]: null,
-  });
+  };
+  try {
+    await update(ref(db, sp.base), { ...writes, [`checkpoints/${fid}`]: null });
+  } catch (err) {
+    // Rules without a `checkpoints` branch (older deploy) deny the whole update; such a workspace
+    // can't hold checkpoints either, so retry without that path.
+    if (!isDenied(err)) throw err;
+    await update(ref(db, sp.base), writes);
+  }
 }
 
 // ---------- linked repo ----------
 
-export function useRepoLink(sid, cid, key) {
+/** useRepoLink(space, key) — or legacy useRepoLink(sid, cid, key). */
+export function useRepoLink(...args) {
+  const [space, key] = spaceArgs(...args);
+  const sk = spaceKey(space);
   const [state, setState] = useState({ link: null, loading: true, error: null });
   useEffect(() => {
     if (!key) return undefined;
     let alive = true;
     setState({ link: null, loading: true, error: null });
     const unsub = onValue(
-      ref(db, `${basePath(sid, cid)}/repo`),
+      ref(db, `${space.base}/repo`),
       async (snap) => {
         const v = snap.val();
         if (!v) return alive && setState({ link: null, loading: false, error: null });
         let link;
         try {
-          link = await decryptJSON(key, v, AAD.repo(sid, cid));
+          link = await decryptJSON(key, v, space.aad.repo());
         } catch {
           if (alive) setState({ link: null, loading: false, error: 'Linked repository could not be decrypted' });
           return;
@@ -208,21 +232,24 @@ export function useRepoLink(sid, cid, key) {
       alive = false;
       unsub();
     };
-  }, [sid, cid, key]);
+  }, [sk, key]); // eslint-disable-line react-hooks/exhaustive-deps
   return state;
 }
 
-export async function setRepoLink({ sid, cid, key, link }) {
-  const r = ref(db, `${basePath(sid, cid)}/repo`);
+export async function setRepoLink({ space, sid, cid, key, link }) {
+  const sp = resolveSpace({ space, sid, cid });
+  const r = ref(db, `${sp.base}/repo`);
   if (!link) return set(r, null);
-  const box = await encryptJSON(key, { owner: link.owner, repo: link.repo, branch: link.branch }, AAD.repo(sid, cid));
+  const box = await encryptJSON(key, { owner: link.owner, repo: link.repo, branch: link.branch }, sp.aad.repo());
   return set(r, box);
 }
 
 // ---------- presence per file (plaintext uids + timestamps only) ----------
 
-/** -> { [fid]: uid[] } of members with a live cursor in that file. */
-export function useFilePresence(sid, cid) {
+/** -> { [fid]: uid[] } of members with a live cursor in that file. useFilePresence(space) or legacy (sid, cid). */
+export function useFilePresence(...args) {
+  const [space] = spaceArgs(...args);
+  const sk = spaceKey(space);
   const [map, setMap] = useState({});
   useEffect(() => {
     let raw = {};
@@ -238,7 +265,7 @@ export function useFilePresence(sid, cid) {
       setMap((prev) => (JSON.stringify(prev) === JSON.stringify(out) ? prev : out));
     };
     const unsub = onValue(
-      ref(db, `${basePath(sid, cid)}/awareness`),
+      ref(db, `${space.base}/awareness`),
       (snap) => {
         raw = snap.val() || {};
         compute();
@@ -250,6 +277,6 @@ export function useFilePresence(sid, cid) {
       unsub();
       clearInterval(t);
     };
-  }, [sid, cid]);
+  }, [sk]); // eslint-disable-line react-hooks/exhaustive-deps
   return map;
 }

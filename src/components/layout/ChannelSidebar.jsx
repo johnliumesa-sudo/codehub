@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { canManage, channelScope } from '../../lib/servers.js';
+import { channelScope } from '../../lib/servers.js';
+import { isMuted, useNotifPrefs } from '../../lib/notify.js';
+import MuteMenu from '../safety/MuteMenu.jsx';
 import { isUnread } from './hooks.js';
 import { Icon, Menu, MenuItem } from './ui.jsx';
 
@@ -58,10 +60,14 @@ export default function ChannelSidebar({
   onOpenSettings,
   onInvite,
   onLeave,
+  perms,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [collapsed, setCollapsed] = useState({});
-  const admin = canManage(myRole);
+  // Role-based gates (owner/admin hold every permission; custom roles per flag).
+  const canChannels = !!perms?.manageChannels;
+  const canInvite = !!perms?.manageInvites;
+  const notifPrefs = useNotifPrefs(myUid);
   const text = channels.filter((c) => c.type === 'text');
   const code = channels.filter((c) => c.type === 'code');
   const toggle = (k) => setCollapsed((c) => ({ ...c, [k]: !c[k] }));
@@ -71,8 +77,12 @@ export default function ChannelSidebar({
       key={ch.cid}
       ch={ch}
       active={ch.cid === activeCid}
-      unread={ch.cid !== activeCid && isUnread(lastMsgs[ch.cid], reads[channelScope(sid, ch.cid)], myUid)}
-      canEdit={admin}
+      unread={
+        ch.cid !== activeCid &&
+        isUnread(lastMsgs[ch.cid], reads[channelScope(sid, ch.cid)], myUid) &&
+        !isMuted(notifPrefs, channelScope(sid, ch.cid), Date.now(), { sid })
+      }
+      canEdit={canChannels}
       onSelect={onSelect}
       onEdit={onEditChannel}
     />
@@ -80,14 +90,14 @@ export default function ChannelSidebar({
 
   const textSection = (
     <Section key="text" title="Text channels" collapsed={collapsed.text} onToggle={() => toggle('text')}
-      onAdd={admin ? () => onCreateChannel('text') : null} addLabel="Create text channel">
+      onAdd={canChannels ? () => onCreateChannel('text') : null} addLabel="Create text channel">
       {text.map(row)}
       {!loading && text.length === 0 && <p className="ly-section-empty">No text channels yet</p>}
     </Section>
   );
   const codeSection = (
     <Section key="code" title={tab === 'collab' ? 'Workspaces' : 'Code workspaces'} collapsed={collapsed.code}
-      onToggle={() => toggle('code')} onAdd={admin ? () => onCreateChannel('code') : null} addLabel="Create code workspace">
+      onToggle={() => toggle('code')} onAdd={canChannels ? () => onCreateChannel('code') : null} addLabel="Create code workspace">
       {code.map(row)}
       {!loading && code.length === 0 && <p className="ly-section-empty">No workspaces yet</p>}
     </Section>
@@ -104,13 +114,14 @@ export default function ChannelSidebar({
           <Icon name={menuOpen ? 'x' : 'chevron'} size={16} />
         </button>
         <Menu open={menuOpen} onClose={() => setMenuOpen(false)} className="ly-server-menu">
-          {admin && <MenuItem icon="users" onClick={onInvite}>Invite people</MenuItem>}
+          {canInvite && <MenuItem icon="users" onClick={onInvite}>Invite people</MenuItem>}
           <MenuItem icon="gear" onClick={onOpenSettings}>Server settings</MenuItem>
-          {admin && <MenuItem icon="hash" onClick={() => onCreateChannel('text')}>Create text channel</MenuItem>}
-          {admin && <MenuItem icon="code" onClick={() => onCreateChannel('code')}>Create code workspace</MenuItem>}
+          {canChannels && <MenuItem icon="hash" onClick={() => onCreateChannel('text')}>Create text channel</MenuItem>}
+          {canChannels && <MenuItem icon="code" onClick={() => onCreateChannel('code')}>Create code workspace</MenuItem>}
           {myRole !== 'owner' && <div className="ly-menu-sep" />}
           {myRole !== 'owner' && <MenuItem icon="door" danger onClick={onLeave}>Leave server</MenuItem>}
         </Menu>
+        <MuteMenu me={myUid} scope={`srv_${sid}`} label="server" align="right" />
       </header>
       <div className="ly-side-scroll">
         {meta.nameFailed && (

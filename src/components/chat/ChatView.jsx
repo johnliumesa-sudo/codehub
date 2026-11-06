@@ -27,11 +27,21 @@ import SnippetModal from './SnippetModal.jsx';
 import SafetyNumberModal from './SafetyNumberModal.jsx';
 import SidePanel from './SidePanel.jsx';
 import ConfirmModal from './ConfirmModal.jsx';
+import GroupAvatar from '../groups/GroupAvatar.jsx';
+import { can, useServerRoles } from '../../lib/roles.js';
+import { useMyTimeout } from '../../lib/moderation.js';
+import TimeoutBanner from '../roles/TimeoutBanner.jsx';
+import MuteMenu from '../safety/MuteMenu.jsx';
+import BlockButton from '../safety/BlockButton.jsx';
+import KeyChangeBanner from '../safety/KeyChangeBanner.jsx';
+import { useBlocks, useIsBlocked } from '../../lib/blocks.js';
+import { useKeyChangeAck } from '../../lib/verify.js';
+import { isPermissionDenied } from '../layout/hooks.js';
 import './chat.css';
 
 const MAX_LIMIT = 2000;
 
-export default function ChatView({ conv, me }) {
+export default function ChatView({ conv, me, onOpenGroupSettings }) {
   if (!conv) {
     return (
       <div className="chat-root">
@@ -43,11 +53,15 @@ export default function ChatView({ conv, me }) {
       </div>
     );
   }
-  const k = conv.kind === 'dm' ? `dm:${conv.dmId}` : `ch:${conv.sid}/${conv.cid}`;
-  return <ChatInner key={k} conv={conv} me={me} />;
+  const k = conv.kind === 'dm'
+    ? `dm:${conv.dmId}`
+    : conv.kind === 'group'
+      ? `grp:${conv.gid}:${conv.epoch}`
+      : `ch:${conv.sid}/${conv.cid}`;
+  return <ChatInner key={k} conv={conv} me={me} onOpenGroupSettings={onOpenGroupSettings} />;
 }
 
-function ChatInner({ conv, me }) {
+function ChatInner({ conv, me, onOpenGroupSettings }) {
   const scope = typingScope(conv); // read-marker scope
   const tPath = typingPath(conv);
   const [key, setKey] = useState(null);
@@ -71,6 +85,7 @@ function ChatInner({ conv, me }) {
   const [confirmDelete, setConfirmDelete] = useState(null); // mid
   const [toast, setToast] = useState(null);
   const [pendingJump, setPendingJump] = useState(null);
+  const [keyConfirm, setKeyConfirm] = useState(null); // body pending a key-change confirmation
   const listRef = useRef(null);
   const composerRef = useRef(null);
 
@@ -134,6 +149,13 @@ function ChatInner({ conv, me }) {
       setMembers({ [me.uid]: { role: 'member' }, [conv.peerUid]: { role: 'member' } });
       return undefined;
     }
+    if (conv.kind === 'group') {
+      return onValue(
+        ref(db, `groups/${conv.gid}/members`),
+        (s) => setMembers(s.val() || {}),
+        () => setMembers({}),
+      );
+    }
     return onValue(
       ref(db, `servers/${conv.sid}/members`),
       (s) => setMembers(s.val() || {}),
@@ -175,9 +197,20 @@ function ChatInner({ conv, me }) {
   }, [members, raw, me.uid]);
   const profiles = useProfiles(uids);
 
+  // Permissions: server channels use roles (owner/admin + custom-role manageMessages); the group
+  // owner moderates a group; any DM/group member may pin.
+  const chSid = conv.kind === 'channel' ? conv.sid : null;
+  const { roles } = useServerRoles(chSid);
   const myRole = members[me.uid]?.role || 'member';
-  const isAdmin = conv.kind === 'channel' && (myRole === 'owner' || myRole === 'admin');
-  const canPinAny = conv.kind === 'dm' || isAdmin;
+  const meMember = { uid: me.uid, role: myRole, roleId: members[me.uid]?.roleId };
+  const isAdmin = (conv.kind === 'channel' && can(meMember, roles, 'manageMessages'))
+    || (conv.kind === 'group' && conv.ownerId === me.uid);
+  const canPinAny = conv.kind === 'dm' || conv.kind === 'group' || isAdmin;
+  const timedOutUntil = useMyTimeout(chSid, me.uid);
+  const peerUid = conv.kind === 'dm' ? conv.peerUid : null;
+  const iBlockedPeer = useIsBlocked(me.uid, peerUid);
+  const blocked = useBlocks(me.uid);
+  const keyAck = useKeyChangeAck(me, peerUid);
 
   const items = useMemo(
     () => (raw || []).map((m) => ({
@@ -231,6 +264,10 @@ function ChatInner({ conv, me }) {
   // Resolves once the encrypted write is queued (not on server ack), so a slow or offline
   // connection never blocks the composer. Unacked messages are shown as "sending".
   const handleSend = useCallback(async (body) => {
+    if (keyAck.mustConfirm && !body.__keyAck) {
+      setKeyConfirm(body);
+      return false;
+    }
     const reply = replyTo;
     setReplyTo(null);
     setTyping(tPath, me.uid, false);
@@ -239,7 +276,7 @@ function ChatInner({ conv, me }) {
       res = await sendMessage(conv, me, body, { replyTo: reply || undefined });
     } catch (e) {
       setReplyTo(reply);
-      flash(e?.message || 'Message failed to send');
+      flash(conv.kind === 'dm' && isPermissionDenied(e) ? "This person isn't accepting messages from you." : e?.message || 'Message failed to send');
       return false;
     }
     const { mid, done } = res;
@@ -252,12 +289,16 @@ function ChatInner({ conv, me }) {
     });
     done.then(clear, (e) => {
       clear();
+      if (conv.kind === 'dm' && isPermissionDenied(e)) {
+        flash("This person isn't accepting messages from you.");
+        return;
+      }
       const preview = (body.text || body.code?.filename || '').slice(0, 40);
       flash(`Message failed to send${preview ? ` (“${preview}${(body.text || '').length > 40 ? '…' : ''}”)` : ''}: ${e?.message || 'rejected by the server'}`);
     });
     requestAnimationFrame(() => listRef.current?.scrollToBottom());
     return true;
-  }, [conv, me, replyTo, tPath, flash]);
+  }, [conv, me, replyTo, tPath, flash, keyAck.mustConfirm]);
 
   const handleEditSave = useCallback(async (mid, body) => {
     try {
@@ -283,7 +324,7 @@ function ChatInner({ conv, me }) {
     try {
       await setReaction(conv, mid, emojiKey(native), me.uid, on);
     } catch (e) {
-      flash(e?.message || 'Could not react');
+      flash(conv.kind === 'dm' && isPermissionDenied(e) ? "This person isn't accepting messages from you." : e?.message || 'Could not react');
     }
   }, [conv, me.uid, flash]);
 
@@ -316,10 +357,15 @@ function ChatInner({ conv, me }) {
   const onStopTyping = useCallback(() => setTyping(tPath, me.uid, false), [tPath, me.uid]);
 
   const replyItem = replyTo ? byMid[replyTo] : null;
-  const typingNames = typingUids.map((u) => profiles[u]?.name || 'Someone');
+  const typingNames = typingUids.filter((u) => !blocked.has(u)).map((u) => profiles[u]?.name || 'Someone');
   const peer = conv.kind === 'dm' ? profiles[conv.peerUid] : null;
   const loading = raw === null;
-  const placeholder = conv.kind === 'dm' ? `Message @${conv.title || peer?.name || 'user'}` : `Message #${conv.title || 'channel'}`;
+  const placeholder = conv.kind === 'dm'
+    ? `Message @${conv.title || peer?.name || 'user'}`
+    : conv.kind === 'group'
+      ? `Message ${conv.title || 'group'}`
+      : `Message #${conv.title || 'channel'}`;
+  const peerName = peer?.name || conv.title;
 
   return (
     <div className="chat-root">
@@ -327,22 +373,48 @@ function ChatInner({ conv, me }) {
         <div className="chat-header-title">
           {conv.kind === 'dm' ? (
             <span className="chat-header-glyph at">@</span>
+          ) : conv.kind === 'group' ? (
+            <GroupAvatar gid={conv.gid} name={conv.title} size={22} />
           ) : (
             <span className="chat-header-glyph">#</span>
           )}
           <span className="chat-title-text">{conv.title || peer?.name || 'Conversation'}</span>
+          {conv.kind === 'group' && (
+            <>
+              <span className="grp-chat-count">{Object.keys(members).length} members</span>
+              {onOpenGroupSettings && (
+                <button type="button" className="grp-chat-gear" onClick={onOpenGroupSettings} title="Group settings" aria-label="Group settings">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" />
+                  </svg>
+                </button>
+              )}
+            </>
+          )}
           <button
             type="button"
             className="badge-e2e chat-e2e"
             onClick={() => conv.kind === 'dm' && setShowSafety(true)}
             title={conv.kind === 'dm'
               ? 'End-to-end encrypted. Click to verify the safety number.'
-              : 'Messages are end-to-end encrypted with this server’s room key.'}
+              : conv.kind === 'group'
+                ? 'Messages are end-to-end encrypted with a group key only members hold.'
+                : 'Messages are end-to-end encrypted with this server’s room key.'}
           >
             <LockIcon /> E2E{conv.kind === 'dm' ? ' · Verify' : ''}
           </button>
+          {conv.kind === 'dm' && <KeyChangeBanner variant="pill" me={me} peerUid={conv.peerUid} peerName={peerName} />}
         </div>
         <div className="chat-header-actions">
+          <MuteMenu
+            me={me}
+            scope={scope}
+            sid={conv.kind === 'channel' ? conv.sid : undefined}
+            label={conv.kind === 'dm' ? 'conversation' : conv.kind === 'group' ? 'group' : 'channel'}
+            className="chat-icon-btn"
+          />
+          {conv.kind === 'dm' && <BlockButton me={me} uid={conv.peerUid} name={peerName} variant="icon" />}
           <button
             type="button"
             className={`chat-icon-btn${panel === 'pins' ? ' active' : ''}`}
@@ -361,6 +433,9 @@ function ChatInner({ conv, me }) {
           </button>
         </div>
       </header>
+      {conv.kind === 'dm' && (
+        <KeyChangeBanner variant="banner" me={me} peerUid={conv.peerUid} peerName={peerName} onReverify={() => setShowSafety(true)} />
+      )}
 
       <div className="chat-body">
         <div className="chat-main">
@@ -373,7 +448,9 @@ function ChatInner({ conv, me }) {
                 <p className="muted small">
                   {conv.kind === 'dm'
                     ? 'The other person may not have finished setting up their encryption keys yet.'
-                    : 'Your copy of the server key is missing. Ask an admin for a fresh invite link.'}
+                    : conv.kind === 'group'
+                      ? 'You have no usable copy of this group’s key. Open Group settings → Overview → “Request new key”.'
+                      : 'Your copy of the server key is missing. Ask an admin for a fresh invite link.'}
                 </p>
               </div>
             </div>
@@ -408,7 +485,14 @@ function ChatInner({ conv, me }) {
             />
           )}
 
-          {!keyError && (
+          {!keyError && timedOutUntil > 0 && <TimeoutBanner until={timedOutUntil} />}
+          {!keyError && !timedOutUntil && iBlockedPeer && (
+            <div className="sf-composer-blocked">
+              You blocked {peerName || 'this user'}. They can&apos;t message you here.{' '}
+              <BlockButton me={me} uid={conv.peerUid} name={peerName} />
+            </div>
+          )}
+          {!keyError && !timedOutUntil && !iBlockedPeer && (
             <div className="chat-composer-wrap">
               <Composer
                 ref={composerRef}
@@ -423,7 +507,9 @@ function ChatInner({ conv, me }) {
                 onEditLast={editLast}
                 onOpenSnippet={() => setShowSnippet(true)}
                 members={Object.keys(members).filter((u) => u !== me.uid).map((u) => profiles[u]).filter(Boolean)}
-                allowEveryone={conv.kind === 'channel'}
+                allowEveryone={conv.kind !== 'dm'}
+                me={me}
+                onLongSnippet={(code, lang) => setShowSnippet({ content: code, lang })}
               />
               <TypingIndicator names={typingNames} />
             </div>
@@ -464,6 +550,7 @@ function ChatInner({ conv, me }) {
       )}
       {showSnippet && (
         <SnippetModal
+          initial={typeof showSnippet === 'object' ? showSnippet : undefined}
           onClose={() => setShowSnippet(false)}
           onSubmit={async (body) => {
             const ok = await handleSend(body);
@@ -474,6 +561,25 @@ function ChatInner({ conv, me }) {
       )}
       {showSafety && conv.kind === 'dm' && (
         <SafetyNumberModal peerUid={conv.peerUid} peerName={peer?.name || conv.title} onClose={() => setShowSafety(false)} />
+      )}
+      {keyConfirm && (
+        <ConfirmModal
+          title="Encryption key changed"
+          confirmLabel="Send anyway"
+          danger
+          onCancel={() => setKeyConfirm(null)}
+          onConfirm={() => {
+            const b = keyConfirm;
+            setKeyConfirm(null);
+            keyAck.acknowledge();
+            handleSend({ ...b, __keyAck: true });
+          }}
+        >
+          <p className="muted">
+            {peerName || 'This person'}&apos;s key changed since you verified it. Verify the new safety number first if this
+            message is sensitive.
+          </p>
+        </ConfirmModal>
       )}
       {confirmDelete && (
         <ConfirmModal

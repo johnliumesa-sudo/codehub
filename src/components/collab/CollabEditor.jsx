@@ -23,6 +23,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import { languageFor } from '../../lib/collab/languages.js';
 import { MAX_INSERT_BYTES } from '../../lib/collab/codec.js';
+import { useEditorAddons } from '../shop/AddonRuntime.jsx';
 
 const utf8 = new TextEncoder();
 
@@ -75,6 +76,12 @@ export default function CollabEditor({ provider, path, readOnly = false, onCurso
   const hostRef = useRef(null);
   const langRef = useRef(new Compartment());
   const roRef = useRef(new Compartment());
+  // Equipped editor theme + add-ons (WS3). [] until the add-on runtime chunk loads -> oneDark.
+  const addonsRef = useRef(new Compartment());
+  const addons = useEditorAddons();
+  const addonsVal = addons.length ? addons : oneDark;
+  const addonsValRef = useRef(addonsVal);
+  addonsValRef.current = addonsVal;
   const viewRef = useRef(null);
   const cbRef = useRef({ onCursor, onView, onRejectEdit });
   cbRef.current = { onCursor, onView, onRejectEdit };
@@ -109,7 +116,7 @@ export default function CollabEditor({ provider, path, readOnly = false, onCurso
           ...completionKeymap,
           indentWithTab,
         ]),
-        oneDark,
+        addonsRef.current.of(addonsValRef.current),
         chrome,
         langRef.current.of(languageFor(path).load()),
         roRef.current.of(EditorState.readOnly.of(readOnly)),
@@ -148,6 +155,9 @@ export default function CollabEditor({ provider, path, readOnly = false, onCurso
     viewRef.current?.dispatch({ effects: langRef.current.reconfigure(languageFor(path).load()) });
   }, [path]);
 
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: addonsRef.current.reconfigure(addonsVal) });
+  }, [addonsVal]);
   useEffect(() => {
     viewRef.current?.dispatch({ effects: roRef.current.reconfigure(EditorState.readOnly.of(readOnly)) });
   }, [readOnly]);

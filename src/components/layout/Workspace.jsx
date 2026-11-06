@@ -1,4 +1,5 @@
-// The app frame: server rail, channel/DM sidebar, header tabs (Chat | Collab), content, member list.
+// The app frame: server rail, channel/DM/group sidebar, header tabs (Chat | Collab), content, member list,
+// plus the top-level views (Codespaces, Arcade, Add-on shop) selected by nav.view.
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { get, ref } from 'firebase/database';
 import { db } from '../../lib/firebase.js';
@@ -7,7 +8,6 @@ import SettingsModal from '../settings/SettingsModal.jsx';
 import { startPresence } from '../../lib/presence.js';
 import { AVATAR_COLORS, useProfile } from '../../lib/profiles.js';
 import {
-  canManage,
   channelScope,
   clearPlainCache,
   dmScope,
@@ -38,20 +38,59 @@ import { ChannelModal, CreateJoinModal, NewDmModal, PendingInviteModal } from '.
 import FriendsView from './FriendsView.jsx';
 import { useFriends } from '../../lib/friends.js';
 import { ConfirmButton, ErrorBoundary, Icon, Modal, ToastProvider, useToast } from './ui.jsx';
+// Groups (F1)
+import { groupConv, groupScope, isGroupUnread, useGroup, useGroupMembers, useMyGroups } from '../../lib/groups.js';
+import CreateGroupModal from '../groups/CreateGroupModal.jsx';
+import GroupSettingsModal from '../groups/GroupSettingsModal.jsx';
+import GroupMembersPanel from '../groups/GroupMembersPanel.jsx';
+// Codespaces (F2)
+import { useMyCodespaces } from '../../lib/codespaces.js';
+// Shop (F3)
+import AddonRuntime from '../shop/AddonRuntime.jsx';
+import ShopView from '../shop/ShopView.jsx'; // static: AddonsTab/CatalogEditor import it anyway
+// Roles / moderation (F5, F14)
+import { memberOf, permsFor, useServerRoles } from '../../lib/roles.js';
+import { useTimeouts } from '../../lib/moderation.js';
+// App admin, announcements (F6, F16)
+import AdminPanel from '../admin/AdminPanel.jsx';
+import AnnouncementBanner from '../admin/AnnouncementBanner.jsx';
+// Safety + notifications (F11, F13, F19)
+import LinkGuardHost from '../safety/LinkGuardHost.jsx';
+import Notifier from '../safety/Notifier.jsx';
+import { isMuted, useNotifPrefs, useNotifySources } from '../../lib/notify.js';
+import { useBlocks } from '../../lib/blocks.js';
+// Productivity (F18, F20)
+import CommandPalette from '../productivity/CommandPalette.jsx';
+import SnippetLibraryModal from '../productivity/SnippetLibraryModal.jsx';
+import { TOGGLE_PREVIEW_EVENT, useHotkey } from '../../lib/palette.js';
 import './layout.css';
 
 const CollabView = lazy(() => import('../collab/CollabView.jsx'));
+const CodespacesHome = lazy(() => import('../codespaces/CodespacesHome.jsx'));
+const GamesView = lazy(() => import('../games/GamesView.jsx'));
 
 const PENDING_KEY = 'codehub.pendingInvite';
 const navKey = (uid) => `codehub.nav.${uid}`;
 const errMsg = (e) => String(e?.message || e).replace(/^Error:\s*/, '');
 
-const DEFAULT_NAV = { sid: null, dmId: null, tab: 'chat', chatCid: {}, codeCid: {}, right: { chat: 'members', collab: null } };
+const DEFAULT_NAV = {
+  sid: null,
+  dmId: null,
+  gid: null,
+  tab: 'chat',
+  chatCid: {},
+  codeCid: {},
+  right: { chat: 'members', collab: null, group: 'members' },
+  view: null, // null | 'codespaces' | 'arcade' | 'shop'
+  csid: null,
+};
+const VIEWS = ['codespaces', 'arcade', 'shop'];
 
 function loadNav(uid) {
   try {
     const v = JSON.parse(localStorage.getItem(navKey(uid)) || 'null');
-    return v ? { ...DEFAULT_NAV, ...v, right: { ...DEFAULT_NAV.right, ...(v.right || {}) } } : DEFAULT_NAV;
+    if (!v) return DEFAULT_NAV;
+    return { ...DEFAULT_NAV, ...v, view: VIEWS.includes(v.view) ? v.view : null, right: { ...DEFAULT_NAV.right, ...(v.right || {}) } };
   } catch {
     return DEFAULT_NAV;
   }
@@ -141,6 +180,11 @@ function WorkspaceFrame({ user }) {
   const [overlayRight, setOverlayRight] = useState(null); // right panel on narrow screens (transient)
   const [modal, setModal] = useState(null);
   const [pending, setPending] = useState(readPending);
+  const [pendingGameId, setPendingGameId] = useState(null); // game to open in the Arcade (admin panel)
+  const [csCreate, setCsCreate] = useState(0); // bump -> CodespacesHome opens "New codespace"
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // Ctrl/Cmd+K and Ctrl/Cmd+Shift+P toggle the quick switcher (ignored while another modal is open).
+  useHotkey(() => setPaletteOpen((o) => !o));
 
   useEffect(() => {
     if (!mobile) setNavOpen(false);
@@ -182,8 +226,21 @@ function WorkspaceFrame({ user }) {
   const { loading: dmsLoading, dms, error: dmsError } = useUserDms(uid, peerOf);
   const friends = useFriends(uid);
   const friendRequests = friends.list.filter((f) => f.state === 'in').length;
+  const { groups, loading: groupsLoading } = useMyGroups(uid);
+  const { codespaces } = useMyCodespaces(uid);
+  const notifPrefs = useNotifPrefs(uid);
+  const blocked = useBlocks(uid);
+  const groupConvs = useMemo(() => groups.map(groupConv).filter(Boolean), [groups]);
+  const notifySources = useNotifySources({ servers, dms, groups: groupConvs });
+  // Blocking removes my userDms entry, but the peer could have re-created it before the block.
+  const visibleDms = useMemo(() => dms.filter((d) => !blocked.has(d.peer)), [dms, blocked]);
 
-  const sid = nav.sid;
+  // Top-level views (rail buttons): servers/DMs/groups keep their remembered selection but aren't shown.
+  const view = VIEWS.includes(nav.view) ? nav.view : null;
+  const csMode = view === 'codespaces';
+  const arcade = view === 'arcade';
+  const shopMode = view === 'shop';
+  const sid = view ? null : nav.sid;
   useEffect(() => {
     if (!serversLoading && sid && !servers.some((s) => s.sid === sid)) setNav((n) => ({ ...n, sid: null }));
   }, [serversLoading, servers, sid]);
@@ -196,7 +253,13 @@ function WorkspaceFrame({ user }) {
   const meta = useServerMeta(sid, nonce);
   const { loading: chLoading, channels, error: chError } = useChannels(sid, nonce);
   const { loading: memLoading, members } = useMembers(sid, nonce);
-  const myRole = members.find((m) => m.uid === uid)?.role || 'member';
+  // While the member list loads, the owner is still known from meta (avoids hiding owner controls).
+  const myRole = members.find((m) => m.uid === uid)?.role || (meta.ownerId && meta.ownerId === uid ? 'owner' : 'member');
+  const meMember = memberOf(members, uid) || { uid, role: myRole };
+  const { roles } = useServerRoles(sid, nonce);
+  const { timeouts } = useTimeouts(sid, nonce);
+  // { staff, manageChannels, manageInvites, kick, ban, manageMessages, manageRoles, timeout, viewAudit }
+  const perms = useMemo(() => permsFor(meMember, roles), [meMember.role, meMember.roleId, roles]); // eslint-disable-line react-hooks/exhaustive-deps
   const channelIds = useMemo(() => channels.map((c) => c.cid), [channels]);
   const lastMsgs = useLastMessages(sid ? `messages/${sid}` : null, channelIds, nonce);
 
@@ -207,48 +270,82 @@ function WorkspaceFrame({ user }) {
   const wantCid = sid ? (tab === 'chat' ? nav.chatCid[sid] : nav.codeCid[sid]) : null;
   const channel = pool.find((c) => c.cid === wantCid) || pool[0] || null;
 
-  // DM
-  const dmId = !sid ? nav.dmId : null;
+  // Group / DM (home)
+  const gid = !sid && !view ? nav.gid || null : null;
+  const dmId = !sid && !view && !gid ? nav.dmId : null;
   const dmPeerUid = dmId ? peerFromDmId(dmId, uid) : null;
   const dmPeer = useProfile(dmPeerUid);
+  const group = useGroup(gid);
+  const { members: groupMembers, loading: groupMembersLoading } = useGroupMembers(gid);
+  useEffect(() => {
+    // Removed from the group or it was deleted: fall back to Friends.
+    if (gid && (group.status === 'denied' || group.status === 'missing')) setNav((n) => ({ ...n, gid: null }));
+  }, [gid, group.status]);
 
-  // Unread on the home button (any DM newer than its read marker, excluding the open one).
-  const homeUnread = friendRequests > 0 || dms.some((d) => (sid || d.dmId !== dmId) && d.lastTs > (reads[dmScope(d.dmId)] || 0));
+  // Unread on the home button: DMs and groups newer than their read marker (not the open one, not muted).
+  const homeUnread =
+    friendRequests > 0 ||
+    visibleDms.some(
+      (d) => (sid || view || d.dmId !== dmId) && d.lastTs > (reads[dmScope(d.dmId)] || 0) && !isMuted(notifPrefs, dmScope(d.dmId)),
+    ) ||
+    groups.some((g) => (sid || view || g.gid !== gid) && isGroupUnread(g, reads, uid) && !isMuted(notifPrefs, groupScope(g.gid)));
 
   // ---------- right panel ----------
-  const rightOptions = sid ? (tab === 'collab' ? ['chat', 'members'] : ['members']) : [];
-  const storedRight = nav.right[tab];
-  const rightPanel = !sid ? null : wide ? storedRight : overlayRight;
+  const rightKey = sid ? tab : 'group';
+  const rightOptions = view ? [] : sid ? (tab === 'collab' ? ['chat', 'members'] : ['members']) : gid ? ['members'] : [];
+  const storedRight = nav.right[rightKey];
+  const rightPanel = view || (!sid && !gid) ? null : wide ? storedRight : overlayRight;
   const setRightPanel = (p) => {
-    if (wide) setNav((n) => ({ ...n, right: { ...n.right, [tab]: p } }));
+    if (wide) setNav((n) => ({ ...n, right: { ...n.right, [rightKey]: p } }));
     else setOverlayRight(p);
   };
-  useEffect(() => setOverlayRight(null), [sid, tab, wide]);
+  useEffect(() => setOverlayRight(null), [sid, tab, wide, gid, view]);
 
   // ---------- navigation actions ----------
   const goHome = () => {
-    setNav((n) => ({ ...n, sid: null }));
+    setNav((n) => ({ ...n, sid: null, view: null }));
   };
-  const goServer = (s) => setNav((n) => ({ ...n, sid: s }));
+  const goServer = (s) => setNav((n) => ({ ...n, sid: s, view: null }));
+  const goCodespaces = () => {
+    setNav((n) => ({ ...n, view: 'codespaces' }));
+    if (mobile) setNavOpen(false);
+  };
+  const goArcade = () => {
+    setNav((n) => ({ ...n, view: 'arcade' }));
+    if (mobile) setNavOpen(false);
+  };
+  const goShop = () => {
+    setNav((n) => ({ ...n, view: 'shop' }));
+    if (mobile) setNavOpen(false);
+  };
+  const closeView = () => setNav((n) => ({ ...n, view: null }));
+  const openCodespace = (csid) => {
+    setNav((n) => ({ ...n, view: 'codespaces', csid: csid || null }));
+    if (mobile) setNavOpen(false);
+  };
   const selectChannel = (ch) => {
     setNav((n) =>
       ch.type === 'code'
-        ? { ...n, tab: 'collab', codeCid: { ...n.codeCid, [sid]: ch.cid } }
-        : { ...n, tab: 'chat', chatCid: { ...n.chatCid, [sid]: ch.cid } },
+        ? { ...n, view: null, tab: 'collab', codeCid: { ...n.codeCid, [sid]: ch.cid } }
+        : { ...n, view: null, tab: 'chat', chatCid: { ...n.chatCid, [sid]: ch.cid } },
     );
     if (mobile) setNavOpen(false);
   };
   const selectDm = (d) => {
-    setNav((n) => ({ ...n, sid: null, dmId: d.dmId }));
+    setNav((n) => ({ ...n, sid: null, dmId: d.dmId, gid: null, view: null }));
     if (mobile) setNavOpen(false);
   };
-  const setTab = (t) => setNav((n) => ({ ...n, tab: t }));
+  const selectGroup = (g) => {
+    setNav((n) => ({ ...n, sid: null, dmId: null, gid: g.gid, view: null }));
+    if (mobile) setNavOpen(false);
+  };
+  const setTab = (t) => setNav((n) => ({ ...n, tab: t, view: null }));
 
   const messageUser = async (peerUid) => {
     try {
       const id = await openDm(uid, peerUid);
       setModal(null);
-      setNav((n) => ({ ...n, sid: null, dmId: id }));
+      setNav((n) => ({ ...n, sid: null, dmId: id, gid: null, view: null }));
       if (mobile) setNavOpen(false);
     } catch (e) {
       toast(errMsg(e), 'error');
@@ -259,11 +356,107 @@ function WorkspaceFrame({ user }) {
     setNav((n) => ({
       ...n,
       sid: s,
+      view: null,
       tab: type === 'code' ? 'collab' : 'chat',
       ...(cid ? (type === 'code' ? { codeCid: { ...n.codeCid, [s]: cid } } : { chatCid: { ...n.chatCid, [s]: cid } }) : {}),
     }));
     if (mobile) setNavOpen(false);
   };
+
+  const openGame = (gameId) => {
+    setPendingGameId(gameId);
+    setModal(null);
+    goArcade();
+  };
+
+  // Desktop notification click / command palette targets.
+  const openConv = (c) => {
+    if (c.kind === 'dm') setNav((n) => ({ ...n, sid: null, dmId: c.dmId, gid: null, view: null }));
+    else if (c.kind === 'channel') setNav((n) => ({ ...n, sid: c.sid, view: null, tab: 'chat', chatCid: { ...n.chatCid, [c.sid]: c.cid } }));
+    else if (c.kind === 'group') setNav((n) => ({ ...n, sid: null, dmId: null, gid: c.gid, view: null }));
+    if (mobile) setNavOpen(false);
+  };
+
+  const onPaletteNavigate = (t) => {
+    switch (t?.type) {
+      case 'server':
+        goServer(t.sid);
+        if (mobile) setNavOpen(false);
+        break;
+      case 'channel':
+        enterServer(t.sid, t.cid, t.channelType);
+        break;
+      case 'dm':
+        openConv({ kind: 'dm', dmId: t.dmId });
+        break;
+      case 'group':
+        openConv({ kind: 'group', gid: t.gid });
+        break;
+      case 'codespace':
+        openCodespace(t.csid);
+        break;
+      case 'action':
+        if (t.id === 'settings') setModal({ type: 'settings' });
+        else if (t.id === 'snippets') setModal({ type: 'snippets' });
+        else if (t.id === 'create-server') setModal({ type: 'createJoin' });
+        else if (t.id === 'new-dm') setModal({ type: 'newDm' });
+        else if (t.id === 'new-group') setModal({ type: 'newGroup' });
+        else if (t.id === 'new-codespace') {
+          goCodespaces();
+          setCsCreate((x) => x + 1);
+        } else if (t.id === 'shop') goShop();
+        else if (t.id === 'arcade') goArcade();
+        else if (t.id === 'toggle-preview') {
+          // The open CollabView (if any) handles this and cancels the event.
+          const ev = new CustomEvent(TOGGLE_PREVIEW_EVENT, { cancelable: true });
+          if (window.dispatchEvent(ev)) toast('Open a code channel or codespace file to preview it', 'error');
+        }
+        break;
+      default:
+        break;
+    }
+  };
+
+  const paletteExtra = useMemo(
+    () => [
+      ...groups
+        .filter((g) => g.name)
+        .map((g) => ({
+          id: `group:${g.gid}`,
+          kind: 'group',
+          title: g.name,
+          subtitle: 'Group chat',
+          keywords: ['group'],
+          target: { type: 'group', gid: g.gid },
+        })),
+      ...codespaces
+        .filter((c) => c.name)
+        .map((c) => ({
+          id: `codespace:${c.csid}`,
+          kind: 'codespace',
+          title: c.name,
+          subtitle: 'Codespace',
+          keywords: ['code', 'workspace'],
+          target: { type: 'codespace', csid: c.csid },
+        })),
+    ],
+    [groups, codespaces],
+  );
+  const paletteActions = useMemo(
+    () => [
+      { id: 'settings', title: 'Open settings', hint: 'Profile, GitHub token, keys', keywords: ['preferences', 'profile'] },
+      { id: 'snippets', title: 'Snippet library', hint: 'Your private code snippets', keywords: ['code', 'vault'] },
+      { id: 'new-codespace', title: 'New codespace', hint: 'Create an encrypted workspace', keywords: ['create'] },
+      { id: 'new-group', title: 'New group chat', hint: 'Private, end-to-end encrypted', keywords: ['create', 'group'] },
+      { id: 'shop', title: 'Open shop', hint: 'Add-ons and cosmetics', keywords: ['store', 'addons'] },
+      { id: 'arcade', title: 'Open arcade', hint: 'Public games', keywords: ['games', 'play'] },
+      { id: 'toggle-preview', title: 'Toggle preview', hint: 'Live preview of the open workspace', keywords: ['run', 'sandbox', 'console'] },
+      { id: 'create-server', title: 'Create or join a server', keywords: ['invite', 'new'] },
+      { id: 'new-dm', title: 'New direct message', keywords: ['dm', 'message'] },
+    ],
+    [],
+  );
+  const describeScope = useCallback((s) => notifySources.find((x) => x.scope === s)?.title, [notifySources]);
 
   const onStale = async (s) => {
     // Re-check first: I may have been re-invited since the listener was revoked.
@@ -286,9 +479,21 @@ function WorkspaceFrame({ user }) {
 
   // ---------- document title ----------
   useEffect(() => {
-    const t = sid ? (channel?.name ? `${tab === 'chat' ? '#' : ''}${channel.name} · ${meta.name || ''}` : meta.name) : dmPeer?.name;
+    const t = csMode
+      ? 'Codespaces'
+      : arcade
+        ? 'Arcade'
+        : shopMode
+          ? 'Add-on shop'
+          : sid
+            ? channel?.name
+              ? `${tab === 'chat' ? '#' : ''}${channel.name} · ${meta.name || ''}`
+              : meta.name
+            : gid
+              ? group.name
+              : dmPeer?.name;
     document.title = t ? `${t} — Codehub` : 'Codehub';
-  }, [sid, tab, channel?.name, meta.name, dmPeer?.name]);
+  }, [csMode, arcade, shopMode, sid, tab, channel?.name, meta.name, dmPeer?.name, gid, group.name]);
 
   useEffect(() => () => {
     document.title = 'Codehub';
@@ -296,6 +501,8 @@ function WorkspaceFrame({ user }) {
 
   // ---------- content ----------
   const chatConv = useMemo(() => {
+    if (view) return null;
+    if (!sid && gid) return group.status === 'ready' ? groupConv(group) : null;
     if (!sid && dmId && dmPeerUid) {
       return { kind: 'dm', dmId, peerUid: dmPeerUid, title: dmPeer?.name || 'Direct message', scope: dmScope(dmId) };
     }
@@ -303,13 +510,27 @@ function WorkspaceFrame({ user }) {
       return { kind: 'channel', sid, cid: channel.cid, title: channel.name, scope: channelScope(sid, channel.cid) };
     }
     return null;
-  }, [sid, dmId, dmPeerUid, dmPeer?.name, channel?.cid, channel?.name, channel?.pending, channel?.failed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view, sid, gid, group.status, group.epoch, group.name, group.ownerId, dmId, dmPeerUid, dmPeer?.name, channel?.cid, channel?.name, channel?.pending, channel?.failed]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const admin = canManage(myRole);
+  const admin = perms.manageChannels; // channel create/edit gates
   const nextPosition = channels.reduce((m, c) => Math.max(m, c.position), 0) + 1;
 
   let content;
-  if (!sid) {
+  if (!sid && gid) {
+    content =
+      group.status === 'loading' ? (
+        <Loading />
+      ) : chatConv ? (
+        <ChatView
+          key={`${chatConv.scope}|${chatConv.epoch}`}
+          conv={chatConv}
+          me={me}
+          onOpenGroupSettings={() => setModal({ type: 'group', gid, tab: 'overview' })}
+        />
+      ) : (
+        <EmptyState icon="x" title="This group isn't available">You may have been removed, or it was deleted.</EmptyState>
+      );
+  } else if (!sid) {
     content = chatConv ? (
       <ChatView key={chatConv.scope} conv={chatConv} me={me} />
     ) : (
@@ -363,15 +584,27 @@ function WorkspaceFrame({ user }) {
   }
 
   const rightContent =
-    rightPanel === 'members' ? (
-      <MemberList members={members} loading={memLoading} myUid={uid} onMessage={messageUser} />
+    gid && !sid && rightPanel === 'members' ? (
+      <GroupMembersPanel gid={gid} me={me} onMessage={messageUser} onManage={() => setModal({ type: 'group', gid, tab: 'members' })} />
+    ) : rightPanel === 'members' && sid ? (
+      <MemberList
+        members={members}
+        loading={memLoading}
+        myUid={uid}
+        onMessage={messageUser}
+        sid={sid}
+        meMember={meMember}
+        roles={roles}
+        timeouts={timeouts}
+      />
     ) : rightPanel === 'chat' && chatConv && tab === 'collab' ? (
       <ErrorBoundary resetKey={chatConv.scope}>
         <ChatView key={`side-${chatConv.scope}|${nonce}`} conv={chatConv} me={me} />
       </ErrorBoundary>
     ) : null;
 
-  const rightTitle = rightPanel === 'members' ? `Members — ${members.length}` : `# ${channel?.name || ''}`;
+  const rightTitle =
+    rightPanel === 'members' ? `Members — ${gid && !sid ? groupMembers.length : members.length}` : `# ${channel?.name || ''}`;
 
   const right = rightContent && (
     <aside className={`ly-right ${rightPanel} ${wide ? 'inline' : 'overlay'}`}>
@@ -387,11 +620,18 @@ function WorkspaceFrame({ user }) {
 
   return (
     <div className={`ly-app ${mobile ? 'mobile' : ''} ${navOpen ? 'nav-open' : ''}`}>
+      <AddonRuntime uid={uid} />
       <div className="ly-nav" ref={navRef}>
         <ServerRail
           servers={servers}
           loading={serversLoading}
           activeSid={sid}
+          codespacesActive={csMode}
+          onCodespaces={goCodespaces}
+          arcadeActive={arcade}
+          onArcade={goArcade}
+          shopActive={shopMode}
+          onShop={goShop}
           homeUnread={homeUnread}
           onHome={goHome}
           onSelect={goServer}
@@ -401,7 +641,7 @@ function WorkspaceFrame({ user }) {
           myUid={uid}
           refreshTick={refreshTick}
         />
-        <div className="ly-sidebar">
+        {!csMode && <div className="ly-sidebar">
           {sid ? (
             <ChannelSidebar
               sid={sid}
@@ -416,6 +656,7 @@ function WorkspaceFrame({ user }) {
               lastMsgs={lastMsgs}
               myUid={uid}
               onSelect={selectChannel}
+              perms={perms}
               onCreateChannel={(t) => setModal({ type: 'channel', initialType: t })}
               onEditChannel={(ch) => setModal({ type: 'channel', channel: ch })}
               onOpenSettings={() => setModal({ type: 'server', tab: 'overview' })}
@@ -424,16 +665,21 @@ function WorkspaceFrame({ user }) {
             />
           ) : (
             <DmSidebar
-              dms={dms}
+              dms={visibleDms}
               loading={dmsLoading}
               error={dmsError}
               activeDmId={dmId}
+              groups={groups}
+              groupsLoading={groupsLoading}
+              activeGid={gid}
+              onSelectGroup={selectGroup}
+              onNewGroup={() => setModal({ type: 'newGroup' })}
               reads={reads}
               myUid={uid}
               onSelect={selectDm}
               onNewDm={() => setModal({ type: 'newDm' })}
               onFriends={() => {
-                setNav((n) => ({ ...n, dmId: null }));
+                setNav((n) => ({ ...n, dmId: null, gid: null, view: null }));
                 if (mobile) setNavOpen(false);
               }}
               friendRequests={friendRequests}
@@ -447,12 +693,56 @@ function WorkspaceFrame({ user }) {
               }}
             />
           )}
-          <UserPanel me={me} onSettings={() => setModal({ type: 'settings' })} />
-        </div>
+          <UserPanel me={me} onSettings={() => setModal({ type: 'settings' })} onAdmin={() => setModal({ type: 'admin' })} />
+        </div>}
       </div>
       {mobile && navOpen && <div className="ly-scrim" onClick={() => setNavOpen(false)} />}
 
+      {csMode ? (
+        <main className="ly-main">
+          <AnnouncementBanner />
+          <ErrorBoundary resetKey={`cs|${nav.csid}`}>
+            <Suspense fallback={<Loading />}>
+              <CodespacesHome
+                me={me}
+                activeCsid={nav.csid}
+                onOpen={openCodespace}
+                createSignal={csCreate}
+                footer={<UserPanel me={me} onSettings={() => setModal({ type: 'settings' })} onAdmin={() => setModal({ type: 'admin' })} />}
+                showMenuButton={mobile}
+                onMenu={() => setNavOpen(true)}
+              />
+            </Suspense>
+          </ErrorBoundary>
+        </main>
+      ) : arcade ? (
+        <main className="ly-main">
+          <AnnouncementBanner />
+          <div className="ly-content arcade">
+            <ErrorBoundary resetKey="arcade">
+              <Suspense fallback={<Loading />}>
+                <GamesView
+                  me={me}
+                  openGameId={pendingGameId}
+                  onOpenGameHandled={() => setPendingGameId(null)}
+                  onMenu={mobile ? () => setNavOpen(true) : undefined}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        </main>
+      ) : shopMode ? (
+        <main className="ly-main">
+          <AnnouncementBanner />
+          <ErrorBoundary resetKey="shop">
+            <Suspense fallback={<Loading />}>
+              <ShopView me={me} onClose={closeView} onMenu={mobile ? () => setNavOpen(true) : undefined} />
+            </Suspense>
+          </ErrorBoundary>
+        </main>
+      ) : (
       <main className="ly-main">
+        <AnnouncementBanner />
         <Header
           mode={sid ? 'server' : 'home'}
           tab={tab}
@@ -465,15 +755,20 @@ function WorkspaceFrame({ user }) {
           onRightPanel={setRightPanel}
           onMenu={() => setNavOpen(true)}
           showMenuButton={mobile}
+          group={gid && group.status === 'ready' ? group : null}
+          groupMemberCount={groupMembersLoading ? undefined : groupMembers.length}
+          onGroupSettings={() => setModal({ type: 'group', gid, tab: 'overview' })}
+          onOpenPalette={() => setPaletteOpen(true)}
         />
         <div className="ly-body">
           <div className={`ly-content ${tab}`}>
-            <ErrorBoundary resetKey={`${sid}|${tab}|${channel?.cid}|${dmId}`}>{content}</ErrorBoundary>
+            <ErrorBoundary resetKey={`${sid}|${tab}|${channel?.cid}|${dmId}|${gid}`}>{content}</ErrorBoundary>
           </div>
           {wide && right}
         </div>
       </main>
-      {!wide && right && (
+      )}
+      {!view && !wide && right && (
         <>
           <div className="ly-scrim right" onClick={() => setRightPanel(null)} />
           {right}
@@ -481,7 +776,52 @@ function WorkspaceFrame({ user }) {
       )}
 
       {/* ---------- modals ---------- */}
-      {modal?.type === 'settings' && <SettingsModal user={user} me={me} onClose={() => setModal(null)} />}
+      <LinkGuardHost />
+      <Notifier me={me} sources={notifySources} activeScope={chatConv?.scope || null} reads={reads} onOpen={(src) => openConv(src.conv)} />
+      {modal?.type === 'settings' && (
+        <SettingsModal
+          user={user}
+          me={me}
+          onClose={() => setModal(null)}
+          onOpenShop={() => {
+            setModal(null);
+            goShop();
+          }}
+          onOpenAdmin={() => setModal({ type: 'admin' })}
+          describeScope={describeScope}
+        />
+      )}
+      {modal?.type === 'admin' && <AdminPanel me={me} onClose={() => setModal(null)} onOpenGame={openGame} />}
+      {modal?.type === 'snippets' && <SnippetLibraryModal me={me} onClose={() => setModal(null)} />}
+      {modal?.type === 'newGroup' && (
+        <CreateGroupModal
+          me={me}
+          onClose={() => setModal(null)}
+          onCreated={(newGid) => {
+            setModal(null);
+            setNav((n) => ({ ...n, sid: null, dmId: null, gid: newGid, view: null }));
+            if (mobile) setNavOpen(false);
+            toast('Group created', 'success');
+          }}
+        />
+      )}
+      {modal?.type === 'group' && modal.gid && (
+        <GroupSettingsModal
+          me={me}
+          gid={modal.gid}
+          initialTab={modal.tab}
+          onClose={() => setModal(null)}
+          onLeft={() => {
+            setModal(null);
+            setNav((n) => ({ ...n, gid: null }));
+          }}
+          onDeleted={() => {
+            setModal(null);
+            setNav((n) => ({ ...n, gid: null }));
+          }}
+          onMessage={messageUser}
+        />
+      )}
       {modal?.type === 'createJoin' && (
         <CreateJoinModal
           me={me}
@@ -505,7 +845,7 @@ function WorkspaceFrame({ user }) {
           onClose={() => setModal(null)}
           onOpen={(id) => {
             setModal(null);
-            setNav((n) => ({ ...n, sid: null, dmId: id }));
+            setNav((n) => ({ ...n, sid: null, dmId: id, gid: null, view: null }));
             if (mobile) setNavOpen(false);
           }}
         />
@@ -513,6 +853,7 @@ function WorkspaceFrame({ user }) {
       {modal?.type === 'channel' && sid && (
         <ChannelModal
           sid={sid}
+          me={me}
           channel={modal.channel}
           initialType={modal.initialType}
           nextPosition={nextPosition}
@@ -531,6 +872,10 @@ function WorkspaceFrame({ user }) {
           myRole={myRole}
           me={me}
           members={members}
+          meMember={meMember}
+          roles={roles}
+          timeouts={timeouts}
+          perms={perms}
           initialTab={modal.tab}
           onClose={() => setModal(null)}
           onLeft={() => {
@@ -564,6 +909,14 @@ function WorkspaceFrame({ user }) {
           </div>
         </Modal>
       )}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        me={me}
+        extraItems={paletteExtra}
+        actions={paletteActions}
+        onNavigate={onPaletteNavigate}
+      />
       {pending && !modal && (
         <PendingInviteModal
           me={me}

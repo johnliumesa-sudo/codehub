@@ -1,0 +1,102 @@
+/* Safety & notifications (WS7): blocking, verification, link guard, mute. Prefix: sf- */
+
+.sf-spinner-sm { width: 14px; height: 14px; border-width: 2px; }
+.sf-grow { flex: 1; }
+.sf-link-btn { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+.sf-link-btn:hover { text-decoration: underline; }
+
+/* ---------- Block button ---------- */
+.sf-block-btn.sf-armed { background: var(--danger); color: #fff; }
+.ly-menu-item.sf-block-item.sf-armed { background: var(--danger); color: #fff; }
+.sf-icon-btn { display: inline-grid; place-items: center; min-width: 36px; height: 36px; padding: 0 8px; border-radius: 999px; border: 0; background: var(--bg-3); color: var(--text-dim); cursor: pointer; transition: background .15s, color .15s; }
+.sf-icon-btn:hover { background: var(--bg-hover); color: var(--text); }
+.sf-icon-btn.danger:hover, .sf-icon-btn.sf-armed { background: rgba(255, 92, 122, .16); color: var(--danger); }
+.sf-icon-btn:disabled { opacity: .5; cursor: not-allowed; }
+.sf-icon-btn-confirm { font-size: 12px; font-weight: 600; }
+
+/* ---------- Blocked message gate ---------- */
+.sf-blocked-msg { display: flex; align-items: center; gap: 6px; margin: 2px 0; padding: 6px 16px 6px 72px; color: var(--text-faint); font-size: 13px; font-style: italic; }
+.sf-blocked-glyph { font-style: normal; color: var(--danger); opacity: .8; }
+.sf-blocked-sep { opacity: .6; }
+.sf-blocked-msg .sf-link-btn { font-style: normal; font-size: 13px; }
+.sf-blocked-shown { position: relative; border-left: 2px solid rgba(255, 92, 122, .35); }
+.sf-blocked-hide { position: absolute; top: 4px; right: 12px; z-index: 2; background: var(--bg-3); border: 1px solid var(--border); border-radius: 999px; color: var(--text-faint); font-size: 11px; padding: 2px 8px; cursor: pointer; }
+.sf-blocked-hide:hover { color: var(--text); }
+@media (max-width: 560px) { .sf-blocked-msg { padding-left: 16px; } }
+
+/* ---------- Settings tabs (Privacy, Notifications) ---------- */
+.sf-card-title { margin: 0 0 4px; font-size: 14.5px; }
+.sf-empty { margin: 0; font-size: 13px; }
+.sf-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.sf-row { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: var(--radius-sm); }
+.sf-row:hover { background: var(--bg-2); }
+.sf-row-text { flex: 1; min-width: 0; display: grid; }
+.sf-row-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-row-sub { font-size: 12px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: inherit; }
+code.sf-row-sub { font-family: var(--mono); font-size: 11px; }
+.sf-domain-chip { font-family: var(--mono); font-size: 12.5px; padding: 3px 8px; border-radius: 999px; background: var(--bg-3); border: 1px solid var(--border); }
+
+/* switch */
+.sf-switch-row { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; padding: 4px 0; }
+.sf-switch-row.disabled { cursor: not-allowed; opacity: .6; }
+.sf-switch { position: relative; flex: none; margin-top: 2px; }
+.sf-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: inherit; }
+.sf-switch-track { display: block; width: 36px; height: 20px; border-radius: 999px; background: var(--bg-hover); border: 1px solid var(--border); transition: background .15s, border-color .15s; }
+.sf-switch-thumb { display: block; width: 14px; height: 14px; margin: 2px; border-radius: 50%; background: var(--text-dim); transition: transform .15s, background .15s; }
+.sf-switch input:checked + .sf-switch-track { background: var(--accent); border-color: var(--accent); }
+.sf-switch input:checked + .sf-switch-track .sf-switch-thumb { transform: translateX(16px); background: #fff; }
+.sf-switch input:focus-visible + .sf-switch-track { box-shadow: 0 0 0 3px var(--accent-soft); }
+.sf-switch input:disabled + .sf-switch-track { opacity: .6; }
+.sf-switch-text { display: grid; gap: 2px; min-width: 0; }
+.sf-switch-text .small { font-size: 12.5px; }
+
+/* ---------- Verification ---------- */
+.sf-verified-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--ok); background: rgba(60, 207, 145, .1); border: 1px solid rgba(60, 207, 145, .3); padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.sf-keychange { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: rgba(255, 92, 122, .1); border-bottom: 1px solid rgba(255, 92, 122, .35); color: #ffc2cd; font-size: 13px; }
+.sf-keychange-icon { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--danger); color: #fff; font-weight: 700; font-size: 13px; }
+.sf-keychange-text { flex: 1; min-width: 0; line-height: 1.4; }
+.sf-keychange-text strong { color: #fff; }
+.sf-keychange-sub { opacity: .85; }
+.sf-keychange-actions { display: flex; gap: 6px; flex: none; }
+@media (max-width: 640px) {
+  .sf-keychange { flex-wrap: wrap; }
+  .sf-keychange-actions { width: 100%; justify-content: flex-end; }
+}
+.sf-verify { margin-top: 14px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--bg-1); text-align: left; }
+.sf-verify.on { border-color: rgba(60, 207, 145, .4); }
+.sf-verify.changed { border-color: rgba(255, 92, 122, .45); }
+.sf-verify-err { margin: 8px 0 0; }
+
+/* ---------- Link guard modal ---------- */
+.sf-guard-modal { width: min(520px, 100%); }
+.sf-guard-lead { margin: 0 0 6px; }
+.sf-guard-host { font-size: 20px; font-weight: 700; word-break: break-all; margin-bottom: 8px; }
+.sf-guard-url { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; padding: 10px 12px; background: var(--bg-0); border: 1px solid var(--border); border-radius: var(--radius-sm); word-break: break-all; max-height: 140px; overflow: auto; user-select: all; }
+.sf-url-dim { color: var(--text-faint); }
+.sf-url-host { background: var(--accent-soft); color: var(--text); font-weight: 700; padding: 0 2px; border-radius: 3px; }
+.sf-guard-warnings { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.sf-warn { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.4; }
+.sf-warn.high { background: rgba(255, 92, 122, .1); border: 1px solid rgba(255, 92, 122, .35); color: #ffc2cd; }
+.sf-warn.medium { background: rgba(245, 197, 66, .08); border: 1px solid rgba(245, 197, 66, .3); color: #f7dc8f; }
+.sf-warn-icon { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 700; color: #0b0d12; background: currentColor; }
+.sf-warn.high .sf-warn-icon { background: var(--danger); color: #fff; }
+.sf-warn.medium .sf-warn-icon { background: var(--warn); color: #0b0d12; }
+.sf-check { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--text-dim); cursor: pointer; }
+.sf-check input { accent-color: var(--accent); width: 15px; height: 15px; }
+.sf-guard-note { margin-top: 12px; }
+.sf-guard-foot { display: flex; align-items: center; gap: 8px; width: 100%; flex-wrap: wrap; }
+
+/* ---------- Mute menu ---------- */
+.sf-mute { position: relative; display: inline-flex; }
+.sf-mute-btn { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-dim); cursor: pointer; }
+.sf-mute-btn:hover { background: var(--bg-hover); color: var(--text); }
+.sf-mute-btn.muted-on { color: var(--danger); }
+.sf-mute-btn.mentions { color: var(--warn); }
+.sf-mute-menu { min-width: 240px; }
+.sf-mute-head { display: grid; gap: 2px; padding: 6px 10px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
+.sf-mute-status { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); }
+.sf-check-mark { color: var(--ok); font-weight: 700; }
+.ly-menu-item:hover .sf-check-mark { color: #fff; }
+
+/* ---------- Composer replacement when I blocked the DM peer ---------- */
+.sf-composer-blocked { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin: 0 16px 16px; padding: 12px 14px; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--bg-1); color: var(--text-dim); font-size: 13px; text-align: center; }

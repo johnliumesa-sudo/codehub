@@ -3,6 +3,8 @@ import { usePresences } from '../../lib/presence.js';
 import { useProfiles } from '../../lib/profiles.js';
 import { dmScope } from '../../lib/servers.js';
 import { Avatar, Icon } from './ui.jsx';
+import GroupList from '../groups/GroupList.jsx';
+import { isMuted, useNotifPrefs } from '../../lib/notify.js';
 
 function relTime(ts) {
   if (!ts) return '';
@@ -14,8 +16,9 @@ function relTime(ts) {
   return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function DmSidebar({ dms, loading, error, activeDmId, reads, myUid, onSelect, onNewDm, onHide, onFriends, friendRequests = 0 }) {
+export default function DmSidebar({ dms, loading, error, activeDmId, reads, myUid, onSelect, onNewDm, onHide, onFriends, friendRequests = 0, groups, groupsLoading, activeGid, onSelectGroup, onNewGroup }) {
   const [filter, setFilter] = useState('');
+  const notifPrefs = useNotifPrefs(myUid);
   const peers = useMemo(() => dms.map((d) => d.peer), [dms]);
   const profiles = useProfiles(peers);
   const presence = usePresences(peers);
@@ -33,15 +36,25 @@ export default function DmSidebar({ dms, loading, error, activeDmId, reads, myUi
             placeholder="Find a conversation"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            aria-label="Filter direct messages"
+            aria-label="Filter conversations"
           />
         </div>
       </header>
       <div className="ly-side-scroll">
-        <button className={`ly-friends-link ${activeDmId ? '' : 'active'}`} onClick={onFriends}>
+        <button className={`ly-friends-link ${activeDmId || activeGid ? '' : 'active'}`} onClick={onFriends}>
           <Icon name="users" size={18} /> Friends
           {friendRequests > 0 && <span className="fr-badge" title="Pending friend requests">{friendRequests}</span>}
         </button>
+        <GroupList
+          me={{ uid: myUid }}
+          activeGid={activeGid}
+          onSelect={onSelectGroup}
+          onCreate={onNewGroup}
+          reads={reads}
+          groups={groups}
+          loading={groupsLoading}
+          filter={filter}
+        />
         <section className="ly-section">
           <div className="ly-section-head">
             <span className="ly-section-title static">Direct messages</span>
@@ -61,7 +74,7 @@ export default function DmSidebar({ dms, loading, error, activeDmId, reads, myUi
             shown.map((d) => {
               const p = profiles[d.peer];
               const active = d.dmId === activeDmId;
-              const unread = !active && d.lastTs > (reads[dmScope(d.dmId)] || 0);
+              const unread = !active && d.lastTs > (reads[dmScope(d.dmId)] || 0) && !isMuted(notifPrefs, dmScope(d.dmId));
               return (
                 <div key={d.dmId} className={`ly-dm ${active ? 'active' : ''} ${unread ? 'unread' : ''}`}>
                   <button className="ly-dm-main" onClick={() => onSelect(d)}>

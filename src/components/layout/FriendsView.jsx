@@ -4,6 +4,8 @@ import { usePresences } from '../../lib/presence.js';
 import { useProfiles } from '../../lib/profiles.js';
 import { searchUsersByName } from './modals.jsx';
 import { Avatar, Icon, PRESENCE_LABEL, useToast } from './ui.jsx';
+import { isPermissionDenied } from './hooks.js';
+import BlockButton from '../safety/BlockButton.jsx';
 
 const errMsg = (e) => e?.message?.replace(/^Firebase:\s*/, '') || 'Something went wrong';
 
@@ -26,7 +28,7 @@ export default function FriendsView({ me, friends, onMessage }) {
       await fn(me.uid, uid);
       if (ok) toast(ok, 'success');
     } catch (e) {
-      toast(errMsg(e), 'error');
+      toast(fn === acceptFriend && isPermissionDenied(e) ? "You can't add this person as a friend." : errMsg(e), 'error');
     } finally {
       setBusy(null);
     }
@@ -91,6 +93,7 @@ export default function FriendsView({ me, friends, onMessage }) {
                         <Icon name="check" size={17} />
                       </button>
                     )}
+                    <BlockButton me={me.uid} uid={f.uid} name={p?.name} variant="icon" />
                     <button
                       className="fr-act danger"
                       title={f.state === 'friends' ? 'Remove friend' : f.state === 'in' ? 'Decline' : 'Cancel request'}
@@ -151,7 +154,7 @@ function AddFriend({ me, friends }) {
       const st = await addFriend(me.uid, p.uid);
       toast(st === 'friends' ? `You and ${p.name} are now friends` : `Friend request sent to ${p.name}`, 'success');
     } catch (e) {
-      toast(errMsg(e), 'error');
+      toast(isPermissionDenied(e) ? "You can't send a friend request to this person." : errMsg(e), 'error');
     } finally {
       setBusy(null);
     }

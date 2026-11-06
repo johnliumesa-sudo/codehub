@@ -8,7 +8,7 @@
     "dev:emu": "VITE_EMULATORS=1 vite --port 5174",
     "build": "vite build",
     "preview": "vite preview",
-    "emulators": "npx firebase-tools emulators:start --only auth,database --project codehub-c1e74",
+    "emulators": "npx firebase-tools emulators:start --only auth,database --project codehub-dc9a4",
     "deploy": "npx firebase-tools deploy --only database"
   },
   "dependencies": {

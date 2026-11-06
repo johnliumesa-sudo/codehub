@@ -21,6 +21,9 @@ import { auth, db } from './firebase.js';
 import { stopPresence } from './presence.js';
 import { lock } from './keystore.js';
 import { clearPlainCache, deleteServer, leaveServer, peerFromDmId } from './servers.js';
+import { cleanupCodespacesForAccount } from './codespaces.js';
+import { deleteGroup, leaveGroup, removeMyGroupMessages } from './groups.js';
+import { deleteMyGames } from './games.js';
 
 const CHUNK = 500; // paths per multi-path update
 
@@ -75,6 +78,23 @@ async function wipeServer(sid, uid, onStep) {
   await leaveServer(sid, uid);
 }
 
+async function wipeGroup(gid, uid, onStep) {
+  let meta = null;
+  try {
+    meta = await val(`groups/${gid}/meta`);
+  } catch {
+    // No longer a member (removed, or the group was deleted): only my index entry is left.
+  }
+  if (!meta) return remove(ref(db, `userGroups/${uid}/${gid}`));
+  if (meta.ownerId === uid) {
+    onStep?.('Deleting a group you own…');
+    return deleteGroup(gid);
+  }
+  onStep?.('Removing your messages from a group…');
+  await removeMyGroupMessages(gid, uid); // must run while still a member (read access)
+  await leaveGroup(gid);
+}
+
 /**
  * Delete all of the signed-in user's data and their account. Call reauthenticate() first.
  * onStep(text) reports progress.
@@ -88,6 +108,15 @@ export async function deleteAccount(onStep) {
   await stopPresence();
 
   for (const sid of Object.keys((await val(`userServers/${uid}`)) || {})) await wipeServer(sid, uid, onStep);
+
+  // Codespaces I own are deleted (with every member's index entry); others I leave.
+  await cleanupCodespacesForAccount(uid, onStep);
+
+  // Groups I own are deleted; others I leave after removing my messages (vault still unlocked).
+  for (const gid of Object.keys((await val(`userGroups/${uid}`)) || {})) await wipeGroup(gid, uid, onStep);
+
+  // Public games I published (and, best effort, my likes on other games).
+  await deleteMyGames(uid, onStep);
 
   onStep?.('Removing friends…');
   const friends = Object.keys((await val(`friends/${uid}`)) || {});
@@ -111,7 +140,25 @@ export async function deleteAccount(onStep) {
 
   onStep?.('Removing your keys and settings…');
   // userDms, userServers and friends were cleared entry by entry above (the rules only allow that).
-  await removePaths([`reads/${uid}`, `presence/${uid}`, `vaults/${uid}`]);
+  // wallets/{uid}, inventory/{uid}, publishLog/{uid}, promoAttempts/{uid}, reportLog/{uid} and
+  // admins/{uid} are not deletable by any client, by design (see README).
+  await removePaths([
+    `reads/${uid}`,
+    `presence/${uid}`,
+    `vaults/${uid}`,
+    `equipped/${uid}`,
+    `blocks/${uid}`,
+    `verified/${uid}`,
+    `notifPrefs/${uid}`,
+    `snippets/${uid}`,
+    `adminBadges/${uid}`,
+  ]);
+  try {
+    localStorage.removeItem('codehub.trustedDomains');
+    sessionStorage.removeItem('codehub.keyChangeAck');
+  } catch {
+    /* ignore */
+  }
 
   onStep?.('Deleting your account…');
   lock();

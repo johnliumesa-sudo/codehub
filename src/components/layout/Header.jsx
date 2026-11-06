@@ -1,5 +1,6 @@
 import { usePresence } from '../../lib/presence.js';
 import { Avatar, Icon, PRESENCE_LABEL } from './ui.jsx';
+import GroupHeaderTitle from '../groups/GroupHeaderTitle.jsx';
 
 function DmTitle({ peer }) {
   const presence = usePresence(peer?.uid);
@@ -24,6 +25,10 @@ export default function Header({
   onRightPanel,
   onMenu,
   showMenuButton,
+  group,
+  groupMemberCount,
+  onGroupSettings,
+  onOpenPalette,
 }) {
   return (
     <header className="ly-header">
@@ -34,7 +39,9 @@ export default function Header({
       )}
 
       {mode === 'home' ? (
-        peer ? (
+        group ? (
+          <GroupHeaderTitle group={group} memberCount={groupMemberCount} onSettings={onGroupSettings} />
+        ) : peer ? (
           <DmTitle peer={peer} />
         ) : (
           <div className="ly-head-title">
@@ -61,6 +68,12 @@ export default function Header({
             <span aria-hidden>🧑‍💻</span> <span className="ly-seg-label">Collab</span>
           </button>
         </div>
+      )}
+
+      {onOpenPalette && (
+        <button className="btn ghost sm ly-icon-btn" onClick={onOpenPalette} title="Quick switcher (Ctrl/⌘ K)" aria-label="Open quick switcher">
+          <Icon name="search" size={18} />
+        </button>
       )}
 
       <span className="badge-e2e ly-head-e2e" title="Messages, names and code are end-to-end encrypted">

@@ -3,6 +3,8 @@ import { mentionToken, searchEmoji } from '../../lib/markdown.js';
 import { MAX_TEXT } from '../../lib/messages.js';
 import EmojiPopover from './EmojiPopover.jsx';
 import { Avatar, previewText } from './Message.jsx';
+import SnippetsButton from '../productivity/SnippetsButton.jsx';
+import { fenced } from '../../lib/snippets.js';
 
 const TYPING_THROTTLE = 3000;
 
@@ -19,7 +21,7 @@ function findTrigger(value, caret) {
 const Composer = forwardRef(function Composer(props, ref) {
   const {
     disabled, placeholder, onSend, onTyping, onStopTyping, replyItem, replyAuthor, onCancelReply,
-    onEditLast, onOpenSnippet, members, allowEveryone,
+    onEditLast, onOpenSnippet, members, allowEveryone, me, onLongSnippet,
   } = props;
 
   const [value, setValue] = useState('');
@@ -31,7 +33,27 @@ const Composer = forwardRef(function Composer(props, ref) {
   const lastTypingRef = useRef(0);
   const pickerClosedAt = useRef(0);
 
-  useImperativeHandle(ref, () => ({ focus: () => ta.current?.focus() }), []);
+  // Insert text at the caret on its own line (snippet library), then refocus.
+  const insertBlock = useCallback((text) => {
+    const el = ta.current;
+    const s0 = el ? el.selectionStart : null;
+    const e0 = el ? el.selectionEnd : null;
+    let caret = 0;
+    setValue((v) => {
+      const s = Math.min(s0 ?? v.length, v.length);
+      const e = Math.min(e0 ?? v.length, v.length);
+      const pre = v.slice(0, s);
+      const lead = pre && !pre.endsWith('\n') ? '\n' : '';
+      const ins = `${lead}${text}\n`;
+      caret = s + ins.length;
+      return `${pre}${ins}${v.slice(e)}`;
+    });
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(caret, caret);
+    });
+  }, []);
+  useImperativeHandle(ref, () => ({ focus: () => ta.current?.focus(), insert: insertBlock }), [insertBlock]);
 
   // Autosize
   useEffect(() => {
@@ -189,6 +211,19 @@ const Composer = forwardRef(function Composer(props, ref) {
         <button type="button" className="composer-btn" title="Share code snippet" onClick={onOpenSnippet} disabled={disabled}>
           <CodeIcon />
         </button>
+        {me && (
+          <SnippetsButton
+            me={me}
+            iconOnly
+            className="composer-btn"
+            disabled={disabled}
+            onInsert={(code, lang) => {
+              const block = fenced(code, lang);
+              if (block.length <= MAX_TEXT - 200) insertBlock(block);
+              else onLongSnippet?.(code, lang); // too long for a message body: share as a code attachment
+            }}
+          />
+        )}
         <textarea
           ref={ta}
           className="composer-input"

@@ -37,6 +37,18 @@ export function myPublicKey() {
   return state.pubJwk;
 }
 
+const lockHandlers = new Set();
+
+/** Register a callback run on lock() (e.g. to clear a module-level key cache). Returns unsubscribe. */
+export function onLock(fn) {
+  lockHandlers.add(fn);
+  return () => lockHandlers.delete(fn);
+}
+
+export function currentUid() {
+  return state.uid;
+}
+
 export function lock() {
   state.uid = null;
   state.vaultKey = null;
@@ -45,6 +57,13 @@ export function lock() {
   state.serverKeys.clear();
   state.dmKeys.clear();
   state.pubKeys.clear();
+  for (const fn of lockHandlers) {
+    try {
+      fn();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /*
@@ -186,6 +205,17 @@ export async function importInviteKey(sid, keyB64) {
   return { key, wrapped };
 }
 
+// ---------- Generic key wrapping (groups, codespaces) ----------
+
+export async function unwrapForMe(wrapped, context) {
+  requireUnlocked();
+  return unwrapKey(state.privKey, wrapped, context);
+}
+
+export async function wrapFor(uid, key, context) {
+  return wrapKeyFor(await getPublicKey(uid), key, context);
+}
+
 // ---------- DM keys ----------
 
 export function getDmKey(dmId, peerUid) {
@@ -199,6 +229,16 @@ export function getDmKey(dmId, peerUid) {
 }
 
 // ---------- Secrets in vault ----------
+
+export async function vaultEncryptJSON(value, aad) {
+  requireUnlocked();
+  return encryptJSON(state.vaultKey, value, aad);
+}
+
+export async function vaultDecryptJSON(box, aad) {
+  requireUnlocked();
+  return decryptJSON(state.vaultKey, box, aad);
+}
 
 export async function saveGithubToken(token) {
   requireUnlocked();

@@ -33,6 +33,9 @@
 .ly-rail-item.home:hover .ly-rail-btn, .ly-rail-item.home.active .ly-rail-btn { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
 .ly-rail-item.add .ly-rail-btn { color: var(--ok); background: var(--bg-2); }
 .ly-rail-item.add:hover .ly-rail-btn { background: var(--ok); color: #0b0d12; }
+.ly-rail-item.shop .ly-rail-btn { background: var(--bg-2); }
+.ly-rail-item.shop:hover .ly-rail-btn, .ly-rail-item.shop.active .ly-rail-btn { background: var(--warn); }
+.ly-rail-item.arcade .ly-rail-btn { --srv: var(--accent-2); }
 .ly-rail-item.stale .ly-rail-btn { background: transparent; border: 1px dashed var(--border); color: var(--text-faint); }
 .ly-rail-item.stale:hover .ly-rail-btn { border-color: var(--danger); color: var(--danger); background: transparent; }
 .ly-rail-item.unread:not(.active) .ly-rail-btn::after { content: ''; }

@@ -1,5 +1,7 @@
 import { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Message from './Message.jsx';
+import BlockedGate from '../safety/BlockedGate.jsx';
+import { messageTarget } from '../../lib/reports.js';
 
 const GROUP_WINDOW = 7 * 60 * 1000;
 
@@ -211,9 +213,10 @@ const MessageList = forwardRef(function MessageList(props, ref) {
             const m = r.m;
             const reply = m.replyTo ? byMid[m.replyTo] || { missing: true } : null;
             return (
+              <BlockedGate key={r.key} me={me.uid} authorUid={m.uid}>
               <Message
-                key={r.key}
                 m={m}
+                reportTarget={messageTarget(conv, m)}
                 grouped={r.grouped}
                 author={profiles[m.uid]}
                 me={me}
@@ -237,6 +240,7 @@ const MessageList = forwardRef(function MessageList(props, ref) {
                 onJump={onJump}
                 onCopied={onCopied}
               />
+              </BlockedGate>
             );
           })}
           <div className="chat-bottom-spacer" />
@@ -257,12 +261,14 @@ function Beginning({ conv, empty, limitReached }) {
   }
   return (
     <div className="chat-beginning">
-      <div className="chat-beginning-glyph">{conv.kind === 'dm' ? '@' : '#'}</div>
-      <h2>{conv.kind === 'dm' ? conv.title : `Welcome to #${conv.title || 'channel'}`}</h2>
+      <div className="chat-beginning-glyph">{conv.kind === 'dm' ? '@' : conv.kind === 'group' ? '⁂' : '#'}</div>
+      <h2>{conv.kind === 'dm' ? conv.title : conv.kind === 'group' ? `Welcome to ${conv.title || 'the group'}` : `Welcome to #${conv.title || 'channel'}`}</h2>
       <p className="muted">
         {conv.kind === 'dm'
           ? <>This is the beginning of your direct messages with <b>{conv.title}</b>.</>
-          : <>This is the start of the <b>#{conv.title}</b> channel.</>}
+          : conv.kind === 'group'
+            ? <>This is the start of the private group <b>{conv.title}</b>.</>
+            : <>This is the start of the <b>#{conv.title}</b> channel.</>}
         {' '}Messages are end-to-end encrypted — the server only stores ciphertext.
       </p>
       {empty && <p className="muted small">Say hi 👋</p>}

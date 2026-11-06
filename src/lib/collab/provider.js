@@ -1,9 +1,13 @@
 // Encrypted Yjs-over-Realtime-Database provider.
 //
-// Layout (see ARCHITECTURE.md):
-//   collab/{sid}/{cid}/updates/{fid}/{pushId}   { iv, ct, uid, ts }   encrypted Yjs update (append-only)
-//   collab/{sid}/{cid}/snapshots/{fid}          { iv, ct, upTo, ts }  encrypted Y.encodeStateAsUpdate
-//   collab/{sid}/{cid}/awareness/{fid}/{uid}    { iv, ct, ts }        encrypted awareness update
+// Layout (see ARCHITECTURE.md), relative to space.base (collab/{sid}/{cid} or csCollab/{csid}):
+//   {base}/updates/{fid}/{pushId}   { iv, ct, uid, ts }   encrypted Yjs update (append-only)
+//   {base}/snapshots/{fid}          { iv, ct, upTo, ts }  encrypted Y.encodeStateAsUpdate
+//   {base}/awareness/{fid}/{uid}    { iv, ct, ts }        encrypted awareness update
+// AAD strings come from the space descriptor (collab/space.js).
+//
+// Read-only mode (codespace viewers): local edits are never written, and this client never
+// compacts. Awareness (cursor) is still broadcast — the rules allow viewers to write their own.
 //
 // Load: apply the snapshot, then every remaining update (Yjs merges are idempotent and
 // order-independent, so duplicates or out-of-order delivery are harmless). We keep listening
@@ -35,7 +39,8 @@ import {
   update,
 } from 'firebase/database';
 import { db } from '../firebase.js';
-import { AAD, LIMITS, PayloadTooLargeError, openBytes, sealBytes } from './codec.js';
+import { LIMITS, PayloadTooLargeError, openBytes, sealBytes } from './codec.js';
+import { resolveSpace } from './space.js';
 import { serverNow } from './time.js';
 
 export const TEXT_NAME = 'content'; // ydoc.getText(TEXT_NAME) holds the file contents
@@ -46,15 +51,19 @@ const AWARENESS_STALE_MS = 60_000;
 
 export class CollabProvider {
   /**
-   * @param {{sid:string, cid:string, fid:string, key:CryptoKey, uid:string, user:{name:string,color:string}}} opts
+   * @param {{space?:object, sid?:string, cid?:string, fid:string, key:CryptoKey, uid:string,
+   *          user:{name:string,color:string}, readOnly?:boolean}} opts
+   *   `space` (collab/space.js) is preferred; legacy `{sid, cid}` builds channelSpace(sid, cid).
    */
-  constructor({ sid, cid, fid, key, uid, user }) {
-    this.sid = sid;
-    this.cid = cid;
+  constructor({ space, sid, cid, fid, key, uid, user, readOnly = false }) {
+    this.space = resolveSpace({ space, sid, cid });
+    this.sid = this.space.sid; // legacy fields (undefined for codespaces)
+    this.cid = this.space.cid;
     this.fid = fid;
     this.key = key;
     this.uid = uid;
-    this.base = `collab/${sid}/${cid}`;
+    this.readOnly = !!readOnly;
+    this.base = this.space.base;
 
     this.doc = new Y.Doc();
     this.ytext = this.doc.getText(TEXT_NAME);
@@ -262,7 +271,7 @@ export class CollabProvider {
       return;
     }
     try {
-      const bytes = await openBytes(this.key, val, AAD.snapshot(this.sid, this.cid, this.fid));
+      const bytes = await openBytes(this.key, val, this.space.aad.snapshot(this.fid));
       Y.applyUpdate(this.doc, bytes, this);
     } catch (err) {
       console.error('[collab] snapshot decrypt failed', err);
@@ -273,7 +282,7 @@ export class CollabProvider {
 
   async _applyUpdate(key, val) {
     try {
-      const bytes = await openBytes(this.key, val, AAD.update(this.sid, this.cid, this.fid));
+      const bytes = await openBytes(this.key, val, this.space.aad.update(this.fid));
       Y.applyUpdate(this.doc, bytes, this);
     } catch (err) {
       console.warn('[collab] skipped undecryptable update', key, err);
@@ -290,6 +299,7 @@ export class CollabProvider {
   _onDocUpdate(updateBytes, origin) {
     // Updates we applied from the network carry `this` as origin — never echo them back.
     if (origin === this || this.destroyed) return;
+    if (this.readOnly) return; // viewers never write content (the rules would reject it anyway)
     if (this._sendFailed) return; // doc already diverged; status is 'error' and the editor is gone
     const entry = { seq: ++this._seq, bytes: updateBytes };
     this._pending.push(entry);
@@ -312,7 +322,7 @@ export class CollabProvider {
         if (!list.length || this.destroyed) break;
         const merged = list.length === 1 ? list[0].bytes : Y.mergeUpdates(list.map((e) => e.bytes));
         try {
-          const box = await sealBytes(this.key, merged, AAD.update(this.sid, this.cid, this.fid), LIMITS.update);
+          const box = await sealBytes(this.key, merged, this.space.aad.update(this.fid), LIMITS.update);
           this._presealed = { fromSeq: list[0].seq, toSeq: list[list.length - 1].seq, box };
         } catch {
           this._presealed = null; // too large etc. — the regular path reports it
@@ -327,7 +337,7 @@ export class CollabProvider {
   // unsent update keeps the persisted history gap-free; re-sending updates that an in-flight
   // flush also writes is harmless because applying a Yjs update twice is a no-op.
   _writePresealedNow() {
-    if (this.destroyed || this._sendFailed) return;
+    if (this.destroyed || this._sendFailed || this.readOnly) return;
     const first = this._unsent[0];
     const p = this._presealed;
     if (!first || !p || p.fromSeq > first.seq || p.toSeq < first.seq) return;
@@ -345,7 +355,7 @@ export class CollabProvider {
   }
 
   _flush() {
-    if (this.destroyed || this._sendFailed || this._pending.length === 0) return this._flushing || Promise.resolve();
+    if (this.destroyed || this._sendFailed || this.readOnly || this._pending.length === 0) return this._flushing || Promise.resolve();
     const batch = this._pending;
     this._pending = [];
     const prev = this._flushing || Promise.resolve();
@@ -382,7 +392,7 @@ export class CollabProvider {
     // Anything already issued synchronously by the unload path is skipped.
     const entries = batch.filter((e) => this._unsent.includes(e));
     if (!entries.length) return;
-    const aad = AAD.update(this.sid, this.cid, this.fid);
+    const aad = this.space.aad.update(this.fid);
     const lastSeq = entries[entries.length - 1].seq;
     let boxes;
     const p = this._presealed;
@@ -419,6 +429,7 @@ export class CollabProvider {
   // ---------- compaction ----------
 
   _maybeCompact() {
+    if (this.readOnly) return;
     if (this._compactDisabled || this._compacting || this._compactTimer || this.destroyed) return;
     if (this._known.size <= COMPACT_THRESHOLD) return;
     // Jitter so that several open clients don't all race to compact at once.
@@ -445,7 +456,7 @@ export class CollabProvider {
     try {
       let box;
       try {
-        box = await sealBytes(this.key, state, AAD.snapshot(this.sid, this.cid, this.fid), LIMITS.snapshot);
+        box = await sealBytes(this.key, state, this.space.aad.snapshot(this.fid), LIMITS.snapshot);
       } catch (err) {
         if (err instanceof PayloadTooLargeError) {
           console.warn('[collab] document too large to snapshot; compaction disabled for this file');
@@ -505,7 +516,7 @@ export class CollabProvider {
   async _sendAwareness() {
     if (this.destroyed || !this.awareness.getLocalState()) return;
     const bytes = encodeAwarenessUpdate(this.awareness, [this.doc.clientID]);
-    const box = await sealBytes(this.key, bytes, AAD.awareness(this.sid, this.cid, this.fid, this.uid), LIMITS.awareness);
+    const box = await sealBytes(this.key, bytes, this.space.aad.awareness(this.fid, this.uid), LIMITS.awareness);
     if (this.destroyed) return;
     const awRef = ref(db, `${this.base}/awareness/${this.fid}/${this.uid}`);
     if (!this._awDisconnectSet) {
@@ -521,7 +532,7 @@ export class CollabProvider {
     if (!val?.ct) return;
     if (typeof val.ts === 'number' && serverNow() - val.ts > AWARENESS_STALE_MS) return;
     try {
-      const bytes = await openBytes(this.key, val, AAD.awareness(this.sid, this.cid, this.fid, uid));
+      const bytes = await openBytes(this.key, val, this.space.aad.awareness(this.fid, uid));
       if (this.destroyed) return;
       applyAwarenessUpdate(this.awareness, bytes, 'remote');
       // Remember which Yjs client ids belong to this uid so we can drop them on removal.

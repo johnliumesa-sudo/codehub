@@ -6,7 +6,34 @@ chat side; a shared CodeMirror editor backed by Yjs, plus a GitHub panel (browse
 branch, pull request) on the collab side.
 
 Built with Vite + React 18 and Firebase. It uses **Email/Password and Google Authentication** and the
-**Realtime Database**. No Firestore, Storage or Cloud Functions.
+**Realtime Database**. No Firestore, Storage or Cloud Functions. Every security property is enforced by
+`database.rules.json`; the client is untrusted.
+
+### Features
+
+End-to-end encrypted (the server only stores ciphertext):
+
+- **Servers, channels and DMs** with Markdown, code snippets, reactions, replies, pins, mentions and typing indicators.
+- **Private group chats**: up to 25 people, owner-managed. A fresh group key is created whenever someone is removed or leaves.
+- **Code workspaces** inside servers, plus standalone **Codespaces** with owner/editor/viewer roles. Both are real-time
+  CodeMirror + Yjs editors with a GitHub panel (browse, diff, commit, branch, pull request). Codespaces start from
+  **templates**: blank, web starter, canvas game, snake, markdown notes.
+- **Checkpoints**: named versions of a file you can restore. **Zip export and import** of a workspace.
+- **Personal snippet library**, encrypted with your vault key. Insert snippets into the editor or the chat composer.
+- **Server roles** with eight permissions, **timeouts**, and an **encrypted moderation audit log**.
+
+Other features:
+
+- **Live preview and run console** for HTML/CSS/JS/Markdown in a sandboxed iframe. It runs locally and nothing is uploaded.
+- **Arcade**: publish a workspace as a **public** game that anyone signed in can play, like or report. Games are plaintext.
+- **Add-on shop**: daily coins, app themes, editor themes, editor add-ons, name colors and badges. Data only, plaintext.
+- **App admins** (promo code), **global announcement banner**, and **reports** to app admins.
+- **Safety**:
+  - blocking, enforced by the rules for DMs and friend requests;
+  - verified contacts and key-change alerts;
+  - a confirmation prompt before opening external links;
+  - desktop notifications with per-conversation, per-server and timed mute.
+- **Command palette / quick switcher**: Ctrl/⌘ K.
 
 ---
 
@@ -45,6 +72,23 @@ First run:
 2. Add friends from the **Friends** page (home screen), create a server, and invite friends by DM
    from **Server menu → Invite people**, or share an invite link.
 
+### App admin promo code (project owner, one time)
+
+App admins can do four things: manage the shop catalog, unpublish games, review reports and post the global
+announcement. A user becomes an admin by entering a secret code in **Settings → Codes & admin**. The code is never
+part of the app or this repository. To set it:
+
+1. Open **Firebase console → Realtime Database → Data**.
+2. Under the root, add the key **`config`**. Under `config`, add the child **`adminPromo`** with a string value.
+3. Make the value a **long random string**: 32 or more random characters, generated with a password manager.
+   Never commit it, put it in code or paste it in chat. Share it only with the people who should become admins.
+
+Nobody can become an admin until the key exists and is at least 8 characters long; the rules ignore a shorter code. The rules make `config`
+unreadable and unwritable for every client, so it can only be changed in the console. To revoke an admin, delete
+`admins/{uid}` and `adminBadges/{uid}` in the console. Rotating the code does not demote existing admins.
+
+After becoming an admin, open **Admin panel → Catalog → Seed default catalog** to fill the shop with the bundled items.
+
 ### Test locally against emulators
 
 `npm run emulators` (needs Java) starts the Auth and Database emulators with `database.rules.json`;
@@ -79,7 +123,7 @@ npx firebase-tools deploy --only database   # or: npm run deploy
 The console also has a **Rules Playground** for testing reads and writes as a specific uid.
 
 > Re-deploy the rules any time `database.rules.json` changes. The rules define indexes
-> (`users/name`, `ts`, `pinned`, `lastTs`) too. Without them, queries still work but download more
+> (`users/name`, `ts`, `pinned`, `uid`, `lastTs`, `createdAt`, `likes`, `ownerId`) too. Without them, queries still work but download more
 > data and log index warnings.
 
 ---
@@ -140,7 +184,10 @@ server, and anyone with database access, sees only `{ iv, ct }`.
 | Server names, channel names and topics | Server key |
 | Collab file paths and contents (Yjs updates and snapshots), cursors and selections, linked repo name | Server key |
 | Direct messages | Per-pair DM key: ECDH(P-256) + HKDF |
-| Your private identity key, GitHub token | Vault key: random AES-256 key stored at `vaults/{uid}/autoKey`, readable only by you |
+| Your private identity key, GitHub token, personal snippets | Vault key: random AES-256 key stored at `vaults/{uid}/autoKey`, readable only by you |
+| Group names and messages | Per-group key, a new random key per **epoch**, ECIES-wrapped for each member |
+| Codespace names, files, cursors, repo link, checkpoints | Per-codespace key, ECIES-wrapped for each member |
+| Workspace checkpoints, custom role names, moderation audit entries | Server key |
 
 - **Identity:** each user has an ECDH P-256 key pair. The public key is published at
   `users/{uid}/pubKey`. The private key exists only encrypted in your vault and, once you unlock,
@@ -157,6 +204,74 @@ server, and anyone with database access, sees only `{ iv, ct }`.
 - **Safety numbers:** a DM header shows a safety number derived from both public keys. Compare it
   with your contact out-of-band (in person or on a call) to detect a swapped public key.
 
+### What is public or plaintext by design
+
+These are **not** end-to-end encrypted. The rules control who can read or write them, but the server and anyone
+with database access can read them.
+
+- **Public games** (`games`, `gameCode`, `gameLikes`):
+  - Publishing decrypts the workspace files on your device, bundles them into one HTML document and uploads it as
+    **public plaintext**. Anyone signed in can play it and read its code.
+  - Titles, descriptions, like counts and *who liked which game* are public too.
+  - You must tick an explicit confirmation before publishing, and you can publish or update at most once a minute.
+- **Shop**:
+  - The catalog is readable by every signed-in user.
+  - Your coin balance and the items you own (`wallets`, `inventory`) are readable only by you.
+  - Equipped cosmetics (`equipped`) are public, so others see your name color and badge.
+- **Announcements, admin badges and reports.**
+  - A report holds only ids. It includes message text only if the reporter explicitly opts in.
+  - Admins see opted-in text labelled as unverified.
+- **Server roles and moderation**: role color, position and permission flags (the rules must read them),
+  members' `roleId`, timeouts, and audit-entry author and time. Role names and audit details are encrypted.
+- **Group and codespace metadata**: membership, roles, key epochs, the message `epoch` field, who posted last and when,
+  and the codespace template id.
+- **Private to their owner, but not encrypted**: blocks, verified-contact fingerprints and notification
+  preferences. Trusted link domains and the key-change acknowledgement stay in your browser's storage.
+
+### Games and live preview are sandboxed
+
+Games and the live preview run in an `<iframe sandbox="allow-scripts">` with an opaque origin and a strict
+Content-Security-Policy (`connect-src 'none'`, no external scripts, styles, images or fonts).
+
+- Code in the frame can't read your login session, your encryption keys, your messages or the Codehub page.
+- It can't make network requests.
+- Popups, forms, dialogs (`alert`) and top-level navigation are blocked.
+- The preview console only displays text.
+- Nothing runs until you press Play, and game code is fetched only then.
+
+Two gaps remain:
+
+- A game can still navigate *its own frame* to an external page (for example a fake "sign in again" screen shown
+  inside Codehub). That page has no access to anything of yours, but never enter a password inside a game frame.
+- `connect-src 'none'` does not cover **WebRTC** in Chromium-based browsers, so a game can open a peer connection
+  through a STUN/TURN server. That can reveal your IP address and send out anything you type into the game.
+
+Treat anything you type into a game as public.
+
+### Shop items are data, not code
+
+A shop item is only one of these:
+- a set of `#rrggbb` color tokens;
+- the id of an editor theme or add-on that ships with the app;
+- a badge glyph of 1 to 8 characters, rendered as text;
+- a name color.
+
+The rules reject every other field, and nothing from the database is ever executed. The economy is enforced
+entirely by the rules:
+- The first claim gives 100 coins. After that, +100 at most once every 20 hours, by server time.
+- A purchase is one atomic update. It debits exactly the item's current price, and an item can't be bought twice.
+- There is no real money, no refunds and no transfers.
+
+### App admins
+
+Admins **cannot read or decrypt** private messages, servers, groups, codespaces, collab workspaces, vaults or
+snippets. The rules give them no access to any encrypted path, and they never receive wrapped keys. Admin power
+covers only the plaintext surfaces above.
+
+How a promo code is checked: the client first writes your guess to `promoAttempts/{uid}`. Nobody can read that node,
+and it accepts at most one guess every 30 seconds per account. The client then creates `admins/{uid}`. The rules
+allow that only if the stored guess equals `config/adminPromo` and is less than two minutes old.
+
 ### What the database rules enforce
 
 Deny by default, then:
@@ -167,11 +282,39 @@ Deny by default, then:
 - You can join a server only through an existing, unexpired invite that has uses left, and only
   if you are not banned. The join and the invite's use counter are one atomic write, so
   `maxUses` is enforced. Joining always gives the `member` role.
-- Only the owner can lift a ban. Admins can ban plain members (or non-members) only.
-- Only the owner and admins can manage channels, invites, kicks and bans. Admins can act only on
-  plain members. Only the owner can change roles or delete the server.
-- Only the author can edit a message. The author or an admin can delete it (soft delete leaves a
-  tombstone). In channels only the owner and admins can pin. A new message cannot be created
+- **Server roles.**
+  - The owner and admins hold every permission.
+  - The owner can give a member one **custom role**. Its flags are manageChannels, manageInvites, kick, ban,
+    manageMessages, manageRoles, timeout and viewAudit.
+  - Every moderation action also requires the actor to **outrank** the target:
+    - the owner outranks everyone;
+    - admins outrank plain members;
+    - a custom-role holder outranks members with no role or a lower role position.
+  - Nobody can grant a permission they don't hold, or a role positioned at or above their own.
+  - A deleted role grants nothing.
+  - Only the owner can make admins or delete the server.
+- **Timeouts** last up to 28 days. While timed out, a member can't send, edit, react or type in that server.
+  Timeouts cover chat only: a timed-out member can still edit files in the server's code channels.
+- **Bans.** The owner and admins can ban anyone they outrank, members or not. A custom-role holder with `ban` can only
+  ban current members they outrank. Anyone holding `ban` can **lift any ban**, including one the owner placed, so
+  give `ban` only to trusted roles.
+- Kicking or banning also removes the target's server-list entry. Moderators can remove someone else's entry only
+  while that person is being removed from the server (or is already gone).
+- **Audit log** entries are append-only and attributed to their writer. Only the owner, admins and holders of a
+  moderation permission can write them. They are readable by the owner, admins and viewAudit holders.
+- **Checkpoints.** Members delete only their own checkpoints; the owner and admins can delete any. All of a file's
+  checkpoints can be removed at once only together with the file itself.
+- **Game likes** are one per account. A game's like records can only be cleared together with the game.
+- Only the author can edit a message. The author or someone with manageMessages can delete it (soft delete leaves a
+  tombstone). In channels only manageMessages holders can pin.
+- **Groups.** Only the owner adds or removes members.
+  - Removing someone must happen in the same write as a move to a new key epoch.
+  - A message must carry the current epoch.
+- **Codespaces.** Only owners and editors can change files, and viewers are read-only.
+- **Blocking.**
+  - Someone you blocked can't send to your DM, react or pin there, re-add your DM index entry or send you a friend request.
+  - They also can't add you to a group or codespace.
+- **Rate limits.** One game publish per minute, one report and one promo guess every 30 seconds, and one coin claim every 20 hours. A new message cannot be created
   with reactions, pins or edit/delete flags. Reactions, typing, read markers, presence and collab
   cursors can be written only for your own uid.
 - Typing indicators are readable only by members of that channel or participants of that DM.
@@ -185,6 +328,30 @@ Deny by default, then:
   can see uids, display names, emails (in Auth), who is in which server, roles, who messaged whom
   and when, message counts and sizes, reaction emoji (but not which message text they react to),
   presence, typing and read times. Only content is hidden.
+- **Group key rotation after a voluntary leave waits for the owner.** The rules cut off the leaver's read access
+  immediately. Until the owner's client is next online, new messages still use a key the leaver held. A removed member
+  keeps whatever they already decrypted.
+- **Codespaces don't rotate keys** when a member is removed. The member loses access through the rules immediately,
+  but keeps any key or ciphertext they already had.
+- **Blocking in servers and groups is client-side.** Messages from a blocked user are hidden behind a "Show" button,
+  but they are still delivered. The rules enforce blocking only for DMs, friend requests and adding members.
+- **Notifications** work only while a Codehub tab is open and unlocked; there is no push server. Message previews in
+  notifications are **off by default**. When you turn them on, decrypted text reaches your OS notification center.
+- **The audit log is best effort.** The acting client writes it right after the action, and the rules can't force it.
+- **Promo guessing is rate-limited per account only**, so a longer random code is safer (the rules require at
+  least 8 characters; one guess per account every 30 s). The guess, including
+  the correct one, is stored unhashed in `promoAttempts/{uid}`. No client can read it, but it is visible in the console.
+- **Caps that only the UI enforces**, because rules can't count: 25 members per group or codespace, 20 checkpoints
+  per file, 500 snippets.
+- **Storage quota.** The Spark plan has 1 GB of database storage and 10 GB/month of downloads for the whole app.
+  Without Cloud Functions, the rules can cap the size of each write but not the total a user stores: anyone can create a
+  codespace and push collab updates (≤ ~1 MiB each), snapshots and checkpoints without a total limit, and each account
+  can publish a 256 KB game every minute. A malicious account could fill the quota, after which writes fail for
+  everyone. Set up **usage alerts** in the Firebase console (Usage and billing → Realtime Database), and delete the
+  offender's data and Auth account in the console if it happens.
+- **Zip export is an unencrypted download** of the decrypted files. The UI says so.
+- **Games have no network access.** CDN scripts and fonts won't load, and imports between ES modules in workspace
+  files aren't bundled.
 - **No key rotation on kick or ban.** A removed member loses database access immediately, but they
   may already have the server key. If they ever regain the ciphertext (for example through a
   leaked backup or a compromised Firebase project), they can decrypt **past and future** messages
@@ -209,8 +376,20 @@ Deny by default, then:
 - **Deleting your account** (Settings → Account) asks you to sign in again, then removes your
   profile, keys, friends, read markers, every message you sent in servers, the servers you own,
   and your DM conversations (both people's messages: once your profile is gone the rules let you
-  wipe DM threads you were part of). Collab edits you made and reactions you left stay. A DM you
-  hid from your list before deleting is not found and stays.
+  wipe DM threads you were part of).
+  - Also removed:
+    - groups and codespaces you own, plus your messages in other groups;
+    - your public games and your likes;
+    - blocks, verifications, notification settings, snippets and equipped cosmetics.
+  - Collab edits, checkpoints you saved and reactions you left stay.
+  - A DM you hid from your list before deleting is not found and stays.
+  - **Never deletable by a client, by design:**
+    - `wallets/{uid}` and `inventory/{uid}`. Otherwise deleting and re-creating would reset coins. They hold only a
+      balance and item ids.
+    - `publishLog/{uid}`, `reportLog/{uid}` and `promoAttempts/{uid}` (timestamps and the last guess).
+    - `admins/{uid}` and reports you filed.
+
+    The project owner can remove any of these in the console.
 - Deleting a server removes its data but cannot remove the server from other members' personal
   server lists (`userServers/{uid}`), and a kick or ban does not remove the kicked user's entry
   either. The client shows such servers as unavailable (dashed icon); clicking it removes the
@@ -224,11 +403,21 @@ Deny by default, then:
 database.rules.json      Realtime Database security rules (deploy these)
 firebase.json            CLI config: database rules + optional hosting of dist/
 ARCHITECTURE.md          Data model, encryption contract, module ownership
-src/lib/                 firebase, crypto, keystore, profiles, presence, servers, messages, markdown, collab/
-src/components/auth/     Sign-in, vault unlock, settings
+src/lib/                 firebase, crypto, keystore, profiles, presence, servers, messages, markdown, collab/ (space, read),
+                         groups, codespaces(+Templates), shop, addons/, games, sandbox, roles, moderation, admin,
+                         reports, announcements, blocks, verify, linkguard, notify, checkpoints, zip, palette, snippets
+src/components/auth/     Sign-in, vault unlock
+src/components/settings/ Settings modal (profile, keys, privacy, notifications, GitHub, add-ons, codes & admin, account)
 src/components/layout/   Server rail, channel sidebar, DMs, members, header tabs
 src/components/chat/     Chat view, composer, emoji, reactions, snippets
-src/components/collab/   Collaborative editor, file tree, GitHub panel
+src/components/collab/   Collaborative editor, file tree, GitHub panel, CollabExtras toolbar slot
+src/components/groups/   Group chats          src/components/codespaces/  Codespaces + templates
+src/components/shop/     Add-on shop          src/components/games/       Arcade
+src/components/sandbox/  Preview sandbox      src/components/roles/       Roles, timeouts, audit log
+src/components/admin/    Admin panel, reports, announcements
+src/components/safety/   Blocking, verification, safe links, notifications, mute
+src/components/productivity/  Checkpoints, zip, command palette, snippet library
+src/components/common/   Shared UserPicker
 ```
 
 Scripts: `npm run dev` (dev server), `npm run build` (production build to `dist/`),

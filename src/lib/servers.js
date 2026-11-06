@@ -141,6 +141,7 @@ export async function deleteServer(sid, uid) {
   await update(ref(db), {
     [`messages/${sid}`]: null,
     [`collab/${sid}`]: null,
+    [`audit/${sid}`]: null,
     [`servers/${sid}`]: null,
     [`userServers/${uid}/${sid}`]: null,
   });
@@ -166,12 +167,23 @@ export function setMemberRole(sid, uid, role) {
   return set(ref(db, `servers/${sid}/members/${uid}/role`), role);
 }
 
+// Kick/ban also drop the target's userServers index entry in the same atomic write, so the server
+// leaves their rail right away. The rules allow that only while the member is being removed.
 export function kickMember(sid, uid) {
-  return update(ref(db, `servers/${sid}`), { [`members/${uid}`]: null, [`keys/${uid}`]: null });
+  return update(ref(db), {
+    [`servers/${sid}/members/${uid}`]: null,
+    [`servers/${sid}/keys/${uid}`]: null,
+    [`userServers/${uid}/${sid}`]: null,
+  });
 }
 
 export function banMember(sid, uid) {
-  return update(ref(db, `servers/${sid}`), { [`bans/${uid}`]: true, [`members/${uid}`]: null, [`keys/${uid}`]: null });
+  return update(ref(db), {
+    [`servers/${sid}/bans/${uid}`]: true,
+    [`servers/${sid}/members/${uid}`]: null,
+    [`servers/${sid}/keys/${uid}`]: null,
+    [`userServers/${uid}/${sid}`]: null,
+  });
 }
 
 export function unbanMember(sid, uid) {

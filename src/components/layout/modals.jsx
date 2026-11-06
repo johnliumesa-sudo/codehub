@@ -4,6 +4,7 @@ import { endAt, get, limitToFirst, orderByChild, query, ref, startAt } from 'fir
 import { db } from '../../lib/firebase.js';
 import { usePresences } from '../../lib/presence.js';
 import { useProfiles } from '../../lib/profiles.js';
+import { writeAudit } from '../../lib/moderation.js';
 import {
   MAX_CHANNEL_NAME,
   MAX_SERVER_NAME,
@@ -188,7 +189,7 @@ export function PendingInviteModal({ me, invite, onDone, onDismiss }) {
 
 // ---------- Channel create / edit ----------
 
-export function ChannelModal({ sid, channel, initialType = 'text', nextPosition, onClose, onCreated, onDeleted }) {
+export function ChannelModal({ sid, me, channel, initialType = 'text', nextPosition, onClose, onCreated, onDeleted }) {
   const editing = !!channel;
   const [type, setType] = useState(channel?.type || initialType);
   const [name, setName] = useState(channel?.name || '');
@@ -205,10 +206,16 @@ export function ChannelModal({ sid, channel, initialType = 'text', nextPosition,
     try {
       if (editing) {
         await updateChannel(sid, channel.cid, { name, topic });
+        writeAudit(sid, me, {
+          action: 'channel.update',
+          target: channel.cid,
+          detail: [cleanChannelName(name), cleanChannelName(name) !== channel.name ? `renamed from #${channel.name}` : 'topic edited'].join(' · '),
+        });
         toast('Channel updated', 'success');
         onClose();
       } else {
         const cid = await createChannel(sid, { type, name, topic, position: nextPosition });
+        writeAudit(sid, me, { action: 'channel.create', target: cid, detail: `${cleanChannelName(name)} · ${type}` });
         onCreated({ cid, type });
       }
     } catch (err) {
@@ -256,6 +263,7 @@ export function ChannelModal({ sid, channel, initialType = 'text', nextPosition,
               onConfirm={async () => {
                 try {
                   await deleteChannel(sid, channel.cid);
+                  writeAudit(sid, me, { action: 'channel.delete', target: channel.cid, detail: channel.name || '' });
                   toast('Channel deleted', 'success');
                   onDeleted?.(channel.cid);
                 } catch (err) {

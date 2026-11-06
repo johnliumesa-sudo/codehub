@@ -3,14 +3,10 @@ import { usePresences } from '../../lib/presence.js';
 import { useProfiles } from '../../lib/profiles.js';
 import {
   MAX_SERVER_NAME,
-  banMember,
-  canManage,
-  canModerate,
   createInvite,
   deleteServer,
   inviteLink,
   inviteState,
-  kickMember,
   leaveServer,
   revokeInvite,
   setMemberRole,
@@ -18,6 +14,12 @@ import {
   updateServer,
 } from '../../lib/servers.js';
 import { sendServerInvite, useFriends } from '../../lib/friends.js';
+import { can, outranks } from '../../lib/roles.js';
+import { writeAudit } from '../../lib/moderation.js';
+import RolesTab from '../roles/RolesTab.jsx';
+import AuditLogTab from '../roles/AuditLogTab.jsx';
+import MemberRoleControls from '../roles/MemberRoleControls.jsx';
+import RoleBadge, { TimeoutMark } from '../roles/RoleBadge.jsx';
 import { useDbValue } from './hooks.js';
 import { ColorPicker } from './modals.jsx';
 import { Avatar, ConfirmButton, Icon, Modal, copyText, useToast } from './ui.jsx';
@@ -51,7 +53,7 @@ function Overview({ sid, meta, myRole, me, onLeft, onDeleted }) {
   const [error, setError] = useState('');
   const [confirmName, setConfirmName] = useState('');
   const toast = useToast();
-  const admin = canManage(myRole);
+  const admin = myRole === 'owner' || myRole === 'admin'; // rename stays owner/admin (meta rule)
   const dirty = (name.trim() && name.trim() !== meta.name) || color !== meta.color;
 
   useEffect(() => {
@@ -219,6 +221,11 @@ function Invites({ sid, me, serverName, memberUids, autoCreate, onAutoCreated })
     setErr('');
     try {
       const iid = await createInvite(sid, me.uid, { expiresInMs: expires, maxUses });
+      writeAudit(sid, me, {
+        action: 'invite.create',
+        target: iid,
+        detail: [expires ? EXPIRY.find((x) => x[1] === expires)?.[0] : 'never expires', maxUses ? `${maxUses} uses` : 'no limit'].join(' · '),
+      });
       const link = await inviteLink(sid, iid);
       setFresh({ iid, link });
       if (await copyText(link)) toast('Invite link copied', 'success');
@@ -303,7 +310,12 @@ function Invites({ sid, me, serverName, memberUids, autoCreate, onAutoCreated })
                 )}
                 <ConfirmButton
                   confirmLabel="Revoke?"
-                  onConfirm={() => revokeInvite(sid, inv.iid).catch((e) => toast(errMsg(e), 'error'))}
+                  onConfirm={() =>
+                    revokeInvite(sid, inv.iid).then(
+                      () => writeAudit(sid, me, { action: 'invite.revoke', target: inv.iid }),
+                      (e) => toast(errMsg(e), 'error'),
+                    )
+                  }
                 >
                   Revoke
                 </ConfirmButton>
@@ -318,16 +330,16 @@ function Invites({ sid, me, serverName, memberUids, autoCreate, onAutoCreated })
 
 // ---------- Members ----------
 
-function Members({ sid, members, myRole, me, onMessage }) {
+function Members({ sid, members, myRole, me, meMember, roles = {}, timeouts = {}, onMessage }) {
   const [filter, setFilter] = useState('');
   const profiles = useProfiles(members.map((m) => m.uid));
   const presence = usePresences(members.map((m) => m.uid));
   const toast = useToast();
   const f = filter.trim().toLowerCase();
-  const rank = { owner: 0, admin: 1, member: 2 };
+  const rk = (m) => (m.role === 'owner' ? 1000 : m.role === 'admin' ? 900 : roles[m.roleId]?.position || 0);
   const list = members
     .filter((m) => !f || (profiles[m.uid]?.name || '').toLowerCase().includes(f))
-    .sort((a, b) => rank[a.role] - rank[b.role] || (profiles[a.uid]?.name || '').localeCompare(profiles[b.uid]?.name || ''));
+    .sort((a, b) => rk(b) - rk(a) || (profiles[a.uid]?.name || '').localeCompare(profiles[b.uid]?.name || ''));
 
   const act = (fn, ok) => async () => {
     try {
@@ -348,7 +360,7 @@ function Members({ sid, members, myRole, me, onMessage }) {
         {list.map((m) => {
           const p = profiles[m.uid];
           const isMe = m.uid === me.uid;
-          const mod = !isMe && canModerate(myRole, m.role);
+          const mod = !isMe && outranks(meMember || { uid: me.uid, role: myRole }, m, roles);
           return (
             <div key={m.uid} className="ly-row">
               <div className="ly-row-main person">
@@ -358,6 +370,7 @@ function Members({ sid, members, myRole, me, onMessage }) {
                     {p?.name || '…'} {isMe && <span className="muted">(you)</span>}
                   </span>
                   <span className={`ly-role-tag ${m.role}`}>{m.role}</span>
+                  {m.role === 'member' && <RoleBadge member={m} roles={roles} small />} <TimeoutMark until={timeouts[m.uid]} />
                 </span>
               </div>
               <div className="ly-row-actions">
@@ -370,7 +383,10 @@ function Members({ sid, members, myRole, me, onMessage }) {
                   <select
                     className="input ly-role-select"
                     value={m.role}
-                    onChange={(e) => act(() => setMemberRole(sid, m.uid, e.target.value), 'Role updated')()}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      act(() => setMemberRole(sid, m.uid, v).then(() => writeAudit(sid, me, { action: 'member.role', target: m.uid, detail: v })), 'Role updated')();
+                    }}
                     aria-label="Role"
                   >
                     <option value="member">Member</option>
@@ -378,14 +394,14 @@ function Members({ sid, members, myRole, me, onMessage }) {
                   </select>
                 )}
                 {mod && (
-                  <>
-                    <ConfirmButton className="btn sm" confirmLabel="Kick?" onConfirm={act(() => kickMember(sid, m.uid), 'Member removed')}>
-                      Kick
-                    </ConfirmButton>
-                    <ConfirmButton confirmLabel="Ban?" onConfirm={act(() => banMember(sid, m.uid), 'Member banned')}>
-                      <Icon name="ban" size={13} /> Ban
-                    </ConfirmButton>
-                  </>
+                  <MemberRoleControls
+                    sid={sid}
+                    me={meMember || { uid: me.uid, role: myRole }}
+                    member={m}
+                    roles={roles}
+                    timeoutUntil={timeouts[m.uid] || 0}
+                    name={p?.name}
+                  />
                 )}
               </div>
             </div>
@@ -399,7 +415,7 @@ function Members({ sid, members, myRole, me, onMessage }) {
   );
 }
 
-function Bans({ sid, canUnban }) {
+function Bans({ sid, me, canUnban }) {
   const { loading, value, error } = useDbValue(`servers/${sid}/bans`);
   const uids = Object.keys(value || {});
   const profiles = useProfiles(uids);
@@ -417,11 +433,19 @@ function Bans({ sid, canUnban }) {
               <span className="ly-dm-name">{profiles[uid]?.name || uid}</span>
             </div>
             {canUnban ? (
-              <ConfirmButton className="btn sm" confirmLabel="Unban?" onConfirm={() => unbanMember(sid, uid).then(() => toast('Unbanned', 'success'), (e) => toast(errMsg(e), 'error'))}>
+              <ConfirmButton className="btn sm" confirmLabel="Unban?" onConfirm={() =>
+                  unbanMember(sid, uid).then(
+                    () => {
+                      writeAudit(sid, me, { action: 'unban', target: uid });
+                      toast('Unbanned', 'success');
+                    },
+                    (e) => toast(errMsg(e), 'error'),
+                  )
+                }>
                 Unban
               </ConfirmButton>
             ) : (
-              <span className="muted small" title="Only the server owner can lift bans">Owner can unban</span>
+              <span className="muted small" title="Only members with the Ban permission can lift bans">Ban permission needed</span>
             )}
           </div>
         ))}
@@ -432,31 +456,54 @@ function Bans({ sid, canUnban }) {
 
 // ---------- Shell ----------
 
-export default function ServerSettingsModal({ sid, meta, myRole, me, members, initialTab = 'overview', onClose, onLeft, onMessage }) {
-  const admin = canManage(myRole);
+export default function ServerSettingsModal({
+  sid,
+  meta,
+  myRole,
+  me,
+  members,
+  meMember,
+  roles = {},
+  timeouts = {},
+  perms = {},
+  initialTab = 'overview',
+  onClose,
+  onLeft,
+  onMessage,
+}) {
+  const staff = myRole === 'owner' || myRole === 'admin';
+  const meM = meMember || { uid: me.uid, role: myRole };
   const tabs = [
     ['overview', 'Overview', 'gear'],
-    admin && ['invites', 'Invites', 'link'],
+    (staff || perms.manageInvites) && ['invites', 'Invites', 'link'],
     ['members', `Members (${members.length})`, 'users'],
-    admin && ['bans', 'Bans', 'ban'],
+    (staff || perms.manageRoles) && ['roles', 'Roles', 'shield'],
+    (staff || perms.ban) && ['bans', 'Bans', 'ban'],
+    (staff || perms.viewAudit) && ['audit', 'Audit log', 'key'],
   ].filter(Boolean);
   const [tab, setTab] = useState(tabs.some((t) => t[0] === initialTab) ? initialTab : 'overview');
   const [autoInvite, setAutoInvite] = useState(initialTab === 'invites');
+  // Perms can change live (role removed): never keep rendering a tab that is no longer offered.
+  const shown = tabs.some((t) => t[0] === tab) ? tab : 'overview';
 
   return (
     <Modal title={meta.name ? `${meta.name}` : 'Server settings'} onClose={onClose} wide className="ly-settings">
       <div className="ly-tabs-line" role="tablist">
         {tabs.map(([k, label, icon]) => (
-          <button key={k} role="tab" aria-selected={tab === k} className={`ly-tabline ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)}>
+          <button key={k} role="tab" aria-selected={shown === k} className={`ly-tabline ${shown === k ? 'on' : ''}`} onClick={() => setTab(k)}>
             <Icon name={icon} size={14} /> {label}
           </button>
         ))}
       </div>
       <div className="ly-settings-body">
-        {tab === 'overview' && <Overview sid={sid} meta={meta} myRole={myRole} me={me} onLeft={onLeft} onDeleted={onLeft} />}
-        {tab === 'invites' && <Invites sid={sid} me={me} serverName={meta.name} memberUids={members.map((m) => m.uid)} autoCreate={autoInvite} onAutoCreated={() => setAutoInvite(false)} />}
-        {tab === 'members' && <Members sid={sid} members={members} myRole={myRole} me={me} onMessage={onMessage} />}
-        {tab === 'bans' && <Bans sid={sid} canUnban={myRole === 'owner'} />}
+        {shown === 'overview' && <Overview sid={sid} meta={meta} myRole={myRole} me={me} onLeft={onLeft} onDeleted={onLeft} />}
+        {shown === 'invites' && <Invites sid={sid} me={me} serverName={meta.name} memberUids={members.map((m) => m.uid)} autoCreate={autoInvite} onAutoCreated={() => setAutoInvite(false)} />}
+        {shown === 'members' && (
+          <Members sid={sid} members={members} myRole={myRole} me={me} meMember={meM} roles={roles} timeouts={timeouts} onMessage={onMessage} />
+        )}
+        {shown === 'roles' && <RolesTab sid={sid} me={meM} members={members} roles={roles} />}
+        {shown === 'bans' && <Bans sid={sid} me={me} canUnban={can(meM, roles, 'ban')} />}
+        {shown === 'audit' && <AuditLogTab sid={sid} canView={staff || can(meM, roles, 'viewAudit')} />}
       </div>
     </Modal>
   );

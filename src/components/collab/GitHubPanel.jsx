@@ -32,7 +32,7 @@ const rowA11y = (activate, label, extra = {}) => ({
 });
 
 
-function LinkForm({ sid, cid, sKey, token, onDone, initial }) {
+function LinkForm({ space, sid, cid, sKey, token, onDone, initial }) {
   const [repoInput, setRepoInput] = useState(initial ? `${initial.owner}/${initial.repo}` : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -45,6 +45,7 @@ function LinkForm({ sid, cid, sKey, token, onDone, initial }) {
     try {
       const info = await getRepo(parsed.owner, parsed.repo, token);
       await setRepoLink({
+        space,
         sid,
         cid,
         key: sKey,
@@ -233,7 +234,7 @@ function ListView({ load, deps, render, empty }) {
 
 function ItemRow({ item, icon, sub }) {
   return (
-    <a className="cx-gh-item" href={item.html_url} target="_blank" rel="noreferrer noopener">
+    <a className="cx-gh-item" href={item.html_url} target="_blank" rel="noreferrer noopener" data-trusted-link>
       <Icon name={icon} size={15} className={`cx-gh-item-ico ${icon}`} />
       <span className="cx-gh-item-main">
         <span className="cx-gh-item-title">{item.title}</span>
@@ -314,7 +315,7 @@ function PullModal({ link, token, branches, defaultBranch, onClose }) {
         <div className="cx-form">
           <p>Pull request <b>#{done.number}</b> opened.</p>
           <div className="cx-form-actions">
-            <a className="btn primary" href={done.html_url} target="_blank" rel="noreferrer noopener">View on GitHub <Icon name="external" size={13} /></a>
+            <a className="btn primary" href={done.html_url} target="_blank" rel="noreferrer noopener" data-trusted-link>View on GitHub <Icon name="external" size={13} /></a>
             <button className="btn ghost" onClick={onClose}>Close</button>
           </div>
         </div>
@@ -353,7 +354,7 @@ function PullModal({ link, token, branches, defaultBranch, onClose }) {
   );
 }
 
-export default function GitHubPanel({ sid, cid, sKey, link, linkLoading, linkError, token, files, onOpenRemote, notify }) {
+export default function GitHubPanel({ space, sid, cid, sKey, link, linkLoading, linkError, token, files, onOpenRemote, notify, readOnly = false }) {
   const [tab, setTab] = useState('files');
   const [branches, setBranches] = useState([]);
   const [defaultBranch, setDefaultBranch] = useState(null);
@@ -375,20 +376,31 @@ export default function GitHubPanel({ sid, cid, sKey, link, linkLoading, linkErr
   const switchBranch = useCallback(
     async (branch) => {
       try {
-        await setRepoLink({ sid, cid, key: sKey, link: { ...link, branch } });
+        await setRepoLink({ space, sid, cid, key: sKey, link: { ...link, branch } });
       } catch (err) {
         notify(err.message, 'error');
       }
     },
-    [sid, cid, sKey, link, notify],
+    [space, sid, cid, sKey, link, notify],
   );
 
   if (linkLoading) return <div className="cx-pad"><div className="spinner cx-spin-sm" /></div>;
+  if (!link && readOnly)
+    return (
+      <div className="cx-gh">
+        {linkError && <div className="error-text cx-pad">{linkError}</div>}
+        <div className="cx-gh-hero cx-pad">
+          <Icon name="github" size={30} />
+          <h3>No repository linked</h3>
+          <p className="muted">An editor can link a GitHub repository to this workspace.</p>
+        </div>
+      </div>
+    );
   if (!link || modal === 'relink')
     return (
       <div className="cx-gh">
         {linkError && <div className="error-text cx-pad">{linkError}</div>}
-        <LinkForm sid={sid} cid={cid} sKey={sKey} token={token} initial={link} onDone={() => setModal(null)} />
+        <LinkForm space={space} sid={sid} cid={cid} sKey={sKey} token={token} initial={link} onDone={() => setModal(null)} />
         {modal === 'relink' && <button className="btn ghost sm cx-pad" onClick={() => setModal(null)}>Cancel</button>}
       </div>
     );
@@ -397,26 +409,26 @@ export default function GitHubPanel({ sid, cid, sKey, link, linkLoading, linkErr
   return (
     <div className="cx-gh">
       <div className="cx-gh-head">
-        <a className="cx-gh-repo" href={`https://github.com/${link.owner}/${link.repo}`} target="_blank" rel="noreferrer noopener" title="Open on GitHub">
+        <a className="cx-gh-repo" href={`https://github.com/${link.owner}/${link.repo}`} target="_blank" rel="noreferrer noopener" data-trusted-link title="Open on GitHub">
           <Icon name="github" size={15} />
           <span><span className="muted">{link.owner}/</span>{link.repo}</span>
         </a>
-        <button className="cx-row-act" title="Change repository" onClick={() => setModal('relink')}><Icon name="edit" size={13} /></button>
-        <button className="cx-row-act danger" title="Unlink" onClick={() => setModal('unlink')}><Icon name="close" size={13} /></button>
+        {!readOnly && <button className="cx-row-act" title="Change repository" onClick={() => setModal('relink')}><Icon name="edit" size={13} /></button>}
+        {!readOnly && <button className="cx-row-act danger" title="Unlink" onClick={() => setModal('unlink')}><Icon name="close" size={13} /></button>}
       </div>
       {modal === 'unlink' && (
         <div className="cx-confirm cx-pad-x">
           <span>Unlink repo for everyone?</span>
-          <button className="btn sm danger" onClick={async () => { setModal(null); await setRepoLink({ sid, cid, key: sKey, link: null }); }}>Unlink</button>
+          <button className="btn sm danger" onClick={async () => { setModal(null); await setRepoLink({ space, sid, cid, key: sKey, link: null }); }}>Unlink</button>
           <button className="btn sm ghost" onClick={() => setModal(null)}>Cancel</button>
         </div>
       )}
       <div className="cx-gh-branch">
         <Icon name="branch" size={14} />
-        <select className="cx-select" value={link.branch} onChange={(e) => switchBranch(e.target.value)}>
+        <select className="cx-select" value={link.branch} disabled={readOnly} title={readOnly ? 'Only editors can switch the workspace branch' : undefined} onChange={(e) => switchBranch(e.target.value)}>
           {[...new Set([link.branch, ...branches.map((b) => b.name)])].map((b) => <option key={b}>{b}</option>)}
         </select>
-        <button className="btn sm" disabled={!canWrite} title={canWrite ? 'Create branch' : 'Requires a GitHub token'} onClick={() => setModal('branch')}>
+        <button className="btn sm" disabled={!canWrite || readOnly} title={readOnly ? 'Only editors can create a workspace branch' : canWrite ? 'Create branch' : 'Requires a GitHub token'} onClick={() => setModal('branch')}>
           <Icon name="plus" size={12} />
         </button>
         <button className="btn sm" disabled={!canWrite} title={canWrite ? 'Open pull request' : 'Requires a GitHub token'} onClick={() => setModal('pr')}>
