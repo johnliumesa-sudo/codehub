@@ -12,7 +12,7 @@ import { db } from '../firebase.js';
 import { decryptBytes, decryptJSON, encryptBytes, encryptJSON } from '../crypto.js';
 import { currentUid } from '../keystore.js';
 import { blobCache } from './cache.js';
-import { STORED_MIMES, processImage } from './image.js';
+import { STORED_MIMES, assertDims, processImage } from './image.js';
 import { keyForScope, scopeOf } from './scope.js';
 
 export const MAX_ATTACHMENTS = 4;
@@ -165,6 +165,9 @@ export function loadAttachment(conv, att) {
         return decryptBytes(key, cs.val(), attChunkAad(scope, att.attId, i));
       }),
     );
+    // Stored images are always <= ATT_MAX_DIM per side; refuse anything larger (decompression bomb from a modified client).
+    const head = parts[0] instanceof Uint8Array ? parts[0] : new Uint8Array(parts[0]);
+    assertDims(head, { maxDim: ATT_MAX_DIM, requireKnown: true });
     return new Blob(parts, { type: info.mime });
   });
 }
