@@ -9,6 +9,9 @@ import AdminBadge from '../admin/AdminBadge.jsx';
 import ReportButton from '../admin/ReportButton.jsx';
 import { MessageAttachments } from '../media/Attachments.jsx';
 import { GifMessage } from '../media/GifPicker.jsx';
+import PollCard from '../chatx/PollCard.jsx';
+import ForwardedTag from '../chatx/ForwardedTag.jsx';
+import { addBookmark } from '../../lib/chatx/bookmarks.js';
 
 function fmtTime(ts) {
   if (typeof ts !== 'number') return '';
@@ -154,9 +157,11 @@ function Message(props) {
             <EditBox initial={m.body} onSave={(body) => onEditSave(m.mid, body)} onCancel={onEditCancel} />
           ) : (
             <>
+              {m.body?.fwd && <ForwardedTag fwd={m.body.fwd} />}
               {text && (
                 <div
                   className={`msg-text md${jumbo ? ' jumbo' : ''}`}
+                  onClick={(e) => { const sp = e.target.closest?.('.spoiler'); if (sp) sp.classList.toggle('revealed'); }}
                   // Sanitized by DOMPurify in renderMarkdown().
                   dangerouslySetInnerHTML={{ __html: html }}
                 />
@@ -164,6 +169,7 @@ function Message(props) {
               {m.body?.code && <CodeSnippet code={m.body.code} onCopied={onCopied} />}
               {conv && m.body?.attachments?.length > 0 && <MessageAttachments scope={conv} attachments={m.body.attachments} />}
               {m.body?.gif && <GifMessage gif={m.body.gif} />}
+              {conv && m.body?.poll && <PollCard conv={conv} mid={m.mid} poll={m.body.poll} me={me} />}
               {invite && <InviteCard invite={invite} name={m.body?.invite?.name} mine={m.uid === me.uid} />}
               {m.editedAt && <span className="msg-edited" title={`Edited ${fmtFull(m.editedAt)}`}>(edited)</span>}
               {grouped && m.pinned && <span className="msg-pin-flag" title="Pinned">📌</span>}
@@ -218,6 +224,19 @@ function Message(props) {
           <button type="button" className="tb-btn" title="Reply" onClick={() => onReply(m.mid)}>
             <ReplyIcon />
           </button>
+          {conv && (
+            <button
+              type="button"
+              className="tb-btn"
+              title="Save (bookmark)"
+              onClick={() => addBookmark(me.uid, conv, { mid: m.mid, uid: m.uid, ts: m.ts }, m.body, author?.name || '').then(
+                () => onCopied?.('Saved to bookmarks'),
+                (err) => onCopied?.(err?.message || 'Could not save'),
+              )}
+            >
+              🔖
+            </button>
+          )}
           {canEdit && (
             <button type="button" className="tb-btn" title="Edit" onClick={() => onEdit(m.mid)}>
               <EditIcon />

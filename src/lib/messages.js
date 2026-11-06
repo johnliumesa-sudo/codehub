@@ -32,6 +32,8 @@ import { getDmKey, getServerKey } from './keystore.js';
 import { getGroupKey, groupMessageAad, groupMessagesPath, groupScope, groupSendExtras, groupTypingPath } from './groups.js';
 import { cleanAttachments } from './media/attachments.js';
 import { cleanGif } from './media/giphy.js';
+import { sanitizePoll } from './chatx/polls.js';
+import { slowmodeExtras } from './serverx/slowmode.js';
 
 export const PAGE_SIZE = 50;
 export const MAX_TEXT = 4000; // characters of message text
@@ -95,7 +97,7 @@ const enc = new TextEncoder();
 
 export function validateBody(body) {
   const text = (body.text || '').trim();
-  if (!text && !body.code?.content) return 'Message is empty.';
+  if (!text && !body.code?.content && !body.poll && !body.gif && !body.attachments?.length) return 'Message is empty.';
   if (text.length > MAX_TEXT) return `Message is too long (${text.length}/${MAX_TEXT}).`;
   if (enc.encode(JSON.stringify(body)).length > MAX_BODY_BYTES) return 'Message is too large (max ~45 KB including code).';
   return null;
@@ -112,6 +114,9 @@ function cleanBody(body) {
   if (atts.length) out.attachments = atts;
   const gif = cleanGif(body.gif);
   if (gif) out.gif = gif;
+  const poll = body.poll ? sanitizePoll(body.poll) : null;
+  if (poll) out.poll = poll;
+  if (body.fwd) out.fwd = { from: String(body.fwd.from || '').slice(0, 64) };
   return out;
 }
 
@@ -136,6 +141,8 @@ function checkBody(body) {
   if (body.invite !== undefined && body.invite !== null) {
     if (typeof body.invite !== 'object' || Array.isArray(body.invite) || !optStr(body.invite.name)) throw new Error('Malformed message body');
   }
+  if (body.poll != null && (typeof body.poll !== 'object' || Array.isArray(body.poll))) throw new Error('Malformed message body');
+  if (body.fwd != null && (typeof body.fwd !== 'object' || Array.isArray(body.fwd) || !optStr(body.fwd.from))) throw new Error('Malformed message body');
   return body;
 }
 
@@ -215,7 +222,7 @@ export async function fetchPinned(conv) {
  * once and delivers it when the connection allows). Resolves to { mid, done } as soon as the write
  * is queued; `done` settles on server ack / rejection.
  */
-export async function sendMessage(conv, me, body, { replyTo } = {}) {
+export async function sendMessage(conv, me, body, { replyTo, slow } = {}) {
   const clean = cleanBody(body);
   const err = validateBody(clean);
   if (err) throw new Error(err);
@@ -234,7 +241,13 @@ export async function sendMessage(conv, me, body, { replyTo } = {}) {
   const record = { uid: me.uid, ts: serverTimestamp(), iv: box.iv, ct: box.ct };
   if (epoch !== null) record.epoch = epoch;
   if (replyTo) record.replyTo = replyTo;
-  const sent = set(msgRef, record);
+  const extras = conv.kind === 'channel'
+    ? slowmodeExtras({ sid: conv.sid, cid: conv.cid, uid: me.uid, seconds: slow?.seconds, bypass: slow?.bypass })
+    : {};
+  // Slowmode: the rules require lastPost/{sid}/{cid}/{uid} = now in the SAME update as the message.
+  const sent = Object.keys(extras).length
+    ? update(ref(db), { [`${messagesPath(conv)}/${mid}`]: record, ...extras })
+    : set(msgRef, record);
 
   let done = sent;
   if (conv.kind === 'dm') {

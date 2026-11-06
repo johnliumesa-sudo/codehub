@@ -49,6 +49,12 @@ Other features:
 2. Optional TURN servers (up to 4) in the same form, for users behind strict NATs. TURN credentials are also client-visible; use a restricted/time-limited account. Without TURN, calls use Google STUN only and some networks will fail to connect.
 3. GIPHY sees viewers' IP addresses and search terms.
 
+## Chat and server extras
+
+- **Polls** (📊 in the composer), **spoilers** (`||hidden||`, click to reveal), **saved messages** (🔖 on a message; 🔖 in the header lists them, encrypted to your vault) and a "Forwarded" tag on forwarded messages.
+- **Slowmode** per text channel (channel settings; moderators are exempt), **channel categories** (server menu → Manage categories; names are encrypted), **profile bio, pronouns, links and banner color** (Settings → My profile), and a **keyboard shortcut overlay** (press `?`).
+- Plaintext by design: poll vote indices (not the option text), slowmode timers, category order, profile bio/pronouns/links. Poll votes can be read by any signed-in user who knows the message id.
+
 ## 1. Setup
 
 ### Firebase project (already done)

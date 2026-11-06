@@ -5,6 +5,7 @@ import { auth, db } from '../../lib/firebase.js';
 import { keyFingerprint } from '../../lib/crypto.js';
 import { loadGithubToken, myPublicKey, saveGithubToken } from '../../lib/keystore.js';
 import { AVATAR_COLORS, initials, useProfile } from '../../lib/profiles.js';
+import { ProfileExtrasEditor } from '../serverx/ProfileExtras.jsx';
 import { stopPresence } from '../../lib/presence.js';
 import { deleteAccount, reauthenticate, signInMethod } from '../../lib/account.js';
 import { NAME_MAX, PasswordInput, authErrorMessage } from '../auth/AuthScreen.jsx';
@@ -80,6 +81,7 @@ function ProfileTab({ user }) {
   }
 
   return (
+    <>
     <form onSubmit={save} className="settings-section">
       <div className="profile-preview">
         <div className="profile-banner" style={{ background: `linear-gradient(135deg, ${color}, ${color}55)` }} />
@@ -132,6 +134,8 @@ function ProfileTab({ user }) {
         <button className="btn primary" disabled={busy || !dirty}>{busy ? 'Saving…' : 'Save changes'}</button>
       </div>
     </form>
+    {profile && <ProfileExtrasEditor uid={user.uid} profile={profile} onSaved={() => setMsg({ ok: true, text: 'Profile details saved.' })} onError={(e) => setMsg({ ok: false, text: e?.message || 'Could not save profile details.' })} />}
+    </>
   );
 }
 

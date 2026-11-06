@@ -206,7 +206,7 @@ export function usePaletteSources(me, open) {
                     serverName: name,
                     name: chName,
                     topic,
-                    type: c.type === 'code' ? 'code' : 'text',
+                    type: c.type === 'code' || c.type === 'voice' ? c.type : 'text',
                     position: typeof c.position === 'number' ? c.position : 0,
                   });
                 } catch {

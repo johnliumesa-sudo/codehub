@@ -1,3 +1,4 @@
+import PollComposer from '../chatx/PollComposer.jsx';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { mentionToken, searchEmoji } from '../../lib/markdown.js';
 import { MAX_TEXT } from '../../lib/messages.js';
@@ -30,6 +31,7 @@ const Composer = forwardRef(function Composer(props, ref) {
   const onPasteFiles = usePasteFiles(draft.add);
   const gifOn = useGifEnabled();
   const [gifOpen, setGifOpen] = useState(false);
+  const [pollOpen, setPollOpen] = useState(false);
   const [upErr, setUpErr] = useState('');
 
   const [value, setValue] = useState('');
@@ -207,6 +209,15 @@ const Composer = forwardRef(function Composer(props, ref) {
           }}
         />
       )}
+      {conv && pollOpen && (
+        <PollComposer
+          onClose={() => setPollOpen(false)}
+          onCreate={async (poll) => {
+            setPollOpen(false);
+            await onSend({ text: '', poll });
+          }}
+        />
+      )}
       {trigger && suggestions.length > 0 && (
         <div className="composer-suggest" role="listbox">
           <div className="composer-suggest-title">{trigger.kind === 'emoji' ? `Emoji matching :${trigger.query}` : 'Members'}</div>
@@ -256,6 +267,9 @@ const Composer = forwardRef(function Composer(props, ref) {
           />
         )}
         {conv && <AttachmentButton onFiles={draft.add} />}
+        {conv && (
+          <button type="button" className="composer-btn" onClick={() => setPollOpen(true)} disabled={disabled} aria-label="Create a poll" title="Poll">📊</button>
+        )}
         {conv && gifOn && (
           <button type="button" className="composer-btn" onClick={() => setGifOpen((o) => !o)} aria-label="Send a GIF" title="GIF">GIF</button>
         )}

@@ -18,6 +18,8 @@ import {
   peerFromDmId,
 } from '../../lib/servers.js';
 import ChannelSidebar from './ChannelSidebar.jsx';
+import BookmarksPanel from '../chatx/BookmarksPanel.jsx';
+import { ShortcutsOverlay } from '../serverx/ShortcutsOverlay.jsx';
 import DmSidebar from './DmSidebar.jsx';
 import Header from './Header.jsx';
 import MemberList from './MemberList.jsx';
@@ -191,6 +193,7 @@ function WorkspaceFrame({ user }) {
   const [pendingGameId, setPendingGameId] = useState(null); // game to open in the Arcade (admin panel)
   const [csCreate, setCsCreate] = useState(0); // bump -> CodespacesHome opens "New codespace"
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
   const activeCall = useActiveCall();
   // Ctrl/Cmd+K and Ctrl/Cmd+Shift+P toggle the quick switcher (ignored while another modal is open).
@@ -358,6 +361,18 @@ function WorkspaceFrame({ user }) {
     if (mobile) setNavOpen(false);
   };
   const setTab = (t) => setNav((n) => ({ ...n, tab: t, view: null }));
+  const openBookmark = (b) => {
+    const c = b?.conv || {};
+    setBookmarksOpen(false);
+    if (c.kind === 'channel' && c.sid && c.cid) {
+      setNav((n) => ({ ...n, sid: c.sid, dmId: null, gid: null, view: null, tab: 'chat', chatCid: { ...n.chatCid, [c.sid]: c.cid } }));
+    } else if (c.kind === 'dm' && c.dmId) {
+      selectDm({ dmId: c.dmId });
+    } else if (c.kind === 'group' && c.gid) {
+      selectGroup({ gid: c.gid }); // the group's live epoch/owner come from the normal group subscription
+    }
+    if (mobile) setNavOpen(false);
+  };
 
   const messageUser = async (peerUid) => {
     try {
@@ -836,6 +851,7 @@ function WorkspaceFrame({ user }) {
           onOpenPalette={() => setPaletteOpen(true)}
           extraActions={
             <>
+              <button className="btn ghost sm ly-icon-btn" onClick={() => setBookmarksOpen((o) => !o)} title="Saved messages" aria-label="Saved messages">🔖</button>
               {callButton}
               <NotificationBell me={uid} onNavigate={onNotifNavigate} global />
             </>
@@ -992,6 +1008,12 @@ function WorkspaceFrame({ user }) {
           </div>
         </Modal>
       )}
+      {bookmarksOpen && (
+        <Modal title="Saved messages" onClose={() => setBookmarksOpen(false)}>
+          <BookmarksPanel me={me} onOpen={openBookmark} />
+        </Modal>
+      )}
+      <ShortcutsOverlay />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

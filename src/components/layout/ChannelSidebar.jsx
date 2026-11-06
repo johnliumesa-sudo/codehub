@@ -6,6 +6,9 @@ import { isUnread } from './hooks.js';
 import { Icon, Menu, MenuItem } from './ui.jsx';
 import VoiceChannelParticipants from '../calls/VoiceChannelParticipants.jsx';
 import CallIcon from '../calls/CallIcon.jsx';
+import { useCategories } from '../../lib/serverx/categories.js';
+import { CategorizedChannels } from '../serverx/CategorizedChannels.jsx';
+import { CategoryManager } from '../serverx/CategoryManager.jsx';
 
 function ChannelRow({ sid, ch, active, unread, canEdit, onSelect, onEdit }) {
   const label = ch.failed ? 'undecryptable' : ch.name;
@@ -67,6 +70,8 @@ export default function ChannelSidebar({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [collapsed, setCollapsed] = useState({});
+  const [catOpen, setCatOpen] = useState(false);
+  const categories = useCategories(sid);
   // Role-based gates (owner/admin hold every permission; custom roles per flag).
   const canChannels = !!perms?.manageChannels;
   const canInvite = !!perms?.manageInvites;
@@ -96,7 +101,7 @@ export default function ChannelSidebar({
   const textSection = (
     <Section key="text" title="Text channels" collapsed={collapsed.text} onToggle={() => toggle('text')}
       onAdd={canChannels ? () => onCreateChannel('text') : null} addLabel="Create text channel">
-      {text.map(row)}
+      <CategorizedChannels sid={sid} channels={text} categories={categories} renderChannel={row} onManage={canChannels ? () => setCatOpen(true) : undefined} />
       {!loading && text.length === 0 && <p className="ly-section-empty">No text channels yet</p>}
     </Section>
   );
@@ -132,6 +137,7 @@ export default function ChannelSidebar({
           {canChannels && <MenuItem icon="hash" onClick={() => onCreateChannel('text')}>Create text channel</MenuItem>}
           {canChannels && <MenuItem icon="code" onClick={() => onCreateChannel('code')}>Create code workspace</MenuItem>}
           {canChannels && <MenuItem icon="users" onClick={() => onCreateChannel('voice')}>Create voice channel</MenuItem>}
+          {canChannels && <MenuItem icon="gear" onClick={() => { setMenuOpen(false); setCatOpen(true); }}>Manage categories</MenuItem>}
           {myRole !== 'owner' && <div className="ly-menu-sep" />}
           {myRole !== 'owner' && <MenuItem icon="door" danger onClick={onLeave}>Leave server</MenuItem>}
         </Menu>
@@ -151,6 +157,7 @@ export default function ChannelSidebar({
         )}
         {!loading && (tab === 'collab' ? [codeSection, textSection, voiceSection] : [textSection, voiceSection, codeSection])}
       </div>
+      {catOpen && <CategoryManager sid={sid} channels={channels.filter((c) => c.type === 'text')} onClose={() => setCatOpen(false)} />}
     </div>
   );
 }

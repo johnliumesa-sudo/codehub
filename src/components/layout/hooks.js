@@ -120,7 +120,9 @@ export function useChannels(sid, nonce) {
         const p = (k && peekPlain(k)) || (k && dec[k]) || null;
         return {
           cid,
-          type: ch.type === 'code' ? 'code' : 'text',
+          type: ch.type === 'code' || ch.type === 'voice' ? ch.type : 'text',
+          cat: typeof ch.cat === 'string' ? ch.cat : null,
+          slowmode: typeof ch.slowmode === 'number' ? ch.slowmode : 0,
           position: typeof ch.position === 'number' ? ch.position : 0,
           createdAt: typeof ch.createdAt === 'number' ? ch.createdAt : 0,
           name: p && !p.failed ? p.name : null,

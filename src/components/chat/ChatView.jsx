@@ -1,3 +1,5 @@
+import { useSlowmode, bypassesSlowmode, SLOWMODE_DENIED } from '../../lib/serverx/slowmode.js';
+import { SlowmodeBar } from '../serverx/SlowmodeBar.jsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onValue, ref } from 'firebase/database';
 import { db } from '../../lib/firebase.js';
@@ -207,6 +209,8 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
   const isAdmin = (conv.kind === 'channel' && can(meMember, roles, 'manageMessages'))
     || (conv.kind === 'group' && conv.ownerId === me.uid);
   const canPinAny = conv.kind === 'dm' || conv.kind === 'group' || isAdmin;
+  const slowBypass = conv.kind === 'channel' && bypassesSlowmode(meMember, roles);
+  const slow = useSlowmode(chSid || undefined, conv.kind === 'channel' ? conv.cid : undefined, me.uid, slowBypass);
   const timedOutUntil = useMyTimeout(chSid, me.uid);
   const peerUid = conv.kind === 'dm' ? conv.peerUid : null;
   const iBlockedPeer = useIsBlocked(me.uid, peerUid);
@@ -269,12 +273,17 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
       setKeyConfirm(body);
       return false;
     }
+    if (slow?.blocked) {
+      flash(SLOWMODE_DENIED);
+      return false;
+    }
     const reply = replyTo;
     setReplyTo(null);
     setTyping(tPath, me.uid, false);
     let res;
     try {
-      res = await sendMessage(conv, me, body, { replyTo: reply || undefined });
+      res = await sendMessage(conv, me, body, { replyTo: reply || undefined, slow: { seconds: slow?.seconds, bypass: slowBypass } });
+      slow?.markPosted?.();
     } catch (e) {
       setReplyTo(reply);
       flash(conv.kind === 'dm' && isPermissionDenied(e) ? "This person isn't accepting messages from you." : e?.message || 'Message failed to send');
@@ -293,6 +302,10 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
       clear();
       if (conv.kind === 'dm' && isPermissionDenied(e)) {
         flash("This person isn't accepting messages from you.");
+        return;
+      }
+      if (conv.kind === 'channel' && isPermissionDenied(e) && slow?.seconds) {
+        flash(SLOWMODE_DENIED);
         return;
       }
       const preview = (body.text || body.code?.filename || '').slice(0, 40);
@@ -353,7 +366,7 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
   const onDelete = useCallback((mid, skipConfirm) => (skipConfirm ? handleDelete(mid) : setConfirmDelete(mid)), [handleDelete]);
   const onOpenReactPicker = useCallback((mid, rect) => setReactPicker({ mid, rect }), []);
   const closeReactPicker = useCallback(() => setReactPicker(null), []);
-  const onCopied = useCallback(() => flash('Copied to clipboard', 'ok'), [flash]);
+  const onCopied = useCallback((msg) => flash(typeof msg === 'string' ? msg : 'Copied to clipboard', 'ok'), [flash]);
 
   const onTyping = useCallback(() => setTyping(tPath, me.uid, true), [tPath, me.uid]);
   const onStopTyping = useCallback(() => setTyping(tPath, me.uid, false), [tPath, me.uid]);
@@ -496,6 +509,7 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
           )}
           {!keyError && !timedOutUntil && !iBlockedPeer && (
             <div className="chat-composer-wrap">
+              {conv.kind === 'channel' && <SlowmodeBar slow={slow} />}
               <Composer
                 ref={composerRef}
                 conv={conv}

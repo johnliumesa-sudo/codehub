@@ -406,3 +406,23 @@ Every navigation action clears `view`.
 - No calls or notifications while the browser is closed (no push on Spark). Mesh capped at 6 (upload grows per peer). Peers see each other's IP addresses (TURN only if an admin configures it). A removed group member keeps their call slot until leaving but cannot signal.
 - GIFs load from GIPHY: GIPHY sees viewer IPs and search terms (no-referrer is used). Animated uploads keep original bytes. Attachments can orphan after server/group deletion (unreadable, but count toward the 1 GB quota).
 - The minified rules are ~104 KB, over the console's 100 KB paste limit: deploy with `npm run deploy` (CLI), not by console paste.
+
+## Overnight 2026-11-06 tier 2: chat extras and server extras
+
+### chatx: polls, spoilers, bookmarks, forwarding (`src/lib/chatx`, `src/components/chatx`)
+- **Polls**: the encrypted message body gains `poll: { q ≤200, options[2..10] each ≤80 }` (sanitised by `sanitizePoll` on send in `messages.cleanBody` and on render). Votes live at `votes/{scope}/{mid}/{uid}` = plaintext option index 0-9, scope = `messages.typingScope(conv)`. Plaintext so the rules enforce "own uid only, one vote per user". The server learns "uid voted option N", never the option text. Membership is **not** enforced on vote reads/writes (push ids contain `_`, so the scope cannot be parsed in rules): accepted limitation. Retract = remove the node. Composer: 📊 button opens `PollComposer`.
+- **Spoilers/quotes**: `||text||` renders `<span class="spoiler">` via the marked extension `spoilerExtension` (in `lib/markdown.js`); click toggles `.revealed` (delegated in `Message.jsx`). Quotes use markdown blockquote.
+- **Bookmarks**: `bookmarks/{uid}/{key}` = `{iv, ct, ts}`; ct = vault-encrypted JSON (conv ref, mid, author, snippet ≤600, savedAt) with AAD `bm:{uid}/{key}`; key = `${scope}_${mid}` with RTDB-forbidden chars replaced (idempotent). Owner-only read/write. Snippets are copies (deleting the original does not remove them). UI: 🔖 in the message toolbar saves; 🔖 in the header opens "Saved messages".
+- **Forwarding**: `forwardMessage` re-encrypts a body into the target conversation key as a new message by the forwarder, carrying `fwd: { from }` (display name, advisory only). `messages.cleanBody` preserves `fwd`; received `fwd` renders `ForwardedTag`. The `ForwardModal` picker is **not yet wired** into the message menu (needs a cross-conversation target list).
+
+### serverx: slowmode, categories, richer profiles, shortcuts (`src/lib/serverx`, `src/components/serverx`)
+- **Slowmode**: `servers/{sid}/channels/{cid}/slowmode` = 1..21600 s (absent = off), written by `manageChannels` (channel edit modal → `SlowmodeControl`). `lastPost/{sid}/{cid}/{uid}` = server timestamp; uid-only read/write, members only, never deleted, value must be `now` and `now - previous ≥ slowmode*1000`. The message `uid` validate requires non-moderators in a slowmode channel to write `lastPost/…/{auth.uid} = now` in the **same** multi-path update (`sendMessage` does this via `slowmodeExtras`). Owner/admin/`manageMessages` are exempt. `SlowmodeBar` shows the countdown above the composer.
+- **Categories**: `servers/{sid}/categories/{catId}` = `{ enc:{iv,ct≤1024}, position }`, enc = server-key `encryptJSON({name})` with AAD `category:{sid}/{catId}`. Members read; `manageChannels` writes. A channel's optional `cat` (≤32 chars) points at a catId; dangling = uncategorized. Text channels are grouped in the sidebar; "Manage categories" in the server menu. Collapsed state is per-viewer `localStorage` (`codehub.collapsedCats`). Decrypted names are cleared with `clearPlainCache()`.
+- **Richer profiles**: `users/{uid}/profile` = `{ bio≤190, pronouns≤40, links{0..2}: https URL ≤200, banner '#rrggbb' }`, publicly readable like `name`, owner write. Editor in Settings → My profile; card in the member profile popover. Links render `rel="noopener noreferrer nofollow ugc"`, https only.
+- **Shortcut overlay**: press `?` (not while typing, not with Ctrl/Meta/Alt, not over another modal); data in `lib/serverx/shortcuts.js` must match real bindings.
+
+### Plaintext by design (tier 2 additions)
+- Poll vote indices per uid (not option text), bookmark timestamps/count, slowmode seconds, `lastPost` timestamps, category positions and channel `cat` ids (category **names** stay encrypted), profile bio/pronouns/links/banner color.
+
+### Tests
+- `tests/rules/serverx.test.mjs` (slowmode window, forgery, moderator exemption, categories, profile validation). Votes/bookmarks rules have no dedicated tests yet.

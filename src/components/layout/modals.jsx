@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { endAt, get, limitToFirst, orderByChild, query, ref, startAt } from 'firebase/database';
 import { db } from '../../lib/firebase.js';
+import { SlowmodeControl } from '../serverx/SlowmodeControl.jsx';
 import { usePresences } from '../../lib/presence.js';
 import { useProfiles } from '../../lib/profiles.js';
 import { writeAudit } from '../../lib/moderation.js';
@@ -282,6 +283,7 @@ export function ChannelModal({ sid, me, channel, initialType = 'text', nextPosit
           </button>
         </div>
       </form>
+      {editing && channel.type === 'text' && <SlowmodeControl sid={sid} cid={channel.cid} onError={(e) => setError(e?.message || 'Could not set slowmode')} />}
     </Modal>
   );
 }
