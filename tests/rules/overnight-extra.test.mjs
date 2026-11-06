@@ -195,5 +195,18 @@ describe('overnight security fixes (round 2)', () => {
     await deny(send('alice', 'zoe', 'p7', 'groupAdd', { gid: 'g1' }));
     await ok(send('alice', 'dave', 'p8', 'groupAdd', { gid: 'g1' }));
   });
+  it('calls: removed member cannot keep updating a slot; remaining members/owner can clear it', async () => {
+    const sl = (uid) => ({ uid, joinedAt: 1, mic: true, cam: false, screen: false });
+    await admin((d) => d.ref().update({
+      'calls/grp_g1': { id: 'call12345678', startedBy: 'erin', ts: 1, kind: 'audio', slots: { 0: sl('erin'), 1: sl('dave') } },
+      'groups/g1/members/erin': null,
+    }));
+    await deny(db('erin').ref('calls/grp_g1/slots/0/mic').set(false));
+    await deny(db('zoe').ref('calls/grp_g1/slots/0').remove());
+    await admin((d) => d.ref('calls/grp_g1/slots/2').set(sl('alice')));
+    await deny(db('dave').ref('calls/grp_g1/slots/2').remove());
+    await ok(db('dave').ref('calls/grp_g1/slots/0').remove());
+    await ok(db('alice').ref('calls/grp_g1/slots/1').remove());
+  });
 });
 
