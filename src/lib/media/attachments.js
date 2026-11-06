@@ -85,7 +85,7 @@ export async function uploadAttachments(conv, files, { onProgress } = {}) {
         meta.sid = conv.sid;
         meta.cid = conv.cid;
       } else if (conv.kind === 'group') meta.gid = conv.gid;
-      await set(ref(db, `${base}/meta`), meta);
+      await writeMetaLogged(uid, scope, p.attId, meta);
       uploaded.push(p);
       await Promise.all(
         Array.from({ length: p.n }, async (_, i) => {
@@ -102,6 +102,33 @@ export async function uploadAttachments(conv, files, { onProgress } = {}) {
     throw e;
   }
   return plans.map((p) => ({ attId: p.attId, w: p.img.w, h: p.img.h, mime: p.img.mime, size: p.bytes.length }));
+}
+
+/**
+ * Rules require each attachment meta write to carry an `attLog/{uid}` update in the
+ * same multi-path write (≤24 uploads per 10-minute window). Try continuing the
+ * current window first; if the window has expired the rules refuse it, so start a new one.
+ */
+async function writeMetaLogged(uid, scope, attId, meta) {
+  const prev = (await get(ref(db, `attLog/${uid}`))).val();
+  const attempts = [];
+  if (prev && typeof prev.ws === 'number' && typeof prev.n === 'number') attempts.push({ ws: prev.ws, n: prev.n + 1 });
+  attempts.push({ ws: serverTimestamp(), n: 1 });
+  let lastErr;
+  for (const w of attempts) {
+    try {
+      await update(ref(db), {
+        [`att/${scope}/${attId}/meta`]: meta,
+        [`attLog/${uid}`]: { ws: w.ws, n: w.n, id: attId, at: serverTimestamp() },
+      });
+      return;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  const err = new Error('Upload limit reached (24 images per 10 minutes). Try again shortly.');
+  err.cause = lastErr;
+  throw err;
 }
 
 /** Removes attachments (author or moderator, per rules). Call alongside deleting the message. */

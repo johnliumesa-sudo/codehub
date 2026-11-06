@@ -1,5 +1,5 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
-import { getEnv, cleanup, reset, db, admin, box, TS, assertFails as deny, assertSucceeds as ok } from "./helpers.mjs";
+import { getEnv, cleanup, reset, db, admin, box, TS, assertFails as deny, assertSucceeds as ok, putAttMeta } from "./helpers.mjs";
 before(getEnv); after(cleanup);
 beforeEach(() => reset());
 const meta = (by, extra = {}) => ({ by, ts: TS, n: 1, size: 10, iv: box.iv, ct: box.ct, ...extra });
@@ -32,11 +32,11 @@ describe('media', () => {
   });
   it('attachments channel', async () => {
     const S = 'att/ch_s1_c1/a1';
-    await deny(db('zoe').ref(`${S}/meta`).set(meta('zoe', { sid: 's1', cid: 'c1' })));
-    await deny(db('dave').ref(`${S}/meta`).set(meta('dave', { sid: 's1', cid: 'c9' })));
+    await deny(putAttMeta('zoe', `${S}`, meta('zoe', { sid: 's1', cid: 'c1' })));
+    await deny(putAttMeta('dave', `${S}`, meta('dave', { sid: 's1', cid: 'c9' })));
     await deny(db('dave').ref(`${S}/c/0`).set(chunk));
-    await ok(db('dave').ref(`${S}/meta`).set(meta('dave', { sid: 's1', cid: 'c1' })));
-    await deny(db('dave').ref(`${S}/meta`).set(meta('dave', { sid: 's1', cid: 'c1' })));
+    await ok(putAttMeta('dave', `${S}`, meta('dave', { sid: 's1', cid: 'c1' })));
+    await deny(putAttMeta('dave', `${S}`, meta('dave', { sid: 's1', cid: 'c1' })));
     await ok(db('dave').ref(`${S}/c/0`).set(chunk));
     await deny(db('erin').ref(`${S}/c/1`).set(chunk));
     await deny(db('dave').ref(`${S}/c/8`).set(chunk));
@@ -47,18 +47,18 @@ describe('media', () => {
     await ok(db('carol').ref('att/ch_s1_c1').update({ a1: null }));
   });
   it('attachments dm + group', async () => {
-    await ok(db('dave').ref('att/dm_dave_zoe/a1/meta').set(meta('dave')));
-    await deny(db('erin').ref('att/dm_dave_zoe/a2/meta').set(meta('erin')));
+    await ok(putAttMeta('dave', 'att/dm_dave_zoe/a1', meta('dave')));
+    await deny(putAttMeta('erin', 'att/dm_dave_zoe/a2', meta('erin')));
     await ok(db('zoe').ref('att/dm_dave_zoe/a1/meta').once('value'));
     await deny(db('erin').ref('att/dm_dave_zoe/a1/meta').once('value'));
     await deny(db('zoe').ref('att/dm_dave_zoe/a1').remove());
     await ok(db('dave').ref('att/dm_dave_zoe/a1').remove());
-    await deny(db('dave').ref('att/grp_g1/a1/meta').set(meta('dave', { gid: 'g1' })));
-    await deny(db('dave').ref('att/grp_g1/a1/meta').set(meta('dave', { gid: 'g1', epoch: 2 })));
-    await deny(db('zoe').ref('att/grp_g1/a1/meta').set(meta('zoe', { gid: 'g1', epoch: 1 })));
-    await ok(db('dave').ref('att/grp_g1/a1/meta').set(meta('dave', { gid: 'g1', epoch: 1 })));
-    await ok(db('erin').ref('att/grp_g1/a1/meta').once('value'));
-    await ok(db('alice').ref('att/grp_g1/a1').remove());
+    await deny(putAttMeta('dave', 'att/grp_g1/a3', meta('dave', { gid: 'g1' })));
+    await deny(putAttMeta('dave', 'att/grp_g1/a3', meta('dave', { gid: 'g1', epoch: 2 })));
+    await deny(putAttMeta('zoe', 'att/grp_g1/a3', meta('zoe', { gid: 'g1', epoch: 1 })));
+    await ok(putAttMeta('dave', 'att/grp_g1/a3', meta('dave', { gid: 'g1', epoch: 1 })));
+    await ok(db('erin').ref('att/grp_g1/a3/meta').once('value'));
+    await ok(db('alice').ref('att/grp_g1/a3').remove());
   });
   it('appConfig', async () => {
     await ok(db('admin1').ref('appConfig/giphyKey').set('abc'));

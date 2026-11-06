@@ -140,3 +140,12 @@ export async function reset(patch) {
   if (patch) patch(w);
   await admin((d) => d.ref().set(w));
 }
+
+/** Attachment meta write with the attLog entry the rules require in the same update. */
+export async function putAttMeta(u, base, m, logOverride) {
+  let prev = null;
+  await admin(async (d) => { prev = (await d.ref(`attLog/${u}`).get()).val(); });
+  const attId = base.split('/')[2];
+  const log = logOverride || (prev ? { ws: prev.ws, n: prev.n + 1, id: attId, at: TS } : { ws: TS, n: 1, id: attId, at: TS });
+  return db(u).ref().update({ [`${base}/meta`]: m, [`attLog/${u}`]: log });
+}

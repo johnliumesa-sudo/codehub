@@ -1,6 +1,6 @@
 // Extra attack coverage for notifications, media, appConfig, profile, calls (overnight run).
 import { describe, it, before, after, beforeEach } from 'node:test';
-import { getEnv, cleanup, reset, db, admin, box, TS, assertFails as deny, assertSucceeds as ok } from './helpers.mjs';
+import { getEnv, cleanup, reset, db, admin, box, TS, assertFails as deny, assertSucceeds as ok, putAttMeta } from './helpers.mjs';
 
 before(getEnv); after(cleanup);
 beforeEach(() => reset());
@@ -76,13 +76,13 @@ describe('media (extra)', () => {
     const m = (extra = {}) => ({ by: 'dave', ts: TS, n: 1, size: 10, iv: box.iv, ct: box.ct, sid: 's1', cid: 'c1', ...extra });
     const S = 'att/ch_s1_c1/b1';
     await deny(db('dave').ref(`${S}/c/0`).set({ iv: box.iv, ct: box.ct }));
-    await deny(db('dave').ref(`${S}/meta`).set(m({ n: 0 })));
-    await deny(db('dave').ref(`${S}/meta`).set(m({ n: 9999 })));
-    await deny(db('dave').ref(`${S}/meta`).set(m({ size: -1 })));
-    await deny(db('dave').ref(`${S}/meta`).set(m({ extra: 1 })));
-    await deny(db('dave').ref(`${S}/meta`).set(m({ by: 'erin' })));
-    await deny(db(null).ref(`${S}/meta`).set(m()));
-    await ok(db('dave').ref(`${S}/meta`).set(m()));
+    await deny(putAttMeta('dave', `${S}`, m({ n: 0 })));
+    await deny(putAttMeta('dave', `${S}`, m({ n: 9999 })));
+    await deny(putAttMeta('dave', `${S}`, m({ size: -1 })));
+    await deny(putAttMeta('dave', `${S}`, m({ extra: 1 })));
+    await deny(putAttMeta('dave', `${S}`, m({ by: 'erin' })));
+    await deny(putAttMeta(null, `${S}`, m()));
+    await ok(putAttMeta('dave', `${S}`, m()));
     await deny(db('dave').ref(`${S}/c/0`).set({ iv: 'short', ct: box.ct }));
     await deny(db('dave').ref(`${S}/c/0`).set({ ...box, extra: 1 }));
     await deny(db(null).ref(`${S}/meta`).get());
@@ -139,10 +139,47 @@ describe('calls (extra)', () => {
   });
   it('DENY vsignal read by a third party or sender; ALLOW recipient; DENY oversized payload', async () => {
     const sig = { ...box, ts: TS };
+    await admin((d) => d.ref(`vcalls/${SID}/${VC}/id`).set('call12345670'));
     await ok(db('dave').ref(`vsignal/${SID}/${VC}/alice/dave`).push(sig));
     await deny(db('dave').ref(`vsignal/${SID}/${VC}/alice`).get());
     await deny(db('zoe').ref(`vsignal/${SID}/${VC}/alice`).get());
     await ok(db('alice').ref(`vsignal/${SID}/${VC}/alice`).get());
     await deny(db('dave').ref(`vsignal/${SID}/${VC}/alice/dave`).push({ ...sig, ct: 'x'.repeat(20001) }));
+  });
+});
+
+describe('overnight security fixes (round 2)', () => {
+  const meta = (by, extra = {}) => ({ by, ts: TS, n: 1, size: 10, iv: box.iv, ct: box.ct, ...extra });
+  it('attachments: DENY dm scope without a real DM, meta without attLog, batching two metas on one log, >24 per window', async () => {
+    await deny(putAttMeta('mallory', 'att/dm_mallory_nobodyaN/x1', meta('mallory')));
+    await deny(db('dave').ref('att/dm_dave_zoe/x2/meta').set(meta('dave')));
+    await deny(db('dave').ref().update({
+      'att/dm_dave_zoe/x3/meta': meta('dave'), 'att/dm_dave_zoe/x4/meta': meta('dave'),
+      'attLog/dave': { ws: TS, n: 1, id: 'x3', at: TS },
+    }));
+    await deny(putAttMeta('dave', 'att/dm_dave_zoe/x5', meta('dave'), { ws: TS, n: 5, id: 'x5', at: TS }));
+    for (let i = 0; i < 24; i++) await ok(putAttMeta('dave', `att/dm_dave_zoe/y${i}`, meta('dave')));
+    await deny(putAttMeta('dave', 'att/dm_dave_zoe/y24', meta('dave')));
+    await deny(putAttMeta('dave', 'att/dm_dave_zoe/y25', meta('dave'), { ws: TS, n: 1, id: 'y25', at: TS }));
+    await admin((d) => d.ref('attLog/dave/ws').set(Date.now() - 700000));
+    await ok(putAttMeta('dave', 'att/dm_dave_zoe/y26', meta('dave'), { ws: TS, n: 1, id: 'y26', at: TS }));
+    await deny(db('erin').ref('attLog/dave').get());
+    await deny(db('dave').ref('attLog/dave').remove());
+  });
+  it('voice: DENY timed-out member starting a call, taking a slot, or signaling', async () => {
+    const SID = 'srvAAAAAAAAAAAAAAAAA', VC = 'chVOICEAAAAAAAAAAAAA';
+    const m = { id: 'call12345678', startedBy: 'dave', ts: TS, kind: 'audio' };
+    await admin((d) => d.ref(`servers/${SID}`).set({
+      meta: { ownerId: 'alice', nameEnc: box, createdAt: 1 },
+      members: { alice: { role: 'owner', joinedAt: 1 }, dave: { role: 'member', joinedAt: 1 } },
+      channels: { [VC]: { type: 'voice', enc: box, position: 0 } },
+    }));
+    await admin((d) => d.ref(`servers/${SID}/timeouts/dave`).set(Date.now() + 1e7));
+    await deny(db('dave').ref(`vcalls/${SID}/${VC}`).update(m));
+    await admin((d) => d.ref(`vcalls/${SID}/${VC}`).update({ ...m, startedBy: 'alice', ts: Date.now() }));
+    await deny(db('dave').ref(`vcalls/${SID}/${VC}/slots/1`).set({ uid: 'dave', joinedAt: TS, mic: true, cam: false, screen: false }));
+    await deny(db('dave').ref(`vsignal/${SID}/${VC}/alice/dave`).push({ ...box, ts: TS }));
+    await admin((d) => d.ref(`servers/${SID}/timeouts/dave`).remove());
+    await ok(db('dave').ref(`vsignal/${SID}/${VC}/alice/dave`).push({ ...box, ts: TS }));
   });
 });

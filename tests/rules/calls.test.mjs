@@ -65,6 +65,10 @@ describe('calls', () => {
     await ok(db('dave').ref('calls/grp_g1').update(meta('dave')));
   });
   it('signal: member→member write, only the recipient reads/deletes; DENY spoofed from/outsider/text channel', async () => {
+    // Regression: no signaling into an inbox unless a call is in progress for that scope.
+    await deny(db('dave').ref('signal/dm_dave_zoe/zoe/dave').push(sig));
+    await deny(db('bob').ref(`vsignal/${vc}/carol/bob`).push(sig));
+    await admin((d) => d.ref().update({ 'calls/dm_dave_zoe/id': 'call12345678', 'calls/grp_g1/id': 'call12345679', [`vcalls/${vc}/id`]: 'call12345670' }));
     await ok(db('dave').ref('signal/dm_dave_zoe/zoe/dave').push(sig));
     await deny(db('dave').ref('signal/dm_dave_zoe/zoe/zoe').push(sig));
     await deny(db('erin').ref('signal/dm_dave_zoe/zoe/erin').push(sig));
