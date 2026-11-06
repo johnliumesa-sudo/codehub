@@ -405,7 +405,7 @@ Every navigation action clears `view`.
 ### Limits
 - No calls or notifications while the browser is closed (no push on Spark). Mesh capped at 6 (upload grows per peer). Peers see each other's IP addresses (TURN only if an admin configures it). A removed group member keeps their call slot until leaving but cannot signal.
 - GIFs load from GIPHY: GIPHY sees viewer IPs and search terms (no-referrer is used). Animated uploads keep original bytes. Attachments can orphan after server/group deletion (unreadable, but count toward the 1 GB quota).
-- The minified rules are ~104 KB, over the console's 100 KB paste limit: deploy with `npm run deploy` (CLI), not by console paste.
+- The rules are over the console's 100 KiB paste limit. `npm run rules:min` prints a behaviour-preserving minified copy (whitespace stripped, `.child()` chains merged; 97 KB at this commit, 201/201 rules tests pass against it). If that grows past 102,400 bytes, deploy with `npm run deploy` (CLI).
 
 ## Overnight 2026-11-06 tier 2: chat extras and server extras
 

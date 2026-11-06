@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "emulators": "npx firebase-tools emulators:start --only auth,database --project codehub-dc9a4",
     "deploy": "npx firebase-tools deploy --only database",
+    "rules:min": "node scripts/minify-rules.mjs",
     "test:rules": "firebase emulators:exec --only database --project demo-codehub \"node --test --test-concurrency=1 tests/rules/*.test.mjs\"",
     "test:e2e": "playwright test -c tests/e2e/playwright.config.mjs",
     "test": "npm run test:rules && npm run test:e2e",

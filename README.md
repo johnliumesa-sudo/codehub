@@ -41,7 +41,7 @@ Other features:
 
 - **Calls:** 1:1 DM calls, group calls and drop-in server voice channels (create a channel of type *Voice*). WebRTC full mesh, up to 6 people, with mic/camera/screen share. Signaling is end-to-end encrypted with the conversation key. Peers see each other's IP addresses; calls only ring while the app is open (no push).
 - **Notification center:** bell in the header; mentions, replies, DMs, group adds, friend requests, role changes, game likes and call rings. Stores only ids and kinds, never message text.
-- **Media:** profile pictures, server icons, custom server emotes (`:name:`), encrypted image attachments (paste, drag-drop or button; up to 4 per message) and GIPHY GIFs. No video upload (stays on the free Spark plan).
+- **Media:** profile pictures, server icons, custom server emotes (`:name:`), encrypted image attachments (paste or button; up to 4 per message) and GIPHY GIFs. No video upload (stays on the free Spark plan).
 - **Theme:** dark / light / system toggle in Settings -> Appearance.
 
 ### Admin setup for GIPHY and TURN
@@ -134,9 +134,17 @@ npx firebase-tools deploy --only database   # or: npm run deploy
 
 ### Option B: Paste the rules into the console
 
-1. Open **Firebase console → Realtime Database → Rules**.
-2. Replace the whole editor contents with the contents of `database.rules.json`.
-3. Click **Publish**.
+The console cuts pastes off at 100 KiB (102,400 bytes) and `database.rules.json` is bigger than
+that, so paste the minified copy instead:
+
+1. Run `npm run -s rules:min | pbcopy` (macOS; elsewhere redirect to a file). It prints the size and
+   warns if it is still too big, in which case use Option A.
+2. Open **Firebase console → Realtime Database → Rules**.
+3. Replace the whole editor contents with the copied rules.
+4. Click **Publish**.
+
+The minifier only strips whitespace and merges `.child()` chains. To check a minified copy, save it
+to a file and run `RULES_PATH=<file> npm run test:rules`.
 
 The console also has a **Rules Playground** for testing reads and writes as a specific uid.
 
