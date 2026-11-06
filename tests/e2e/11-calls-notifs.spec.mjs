@@ -1,5 +1,3 @@
-// UNVERIFIED skeleton: never executed. Needs chromium args --use-fake-device-for-media-stream
-// --use-fake-ui-for-media-stream (set per-context via launchOptions in a project before running).
 import { test, expect, createServer, makeInvite, joinServer, send } from './fixtures.mjs';
 import { test as base } from '@playwright/test';
 

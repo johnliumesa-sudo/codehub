@@ -40,7 +40,8 @@ import { useBlocks, useIsBlocked } from '../../lib/blocks.js';
 import { useKeyChangeAck } from '../../lib/verify.js';
 import { isPermissionDenied } from '../layout/hooks.js';
 import './chat.css';
-import { deliverNotif } from '../../lib/notifications.js';
+import { deliverNotif, deliverNotifs } from '../../lib/notifications.js';
+import { mentionsName } from '../../lib/markdown.js';
 
 const MAX_LIMIT = 2000;
 
@@ -291,6 +292,19 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
     }
     const { mid, done } = res;
     if (conv.kind === 'dm' && conv.peerUid) done.then(() => deliverNotif({ to: conv.peerUid, kind: 'dm', ref: { dmId: conv.dmId, mid } }), () => {});
+    if (conv.kind === 'channel') {
+      // Mention / reply notifications (server channels only; rules check both users are members).
+      const text = typeof body?.text === 'string' ? body.text : '';
+      const ref = { sid: conv.sid, cid: conv.cid, mid };
+      const replyUid = reply ? byMid[reply]?.uid : null;
+      const mentioned = text.includes('@')
+        ? Object.keys(members).filter((u) => u !== me.uid && u !== replyUid && mentionsName(text, profiles[u]?.name)).slice(0, 25)
+        : [];
+      done.then(() => {
+        if (replyUid && replyUid !== me.uid) deliverNotif({ to: replyUid, kind: 'reply', ref });
+        if (mentioned.length) deliverNotifs(mentioned, { kind: 'mention', ref });
+      }, () => {});
+    }
     setSendingMids((s) => new Set(s).add(mid));
     const clear = () => setSendingMids((s) => {
       if (!s.has(mid)) return s;
@@ -313,7 +327,7 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
     });
     requestAnimationFrame(() => listRef.current?.scrollToBottom());
     return true;
-  }, [conv, me, replyTo, tPath, flash, keyAck.mustConfirm]);
+  }, [conv, me, replyTo, tPath, flash, keyAck.mustConfirm, byMid, members, profiles]);
 
   const handleEditSave = useCallback(async (mid, body) => {
     try {
