@@ -1,5 +1,6 @@
 import { memo, useState } from 'react';
 import { initials } from '../../lib/profiles.js';
+import { ServerIcon as MediaServerIcon } from '../media/Avatar.jsx';
 import { channelScope } from '../../lib/servers.js';
 import { isUnread, useChannelIds, useLastMessages, useServerMeta } from './hooks.js';
 import { Icon } from './ui.jsx';
@@ -63,7 +64,7 @@ const ServerIcon = memo(function ServerIcon({ sid, nonce, active, onSelect, onSt
       ) : meta.nameFailed ? (
         <Icon name="lock" size={18} />
       ) : (
-        <span className="ly-rail-initials">{initials(name).slice(0, 3)}</span>
+        <MediaServerIcon sid={sid} name={name} size={44} color={meta.color} />
       )}
     </RailButton>
   );

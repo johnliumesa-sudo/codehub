@@ -22,6 +22,8 @@ import MemberRoleControls from '../roles/MemberRoleControls.jsx';
 import RoleBadge, { TimeoutMark } from '../roles/RoleBadge.jsx';
 import { useDbValue } from './hooks.js';
 import { ColorPicker } from './modals.jsx';
+import { ServerIconUploader } from '../media/Uploaders.jsx';
+import { EmoteManager } from '../media/EmoteManager.jsx';
 import { Avatar, ConfirmButton, Icon, Modal, copyText, useToast } from './ui.jsx';
 
 const errMsg = (e) => String(e?.message || e).replace(/^Error:\s*/, '');
@@ -478,6 +480,7 @@ export default function ServerSettingsModal({
     (staff || perms.manageInvites) && ['invites', 'Invites', 'link'],
     ['members', `Members (${members.length})`, 'users'],
     (staff || perms.manageRoles) && ['roles', 'Roles', 'shield'],
+    ['emotes', 'Emotes', 'hash'],
     (staff || perms.ban) && ['bans', 'Bans', 'ban'],
     (staff || perms.viewAudit) && ['audit', 'Audit log', 'key'],
   ].filter(Boolean);
@@ -496,6 +499,8 @@ export default function ServerSettingsModal({
         ))}
       </div>
       <div className="ly-settings-body">
+        {shown === 'overview' && staff && <ServerIconUploader sid={sid} name={meta.name} canEdit={staff} />}
+        {shown === 'emotes' && <EmoteManager sid={sid} canManage={staff || !!perms.manageEmotes} />}
         {shown === 'overview' && <Overview sid={sid} meta={meta} myRole={myRole} me={me} onLeft={onLeft} onDeleted={onLeft} />}
         {shown === 'invites' && <Invites sid={sid} me={me} serverName={meta.name} memberUids={members.map((m) => m.uid)} autoCreate={autoInvite} onAutoCreated={() => setAutoInvite(false)} />}
         {shown === 'members' && (

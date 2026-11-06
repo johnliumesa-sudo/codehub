@@ -29,6 +29,7 @@ export default function Header({
   groupMemberCount,
   onGroupSettings,
   onOpenPalette,
+  extraActions,
 }) {
   return (
     <header className="ly-header">
@@ -76,6 +77,7 @@ export default function Header({
         </button>
       )}
 
+      {extraActions}
       <span className="badge-e2e ly-head-e2e" title="Messages, names and code are end-to-end encrypted">
         <Icon name="lock" size={11} stroke={2.2} /> <span className="ly-seg-label">E2E</span>
       </span>

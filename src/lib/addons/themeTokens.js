@@ -4,8 +4,11 @@
 // Only the fixed TOKEN_VARS map is ever written, and only validated `#rrggbb` values, via
 // `document.documentElement.style.setProperty`. No item-provided CSS text reaches the page.
 import { HEX_RE, TOKEN_VARS } from './registry.js';
+import { lightVariant } from './lightVariants.js';
+import { getResolvedTheme, onThemeChange } from '../theme.js';
 
 let applied = new Set(); // CSS vars currently overridden by a theme
+let current = null; // last tokens passed in (dark source); re-applied as a light variant when the app theme flips
 
 function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -13,8 +16,11 @@ function hexToRgb(hex) {
 }
 
 /** Apply `tokens` ({bg0..danger: '#rrggbb'}) or, with null, restore the stylesheet defaults. */
-export function applyThemeTokens(tokens) {
+export function applyThemeTokens(source) {
   if (typeof document === 'undefined') return;
+  current = source || null;
+  // Shop themes are authored dark; in light mode derive a light variant with the same hues.
+  const tokens = source && getResolvedTheme() === 'light' ? lightVariant(source) : source;
   const style = document.documentElement.style;
   const next = new Set();
   if (tokens && typeof tokens === 'object') {
@@ -37,3 +43,7 @@ export function applyThemeTokens(tokens) {
   if (next.size) document.documentElement.setAttribute('data-addon-theme', '');
   else document.documentElement.removeAttribute('data-addon-theme');
 }
+
+onThemeChange(() => {
+  if (current) applyThemeTokens(current);
+});

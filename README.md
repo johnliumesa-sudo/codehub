@@ -37,6 +37,24 @@ Other features:
 
 ---
 
+## Voice/video calls, notifications, media and themes
+
+- **Calls:** 1:1 DM calls, group calls and drop-in server voice channels (create a channel of type *Voice*). WebRTC full mesh, up to 6 people, with mic/camera/screen share. Signaling is end-to-end encrypted with the conversation key. Peers see each other's IP addresses; calls only ring while the app is open (no push).
+- **Notification center:** bell in the header; mentions, replies, DMs, group adds, friend requests, role changes, game likes and call rings. Stores only ids and kinds, never message text.
+- **Media:** profile pictures, server icons, custom server emotes (`:name:`), encrypted image attachments (paste or button; up to 4 per message) and GIPHY GIFs. No video upload (stays on the free Spark plan).
+- **Theme:** dark / light / system toggle in Settings -> Appearance.
+
+### Admin setup for GIPHY and TURN
+1. Get a GIPHY API key at developers.giphy.com. In the app, open Admin panel -> *GIFs & calls* and paste it. The key is readable by every signed-in user (any browser-side key is). Without a key the GIF button is hidden.
+2. Optional TURN servers (up to 4) in the same form, for users behind strict NATs. TURN credentials are also client-visible; use a restricted/time-limited account. Without TURN, calls use Google STUN only and some networks will fail to connect.
+3. GIPHY sees viewers' IP addresses and search terms.
+
+## Chat and server extras
+
+- **Polls** (📊 in the composer), **spoilers** (`||hidden||`, click to reveal), **saved messages** (🔖 on a message; 🔖 in the header lists them, encrypted to your vault) and a "Forwarded" tag on forwarded messages.
+- **Slowmode** per text channel (channel settings; moderators are exempt), **channel categories** (server menu → Manage categories; names are encrypted), **profile bio, pronouns, links and banner color** (Settings → My profile), and a **keyboard shortcut overlay** (press `?`).
+- Plaintext by design: poll vote indices (not the option text), slowmode timers, category order, profile bio/pronouns/links. Poll votes can be read by any signed-in user who knows the message id.
+
 ## 1. Setup
 
 ### Firebase project (already done)
@@ -116,9 +134,17 @@ npx firebase-tools deploy --only database   # or: npm run deploy
 
 ### Option B: Paste the rules into the console
 
-1. Open **Firebase console → Realtime Database → Rules**.
-2. Replace the whole editor contents with the contents of `database.rules.json`.
-3. Click **Publish**.
+The console cuts pastes off at 100 KiB (102,400 bytes) and `database.rules.json` is bigger than
+that, so paste the minified copy instead:
+
+1. Run `npm run -s rules:min | pbcopy` (macOS; elsewhere redirect to a file). It prints the size and
+   warns if it is still too big, in which case use Option A.
+2. Open **Firebase console → Realtime Database → Rules**.
+3. Replace the whole editor contents with the copied rules.
+4. Click **Publish**.
+
+The minifier only strips whitespace and merges `.child()` chains. To check a minified copy, save it
+to a file and run `RULES_PATH=<file> npm run test:rules`.
 
 The console also has a **Rules Playground** for testing reads and writes as a specific uid.
 

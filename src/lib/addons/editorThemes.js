@@ -6,6 +6,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { EDITOR_THEME_INFO } from './registry.js';
+import { getResolvedTheme } from '../theme.js';
 
 // Palette -> [editor chrome theme, syntax highlighting]. Selection uses !important so it wins over
 // the collab editor's own chrome rule (which also uses !important).
@@ -95,6 +96,8 @@ const cache = new Map();
 
 /** CodeMirror extension for a bundled editor theme id, or null for an unknown id (ignored). */
 export function editorThemeExtension(builtinId) {
+  // No equipped editor theme (null/undefined): follow the app theme. An equipped theme always wins.
+  if (builtinId == null) builtinId = defaultEditorThemeId();
   if (!Object.prototype.hasOwnProperty.call(EDITOR_THEME_INFO, builtinId)) return null;
   if (cache.has(builtinId)) return cache.get(builtinId);
   const ext = builtinId === 'one-dark' ? oneDark : makeTheme(PALETTES[builtinId], EDITOR_THEME_INFO[builtinId].dark);
@@ -103,4 +106,10 @@ export function editorThemeExtension(builtinId) {
 }
 
 export const DEFAULT_EDITOR_THEME = 'one-dark';
+export const DEFAULT_LIGHT_EDITOR_THEME = 'paper-light';
+
+/** Editor theme id used when none is equipped: paper-light in light mode, one-dark otherwise. */
+export function defaultEditorThemeId() {
+  return getResolvedTheme() === 'light' ? DEFAULT_LIGHT_EDITOR_THEME : DEFAULT_EDITOR_THEME;
+}
 export const EDITOR_THEME_IDS = Object.keys(EDITOR_THEME_INFO);

@@ -1,3 +1,4 @@
+import PollComposer from '../chatx/PollComposer.jsx';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { mentionToken, searchEmoji } from '../../lib/markdown.js';
 import { MAX_TEXT } from '../../lib/messages.js';
@@ -5,6 +6,9 @@ import EmojiPopover from './EmojiPopover.jsx';
 import { Avatar, previewText } from './Message.jsx';
 import SnippetsButton from '../productivity/SnippetsButton.jsx';
 import { fenced } from '../../lib/snippets.js';
+import { AttachmentButton, AttachmentTray, useAttachmentDraft, usePasteFiles } from '../media/Attachments.jsx';
+import { GifPicker, useGifEnabled } from '../media/GifPicker.jsx';
+import { uploadAttachments } from '../../lib/media/attachments.js';
 
 const TYPING_THROTTLE = 3000;
 
@@ -21,8 +25,14 @@ function findTrigger(value, caret) {
 const Composer = forwardRef(function Composer(props, ref) {
   const {
     disabled, placeholder, onSend, onTyping, onStopTyping, replyItem, replyAuthor, onCancelReply,
-    onEditLast, onOpenSnippet, members, allowEveryone, me, onLongSnippet,
+    onEditLast, onOpenSnippet, members, allowEveryone, me, onLongSnippet, conv,
   } = props;
+  const draft = useAttachmentDraft();
+  const onPasteFiles = usePasteFiles(draft.add);
+  const gifOn = useGifEnabled();
+  const [gifOpen, setGifOpen] = useState(false);
+  const [pollOpen, setPollOpen] = useState(false);
+  const [upErr, setUpErr] = useState('');
 
   const [value, setValue] = useState('');
   const [sending, setSending] = useState(false);
@@ -119,14 +129,27 @@ const Composer = forwardRef(function Composer(props, ref) {
 
   const submit = async () => {
     const text = value.trim();
-    if (!text || sending || disabled) return;
+    const files = conv ? draft.files : [];
+    if ((!text && !files.length) || sending || disabled) return;
     if (text.length > MAX_TEXT) return;
     setSending(true);
+    let attachments;
+    if (files.length) {
+      try {
+        setUpErr('');
+        attachments = await uploadAttachments(conv, files, { onProgress: (p) => draft.setProgress?.(Object.fromEntries(files.map((_, i) => [i, p]))) });
+      } catch (e) {
+        setUpErr(e?.message || 'Upload failed');
+        setSending(false);
+        return;
+      }
+    }
     const prev = value;
     setValue('');
     setTrigger(null);
     lastTypingRef.current = 0;
-    const ok = await onSend({ text });
+    const ok = await onSend(attachments ? { text, attachments } : { text });
+    if (ok !== false && attachments) draft.clear();
     setSending(false);
     if (!ok) setValue(prev);
     requestAnimationFrame(() => ta.current?.focus());
@@ -176,6 +199,25 @@ const Composer = forwardRef(function Composer(props, ref) {
 
   return (
     <div className={`composer${disabled ? ' disabled' : ''}`}>
+      {conv && <AttachmentTray files={draft.files} progress={draft.progress} onRemove={draft.remove} notice={upErr || draft.notice} busy={sending} />}
+      {conv && gifOpen && (
+        <GifPicker
+          onClose={() => setGifOpen(false)}
+          onPick={async (g) => {
+            setGifOpen(false);
+            if (g?.url) await onSend({ text: '', gif: g });
+          }}
+        />
+      )}
+      {conv && pollOpen && (
+        <PollComposer
+          onClose={() => setPollOpen(false)}
+          onCreate={async (poll) => {
+            setPollOpen(false);
+            await onSend({ text: '', poll });
+          }}
+        />
+      )}
       {trigger && suggestions.length > 0 && (
         <div className="composer-suggest" role="listbox">
           <div className="composer-suggest-title">{trigger.kind === 'emoji' ? `Emoji matching :${trigger.query}` : 'Members'}</div>
@@ -224,7 +266,15 @@ const Composer = forwardRef(function Composer(props, ref) {
             }}
           />
         )}
+        {conv && <AttachmentButton onFiles={draft.add} />}
+        {conv && (
+          <button type="button" className="composer-btn" onClick={() => setPollOpen(true)} disabled={disabled} aria-label="Create a poll" title="Poll">📊</button>
+        )}
+        {conv && gifOn && (
+          <button type="button" className="composer-btn" onClick={() => setGifOpen((o) => !o)} aria-label="Send a GIF" title="GIF">GIF</button>
+        )}
         <textarea
+          onPaste={conv ? onPasteFiles : undefined}
           ref={ta}
           className="composer-input"
           value={value}

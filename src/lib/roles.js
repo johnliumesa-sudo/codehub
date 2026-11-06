@@ -13,7 +13,7 @@ import { db } from './firebase.js';
 import { decryptText, encryptText } from './crypto.js';
 import * as keystore from './keystore.js';
 
-export const PERMS = ['manageChannels', 'manageInvites', 'kick', 'ban', 'manageMessages', 'manageRoles', 'timeout', 'viewAudit'];
+export const PERMS = ['manageChannels', 'manageInvites', 'kick', 'ban', 'manageMessages', 'manageRoles', 'timeout', 'viewAudit', 'manageEmotes'];
 
 export const PERM_LABELS = {
   manageChannels: 'Manage channels',
@@ -21,6 +21,7 @@ export const PERM_LABELS = {
   kick: 'Kick members',
   ban: 'Ban members',
   manageMessages: 'Manage messages',
+  manageEmotes: 'Manage emotes',
   manageRoles: 'Manage roles',
   timeout: 'Time out members',
   viewAudit: 'View audit log',
@@ -32,6 +33,7 @@ export const PERM_HINTS = {
   kick: 'Remove members ranked below you.',
   ban: 'Ban members ranked below you, and lift bans.',
   manageMessages: "Delete and pin other people's messages.",
+  manageEmotes: 'Add and remove custom server emotes.',
   manageRoles: 'Create and edit roles below your own, and assign them.',
   timeout: 'Stop members ranked below you from chatting for a while.',
   viewAudit: 'Read the encrypted moderation audit log.',

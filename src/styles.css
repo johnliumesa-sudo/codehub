@@ -19,7 +19,71 @@
   --radius-sm: 6px;
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  /* derived surface / text tokens (theme-aware; see theme.js) */
+  --surface-pop: #0e1118;
+  --tip-bg: #05070b;
+  --shimmer: #232939;
+  --line-strong: #3a4256;
+  --scroll-thumb: #2a3142;
+  --text-body: #dfe3ec;
+  --link: #7aa5ff;
+  --mention-fg: #a9c3ff;
+  --code-inline-bg: #0f1218;
+  --code-inline-border: #222838;
+  --code-inline-fg: #e9b8ff;
+  --danger-text: #ffb3c1;
+  --ok-text: #a8f0cf;
+  --warn-text: #ffd978;
+  --on-ok: #0b0d12;
+  --tint-hover: rgba(255, 255, 255, .05);
+  --tint-grid: rgba(255, 255, 255, .025);
+  --scrim: rgba(4, 6, 10, .55);
+  --rgb-pop: 17, 20, 27;
+  --rgb-input-bg: 29, 34, 48;
+  --rgb-fg: 230, 233, 240;
   color-scheme: dark;
+}
+
+/* Light theme: set by theme.js as data-theme="light" on <html>. Code blocks (.md-code, .snippet, .pd-code)
+   intentionally keep their dark surface in both themes. */
+:root[data-theme="light"] {
+  --bg-0: #e6e9f1;
+  --bg-1: #f2f4f9;
+  --bg-2: #ffffff;
+  --bg-3: #edf0f6;
+  --bg-hover: #e1e6ef;
+  --border: #d3d9e5;
+  --text: #1a1f2b;
+  --text-dim: #4f5a70;
+  --text-faint: #7a8497;
+  --accent: #2f62e0;
+  --accent-2: #7c3aed;
+  --accent-soft: rgba(47, 98, 224, 0.12);
+  --ok: #12875a;
+  --warn: #c98a0b;
+  --danger: #d6264a;
+  --surface-pop: #ffffff;
+  --tip-bg: #ffffff;
+  --shimmer: #e1e6ef;
+  --line-strong: #b9c2d3;
+  --scroll-thumb: #c3cbda;
+  --text-body: #2a3040;
+  --link: #1f55d6;
+  --mention-fg: #1f4fc4;
+  --code-inline-bg: #edf0f6;
+  --code-inline-border: #d3d9e5;
+  --code-inline-fg: #7a2fd0;
+  --danger-text: #a8132f;
+  --ok-text: #0b6b45;
+  --warn-text: #7a5200;
+  --on-ok: #ffffff;
+  --tint-hover: rgba(20, 30, 60, .06);
+  --tint-grid: rgba(20, 30, 60, .04);
+  --scrim: rgba(20, 26, 40, .35);
+  --rgb-pop: 255, 255, 255;
+  --rgb-input-bg: 237, 240, 246;
+  --rgb-fg: 26, 31, 43;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -27,9 +91,9 @@ html, body, #root { height: 100%; }
 body { margin: 0; background: var(--bg-0); color: var(--text); font: 14px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
 button, input, textarea, select { font: inherit; color: inherit; }
 a { color: var(--accent); }
-::selection { background: rgba(91, 140, 255, 0.35); }
+::selection { background: var(--accent-soft); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #2a3142; border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
 
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-3); cursor: pointer; transition: background .15s, border-color .15s; }
 .btn:hover { background: var(--bg-hover); }
@@ -48,7 +112,7 @@ label.field { display: grid; gap: 6px; font-size: 12px; color: var(--text-dim); 
 .avatar { display: inline-grid; place-items: center; border-radius: 50%; color: #fff; font-weight: 600; flex: none; user-select: none; }
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; z-index: 100; padding: 16px; }
-.modal { width: min(480px, 100%); max-height: 90vh; overflow: auto; background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; padding: 22px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.modal { width: min(480px, 100%); max-height: 90vh; overflow: auto; background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; padding: 22px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
 .modal h2 { margin: 0 0 14px; font-size: 18px; }
 
 .badge-e2e { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ok); background: rgba(60,207,145,.1); border: 1px solid rgba(60,207,145,.25); padding: 2px 7px; border-radius: 999px; }
@@ -59,3 +123,6 @@ label.field { display: grid; gap: 6px; font-size: 12px; color: var(--text-dim); 
 
 .error-text { color: var(--danger); font-size: 13px; }
 .muted { color: var(--text-dim); }
+
+:root[data-theme="light"] .modal-backdrop { background: rgba(20, 26, 40, .4); }
+.theme-no-anim * { transition: none !important; }

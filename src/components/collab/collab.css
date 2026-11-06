@@ -15,7 +15,7 @@
 .cx-side-tabs { display: flex; gap: 4px; margin: 0 10px 8px; padding: 3px; background: var(--bg-0); border: 1px solid var(--border); border-radius: 9px; }
 .cx-side-tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-dim); cursor: pointer; font-size: 12.5px; font-weight: 550; transition: background .15s, color .15s; }
 .cx-side-tabs button:hover { color: var(--text); }
-.cx-side-tabs button.active { background: var(--bg-3); color: var(--text); box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 1px 3px rgba(0,0,0,.3); }
+.cx-side-tabs button.active { background: var(--bg-3); color: var(--text); box-shadow: 0 1px 0 var(--tint-hover) inset, 0 1px 3px rgba(0,0,0,.3); }
 .cx-count { font-size: 10.5px; padding: 0 6px; border-radius: 999px; background: var(--bg-hover); color: var(--text-dim); }
 .cx-dot-ok { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
 .cx-side-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -39,7 +39,7 @@
 .cx-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cx-chev { color: var(--text-faint); transition: transform .15s; }
 .cx-chev.open { transform: rotate(90deg); }
-.cx-folder-ico { color: #7d8aa5; }
+.cx-folder-ico { color: var(--text-faint); }
 .cx-lang-dot { width: 8px; height: 8px; border-radius: 2.5px; flex: none; box-shadow: 0 0 0 1px rgba(0,0,0,.25) inset; }
 .cx-gh-mark { color: var(--text-faint); }
 .cx-row-acts { display: none; gap: 2px; }
@@ -110,7 +110,7 @@
 
 /* ---------- main ---------- */
 .cx-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.cx-toolbar { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, rgba(255,255,255,.015), transparent); }
+.cx-toolbar { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--tint-hover), transparent); }
 .cx-crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); overflow: hidden; white-space: nowrap; }
 .cx-crumbs .cx-lang-dot { margin-right: 8px; }
 .cx-crumb.last { color: var(--text); font-weight: 600; }
@@ -172,7 +172,7 @@
 .cx-diff-stats .del { color: var(--danger); }
 .cx-diff { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-1); font-family: var(--mono); font-size: 12px; line-height: 1.55; }
 .cx-hunk + .cx-hunk { border-top: 1px solid var(--border); }
-.cx-hunk-head { position: sticky; top: 0; padding: 4px 12px; color: var(--accent); background: #141a28; border-bottom: 1px solid var(--border); }
+.cx-hunk-head { position: sticky; top: 0; padding: 4px 12px; color: var(--accent); background: var(--bg-2); border-bottom: 1px solid var(--border); }
 .cx-dl { display: grid; grid-template-columns: 44px 44px 18px 1fr; min-width: max-content; }
 .cx-dl.add { background: rgba(60,207,145,.09); }
 .cx-dl.del { background: rgba(255,92,122,.09); }
@@ -184,8 +184,8 @@
 .cx-diff-same { display: flex; align-items: center; gap: 8px; padding: 18px; justify-content: center; color: var(--ok); }
 
 /* ---------- toast ---------- */
-.cx-toast { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 9px 16px; border-radius: 10px; background: #222a3b; border: 1px solid var(--border); box-shadow: 0 12px 32px rgba(0,0,0,.45); font-size: 13px; z-index: 50; animation: cx-toast-in .2s ease-out; max-width: calc(100% - 32px); }
-.cx-toast.error { border-color: rgba(255,92,122,.4); color: #ffd0d9; }
+.cx-toast { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 9px 16px; border-radius: 10px; background: var(--surface-pop); border: 1px solid var(--border); box-shadow: 0 12px 32px rgba(0,0,0,.45); font-size: 13px; z-index: 50; animation: cx-toast-in .2s ease-out; max-width: calc(100% - 32px); }
+.cx-toast.error { border-color: rgba(255,92,122,.4); color: var(--danger-text); }
 .cx-toast a { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; text-decoration: none; }
 @keyframes cx-toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
 

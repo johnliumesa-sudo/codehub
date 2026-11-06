@@ -152,6 +152,9 @@ export async function deleteAccount(onStep) {
     `notifPrefs/${uid}`,
     `snippets/${uid}`,
     `adminBadges/${uid}`,
+    `notifs/${uid}`,
+    `notifLog/${uid}`,
+    `avatars/${uid}`,
   ]);
   try {
     localStorage.removeItem('codehub.trustedDomains');

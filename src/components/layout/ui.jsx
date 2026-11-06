@@ -1,6 +1,7 @@
 // Small shared UI primitives for the layout module: icons, avatar, modal, toasts, menu, error boundary.
 import { Component, createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { initials } from '../../lib/profiles.js';
+import { Avatar as MediaAvatar } from '../media/Avatar.jsx';
 
 // ---------- Icons (inline SVG, currentColor) ----------
 
@@ -60,6 +61,7 @@ export function Icon({ name, size = 18, stroke = 1.8, className = '', title }) {
 // ---------- Avatar ----------
 
 export function Avatar({ profile, size = 32, presence, ring }) {
+  if (profile?.uid) return <MediaAvatar uid={profile.uid} size={size} presence={presence} ring={ring} name={profile.name} color={profile.color} />;
   const name = profile?.name || '?';
   const color = profile?.color || '#5b8cff';
   return (

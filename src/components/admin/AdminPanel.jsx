@@ -8,6 +8,7 @@ import CatalogEditor from '../shop/CatalogEditor.jsx'; // WS3 export (0.8)
 import { ConfirmButton, ErrorBoundary } from '../layout/ui.jsx';
 import ReportsQueue from './ReportsQueue.jsx';
 import AnnouncementEditor from './AnnouncementEditor.jsx';
+import { AdminMediaConfig } from '../media/AdminMediaConfig.jsx';
 import './admin.css';
 
 const TABS = [
@@ -16,6 +17,7 @@ const TABS = [
   ['games', 'Games'],
   ['reports', 'Reports'],
   ['announcement', 'Announcement'],
+  ['media', 'GIFs & calls'],
 ];
 
 const E2EE_STATEMENT = 'Admins cannot read or decrypt private messages, servers, groups, codespaces or vaults.';
@@ -250,6 +252,7 @@ export default function AdminPanel({ me, onClose, onOpenGame, initialTab = 'over
                 {tab === 'games' && <GamesTab onOpenGame={openGame} />}
                 {tab === 'reports' && <ReportsQueue onOpenGame={openGame} />}
                 {tab === 'announcement' && <AnnouncementEditor />}
+                {tab === 'media' && <AdminMediaConfig />}
               </ErrorBoundary>
             )}
           </div>

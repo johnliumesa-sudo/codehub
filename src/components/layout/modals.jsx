@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { endAt, get, limitToFirst, orderByChild, query, ref, startAt } from 'firebase/database';
 import { db } from '../../lib/firebase.js';
+import { SlowmodeControl } from '../serverx/SlowmodeControl.jsx';
 import { usePresences } from '../../lib/presence.js';
 import { useProfiles } from '../../lib/profiles.js';
 import { writeAudit } from '../../lib/moderation.js';
@@ -232,6 +233,7 @@ export function ChannelModal({ sid, me, channel, initialType = 'text', nextPosit
             {[
               ['text', 'hash', 'Text', 'Messages, code snippets, emoji & reactions'],
               ['code', 'code', 'Code workspace', 'Real-time collaborative editor + GitHub'],
+              ['voice', 'users', 'Voice', 'Drop-in voice/video room (up to 6, peer-to-peer)'],
             ].map(([t, icon, label, desc]) => (
               <button type="button" key={t} role="radio" aria-checked={type === t} className={`ly-type ${type === t ? 'on' : ''}`} onClick={() => setType(t)}>
                 <Icon name={icon} size={20} />
@@ -281,6 +283,7 @@ export function ChannelModal({ sid, me, channel, initialType = 'text', nextPosit
           </button>
         </div>
       </form>
+      {editing && channel.type === 'text' && <SlowmodeControl sid={sid} cid={channel.cid} onError={(e) => setError(e?.message || 'Could not set slowmode')} />}
     </Modal>
   );
 }

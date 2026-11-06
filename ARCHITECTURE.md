@@ -369,3 +369,60 @@ Every navigation action clears `view`.
 - safety: `src/lib/{blocks,verify,linkguard,notify}.js`, `src/components/safety/*`
 - productivity: `src/lib/{checkpoints,zip,palette,snippets}.js`, `src/components/productivity/*`
 - integrator glue: `src/components/collab/CollabExtras.jsx`, plus the existing shared files
+
+## Overnight 2026-11-06 additions: calls, notifications, media, theme
+
+### Calls (WebRTC mesh, max 6): `src/lib/calls/*`, `src/components/calls/*`
+- Scopes: `dm_{dmId}`, `grp_{gid}`, `vc_{sid}_{cid}`. DM/group calls live at `calls/{scope}` + `signal/{scope}/{to}/{from}/{pushId}`; voice channels at `vcalls/{sid}/{cid}` + `vsignal/{sid}/{cid}/{to}/{from}/{pushId}` (rules cannot split strings).
+- Meta `{id (8-32), startedBy=auth.uid, ts=now, kind audio|video}`: writable only while no slots exist and (no meta / older than 60 s / own). Slots `slots/{0..5}` = `{uid, joinedAt=now (immutable), mic, cam, screen}`; one slot per user, own slot only, meta must exist. `onDisconnect` removes slot + inbox.
+- Signaling: AES-GCM with the conversation key (DM key, current group epoch key with `epoch` stored, server key for voice). AAD `call:{scope}/{callId}/{from}->{to}` (scope always the string form). Only `to` reads/deletes; writer must be `from` and both must be members (voice: channel type `voice`).
+- Perfect negotiation per pair (higher uid polite). ICE: `stun:stun.l.google.com:19302` + `appConfig/turn` (<=4).
+- Ringing (DM/group only): `notifs/{to}/{nid}` `{kind:'call', from, ts, ref:{dmId|gid, callId}}`. `IncomingCallModal` shows unread call notifs <30 s old whose call is live (WebAudio ringtone). Voice channels are drop-in.
+- One active call per tab (`useActiveCall`); hang-up, vault lock and pagehide stop tracks, close peers, remove slot and inbox. Device prefs in localStorage `codehub.callDevices`.
+- UI wiring: `CallAudio` + `IncomingCallModal` always mounted in Workspace; `CallView` replaces the chat pane while open; `MiniCallBar` above UserPanel; `CallButton` in the header for DMs/groups; voice channels in ChannelSidebar (speaker icon, participants, click joins).
+
+### Notification center: `src/lib/notifications.js`, `src/components/notifications/*`
+- `notifs/{uid}/{nid}` = `{kind, from=auth.uid, ts=now, ref:{sid|cid|gid|dmId|mid|gameId|callId}, read?}`; kinds mention|reply|dm|groupAdd|friendReq|roleChange|gameLike|call|announcement. `.indexOn: ['ts']`.
+- `notifLog/{from}/{uid}` = now, written in the same update; rules enforce >= 3 s per pair. Blocked senders are refused; per-kind context checks (server membership, DM/group membership, group owner, admin for announcement).
+- Recipient reads, marks `read:true`, deletes. Client keeps newest 200. Bell in the header (global instance drives `(N) Codehub` title and desktop alerts, which never show message text).
+
+### Media: `src/lib/media/*`, `src/components/media/*`
+- `avatars/{uid}` `{data base64 <=65536, mime webp|jpeg|png, ts=now}` (plaintext, any signed-in user reads; <=256 px, <=48 KB).
+- `servers/{sid}/icon` `{iv, ct<=90000}`, AAD `server-icon:{sid}`; owner/admin write.
+- `emotes/{sid}/{eid}` `{iv, ct<=90000, by, ts}`, AAD `emote:{sid}/{eid}`; owner/admin/`manageEmotes` write; 50 per server, <=128 px, <=48 KB.
+- `att/{scope}/{attId}/meta` `{by, ts, n 1..8, size<=600000, iv, ct<=2048, sid+cid | gid+epoch}`, AAD `att-meta:{scope}/{attId}`; chunks `att/{scope}/{attId}/c/{0..7}` `{iv, ct<=100000}`, AAD `att:{scope}/{attId}/{i}`. Scope `ch_{sid}_{cid}` | `dm_{dmId}` | `grp_{gid}`. Images are re-encoded (EXIF stripped) except small animated GIF/WebP. No video upload (Spark plan, RTDB only).
+- Message body gains `attachments: [{attId,w,h,mime,size}] (<=4)` and `gif: {url,w,h}` (GIPHY links only), validated on send and render.
+- `appConfig/{giphyKey, turn[]}`: signed-in read, admins write (Admin panel -> "GIFs & calls").
+
+### Theme
+- `src/lib/theme.js`: dark / light / system, stored only in localStorage `codehub.theme`; `initTheme()` runs in main.jsx before render. Light tokens in `:root[data-theme="light"]`; shop themes get derived light variants. Toggle in Settings -> Appearance.
+
+### Plaintext by design (additions)
+- Calls: who is in which call and when (slot uid, joinedAt, mic/cam/screen), call id/start/kind/starter, signaling envelope (from/to, ts, epoch), ring notif ids.
+- Notifications: kind, sender uid, timestamp, opaque ids, read flag (no text).
+- Media: avatars (readable by all signed-in users), attachment metadata ids/sizes/counts, emote author/ts, `appConfig` (GIPHY key and TURN credentials are client-visible).
+
+### Limits
+- No calls or notifications while the browser is closed (no push on Spark). Mesh capped at 6 (upload grows per peer). Peers see each other's IP addresses (TURN only if an admin configures it). A removed group member keeps their call slot until leaving but cannot signal.
+- GIFs load from GIPHY: GIPHY sees viewer IPs and search terms (no-referrer is used). Animated uploads keep original bytes. Attachments can orphan after server/group deletion (unreadable, but count toward the 1 GB quota).
+- The rules are over the console's 100 KiB paste limit. `npm run rules:min` prints a behaviour-preserving minified copy (whitespace stripped, `.child()` chains merged; 97 KB at this commit, 201/201 rules tests pass against it). If that grows past 102,400 bytes, deploy with `npm run deploy` (CLI).
+
+## Overnight 2026-11-06 tier 2: chat extras and server extras
+
+### chatx: polls, spoilers, bookmarks, forwarding (`src/lib/chatx`, `src/components/chatx`)
+- **Polls**: the encrypted message body gains `poll: { q ≤200, options[2..10] each ≤80 }` (sanitised by `sanitizePoll` on send in `messages.cleanBody` and on render). Votes live at `votes/{path}/{mid}/{uid}` = plaintext option index 0-9, path = `messages.typingPath(conv)` (`ch/{sid}/{cid}` | `dm/{dmId}` | `grp/{gid}`). Plaintext so the rules enforce "own uid only, one vote per user". The server learns "uid voted option N", never the option text. Reads and writes require membership of the conversation (server member + existing channel and not timed out, DM member, or group member). Retract = remove the node. Composer: 📊 button opens `PollComposer`.
+- **Spoilers/quotes**: `||text||` renders `<span class="spoiler">` via the marked extension `spoilerExtension` (in `lib/markdown.js`); click toggles `.revealed` (delegated in `Message.jsx`). Quotes use markdown blockquote.
+- **Bookmarks**: `bookmarks/{uid}/{key}` = `{iv, ct, ts}`; ct = vault-encrypted JSON (conv ref, mid, author, snippet ≤600, savedAt) with AAD `bm:{uid}/{key}`; key = `${scope}_${mid}` with RTDB-forbidden chars replaced (idempotent). Owner-only read/write. Snippets are copies (deleting the original does not remove them). UI: 🔖 in the message toolbar saves; 🔖 in the header opens "Saved messages".
+- **Forwarding**: `forwardMessage` re-encrypts a body into the target conversation key as a new message by the forwarder, carrying `fwd: { from }` (display name, advisory only). `messages.cleanBody` preserves `fwd`; received `fwd` renders `ForwardedTag`. The `ForwardModal` picker is **not yet wired** into the message menu (needs a cross-conversation target list).
+
+### serverx: slowmode, categories, richer profiles, shortcuts (`src/lib/serverx`, `src/components/serverx`)
+- **Slowmode**: `servers/{sid}/channels/{cid}/slowmode` = 1..21600 s (absent = off), written by `manageChannels` (channel edit modal → `SlowmodeControl`). `lastPost/{sid}/{cid}/{uid}` = server timestamp; uid-only read/write, members only, never deleted, value must be `now` and `now - previous ≥ slowmode*1000`. The message `uid` validate requires non-moderators in a slowmode channel to write `lastPost/…/{auth.uid} = now` in the **same** multi-path update (`sendMessage` does this via `slowmodeExtras`). Owner/admin/`manageMessages` are exempt. `SlowmodeBar` shows the countdown above the composer.
+- **Categories**: `servers/{sid}/categories/{catId}` = `{ enc:{iv,ct≤1024}, position }`, enc = server-key `encryptJSON({name})` with AAD `category:{sid}/{catId}`. Members read; `manageChannels` writes. A channel's optional `cat` (≤32 chars) points at a catId; dangling = uncategorized. Text channels are grouped in the sidebar; "Manage categories" in the server menu. Collapsed state is per-viewer `localStorage` (`codehub.collapsedCats`). Decrypted names are cleared with `clearPlainCache()`.
+- **Richer profiles**: `users/{uid}/profile` = `{ bio≤190, pronouns≤40, links{0..2}: https URL ≤200, banner '#rrggbb' }`, publicly readable like `name`, owner write. Editor in Settings → My profile; card in the member profile popover. Links render `rel="noopener noreferrer nofollow ugc"`, https only.
+- **Shortcut overlay**: press `?` (not while typing, not with Ctrl/Meta/Alt, not over another modal); data in `lib/serverx/shortcuts.js` must match real bindings.
+
+### Plaintext by design (tier 2 additions)
+- Poll vote indices per uid (not option text), bookmark timestamps/count, slowmode seconds, `lastPost` timestamps, category positions and channel `cat` ids (category **names** stay encrypted), profile bio/pronouns/links/banner color.
+
+### Tests
+- `tests/rules/serverx.test.mjs` (slowmode window, forgery, moderator exemption, categories, profile validation). Votes/bookmarks rules have no dedicated tests yet.

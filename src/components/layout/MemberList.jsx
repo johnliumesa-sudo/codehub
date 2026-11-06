@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ProfileExtrasCard } from '../serverx/ProfileExtras.jsx';
 import { usePresences } from '../../lib/presence.js';
 import { useProfiles } from '../../lib/profiles.js';
 import { Avatar, Icon, PRESENCE_LABEL } from './ui.jsx';
@@ -43,6 +44,7 @@ function ProfileCard({ uid, profile, role, presence, pos, isMe, onMessage, onClo
         </div>
         <div className="muted ly-profile-presence">{PRESENCE_LABEL[presence]}</div>
         {profile?.status && <div className="ly-profile-status">{profile.status}</div>}
+        <ProfileExtrasCard profile={profile} />
         {!isMe && (
           <>
             <button className="btn primary" onClick={() => onMessage(uid)}>

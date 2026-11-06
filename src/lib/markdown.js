@@ -5,6 +5,8 @@
 // as text, and remote images are rendered as links (loading them would leak IPs).
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { spoilerExtension } from './chatx/markdownExt.js';
+import '../components/chatx/chatx.css';
 import hljs from 'highlight.js/lib/core';
 import emojiData from '@emoji-mart/data';
 
@@ -186,6 +188,7 @@ function stripCode(text) {
 let ctx = { selfTokens: new Set(), knownTokens: null };
 
 const marked = new Marked({ gfm: true, breaks: true, async: false });
+marked.use(spoilerExtension);
 
 marked.use({
   renderer: {

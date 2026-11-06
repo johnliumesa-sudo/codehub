@@ -1,5 +1,6 @@
 // Server / channel / invite / DM helpers. All names and topics are encrypted with the
 // server's room key before they touch the database (see ARCHITECTURE.md for AAD strings).
+import { clearCategoryCache } from './serverx/categories.js';
 import { get, push, ref, remove, serverTimestamp, set, update } from 'firebase/database';
 import { db } from './firebase.js';
 import {
@@ -39,6 +40,7 @@ export function peekPlain(key) {
 
 export function clearPlainCache() {
   plain.clear();
+  clearCategoryCache();
 }
 
 export const serverNameCacheKey = (sid, box) => `sn|${sid}|${box?.iv}|${box?.ct}`;
@@ -330,7 +332,7 @@ export async function createChannel(sid, { type, name, topic, position }) {
   const key = await getServerKey(sid);
   const enc = await encChannel(key, sid, cid, clean, cleanTopic(topic));
   await set(ref(db, `servers/${sid}/channels/${cid}`), {
-    type: type === 'code' ? 'code' : 'text',
+    type: type === 'code' || type === 'voice' ? type : 'text',
     enc,
     position: Number.isFinite(position) ? position : Date.now(),
     createdAt: serverTimestamp(),

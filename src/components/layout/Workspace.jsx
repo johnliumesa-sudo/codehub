@@ -18,6 +18,8 @@ import {
   peerFromDmId,
 } from '../../lib/servers.js';
 import ChannelSidebar from './ChannelSidebar.jsx';
+import BookmarksPanel from '../chatx/BookmarksPanel.jsx';
+import { ShortcutsOverlay } from '../serverx/ShortcutsOverlay.jsx';
 import DmSidebar from './DmSidebar.jsx';
 import Header from './Header.jsx';
 import MemberList from './MemberList.jsx';
@@ -64,6 +66,14 @@ import CommandPalette from '../productivity/CommandPalette.jsx';
 import SnippetLibraryModal from '../productivity/SnippetLibraryModal.jsx';
 import { TOGGLE_PREVIEW_EVENT, useHotkey } from '../../lib/palette.js';
 import './layout.css';
+import IncomingCallModal from '../calls/IncomingCallModal.jsx';
+import CallView, { CallAudio } from '../calls/CallView.jsx';
+import MiniCallBar from '../calls/MiniCallBar.jsx';
+import CallButton from '../calls/CallButton.jsx';
+import { parseScope, voiceScope } from '../../lib/calls/core.js';
+import { joinCall, useActiveCall } from '../../lib/calls/useCall.js';
+import NotificationBell from '../notifications/NotificationBell.jsx';
+import { targetOfNotif } from '../../lib/notifications.js';
 
 const CollabView = lazy(() => import('../collab/CollabView.jsx'));
 const CodespacesHome = lazy(() => import('../codespaces/CodespacesHome.jsx'));
@@ -183,6 +193,9 @@ function WorkspaceFrame({ user }) {
   const [pendingGameId, setPendingGameId] = useState(null); // game to open in the Arcade (admin panel)
   const [csCreate, setCsCreate] = useState(0); // bump -> CodespacesHome opens "New codespace"
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
+  const activeCall = useActiveCall();
   // Ctrl/Cmd+K and Ctrl/Cmd+Shift+P toggle the quick switcher (ignored while another modal is open).
   useHotkey(() => setPaletteOpen((o) => !o));
 
@@ -324,6 +337,14 @@ function WorkspaceFrame({ user }) {
     if (mobile) setNavOpen(false);
   };
   const selectChannel = (ch) => {
+    if (ch.type === 'voice') {
+      // Voice channels are drop-in rooms: join (never ring) and show the call view; no ChatView.
+      joinCall(voiceScope(sid, ch.cid), uid, { kind: 'audio', ring: false })
+        .then(() => setCallOpen(true))
+        .catch((e) => toast(errMsg(e), 'error'));
+      if (mobile) setNavOpen(false);
+      return;
+    }
     setNav((n) =>
       ch.type === 'code'
         ? { ...n, view: null, tab: 'collab', codeCid: { ...n.codeCid, [sid]: ch.cid } }
@@ -340,6 +361,18 @@ function WorkspaceFrame({ user }) {
     if (mobile) setNavOpen(false);
   };
   const setTab = (t) => setNav((n) => ({ ...n, tab: t, view: null }));
+  const openBookmark = (b) => {
+    const c = b?.conv || {};
+    setBookmarksOpen(false);
+    if (c.kind === 'channel' && c.sid && c.cid) {
+      setNav((n) => ({ ...n, sid: c.sid, dmId: null, gid: null, view: null, tab: 'chat', chatCid: { ...n.chatCid, [c.sid]: c.cid } }));
+    } else if (c.kind === 'dm' && c.dmId) {
+      selectDm({ dmId: c.dmId });
+    } else if (c.kind === 'group' && c.gid) {
+      selectGroup({ gid: c.gid }); // the group's live epoch/owner come from the normal group subscription
+    }
+    if (mobile) setNavOpen(false);
+  };
 
   const messageUser = async (peerUid) => {
     try {
@@ -374,6 +407,47 @@ function WorkspaceFrame({ user }) {
     if (c.kind === 'dm') setNav((n) => ({ ...n, sid: null, dmId: c.dmId, gid: null, view: null }));
     else if (c.kind === 'channel') setNav((n) => ({ ...n, sid: c.sid, view: null, tab: 'chat', chatCid: { ...n.chatCid, [c.sid]: c.cid } }));
     else if (c.kind === 'group') setNav((n) => ({ ...n, sid: null, dmId: null, gid: c.gid, view: null }));
+    if (mobile) setNavOpen(false);
+  };
+
+  // ---------- calls ----------
+  const openCall = (scope) => {
+    const p = scope ? parseScope(scope) : null;
+    if (p?.type === 'dm') openConv({ kind: 'dm', dmId: p.dmId });
+    else if (p?.type === 'grp' || p?.type === 'group') openConv({ kind: 'group', gid: p.gid });
+    else if (p?.sid) goServer(p.sid);
+    setCallOpen(true);
+    if (mobile) setNavOpen(false);
+  };
+  const onNotifNavigate = (item, target) => {
+    const t = target ?? targetOfNotif(item);
+    switch (t?.type) {
+      case 'channel':
+        enterServer(t.sid, t.cid, 'text');
+        break;
+      case 'server':
+        goServer(t.sid);
+        break;
+      case 'dm':
+        openConv({ kind: 'dm', dmId: t.dmId });
+        break;
+      case 'group':
+        openConv({ kind: 'group', gid: t.gid });
+        break;
+      case 'call':
+        if (t.dmId) openConv({ kind: 'dm', dmId: t.dmId });
+        else if (t.gid) openConv({ kind: 'group', gid: t.gid });
+        if (activeCall) setCallOpen(true);
+        break;
+      case 'friends':
+        setNav((n) => ({ ...n, sid: null, dmId: null, gid: null, view: null }));
+        break;
+      case 'game':
+        openGame(t.gameId);
+        break;
+      default:
+        break;
+    }
     if (mobile) setNavOpen(false);
   };
 
@@ -618,6 +692,21 @@ function WorkspaceFrame({ user }) {
     </aside>
   );
 
+  const callScopeInfo = activeCall ? parseScope(activeCall.scope) : null;
+  const activeCallLabel = !callScopeInfo
+    ? ''
+    : callScopeInfo.type === 'dm'
+      ? (dms.find((d) => d.dmId === callScopeInfo.dmId)?.name || 'Direct call')
+      : callScopeInfo.type === 'grp'
+        ? (groups.find((g) => g.gid === callScopeInfo.gid)?.name || 'Group call')
+        : (callScopeInfo.sid === sid ? `#${channels.find((c) => c.cid === callScopeInfo.cid)?.name || 'voice'}` : 'Voice channel');
+  if (callOpen && activeCall) content = <CallView title={activeCallLabel} onMinimize={() => setCallOpen(false)} />;
+  const callButton = !sid && gid && group.status === 'ready'
+    ? <CallButton scope={`grp_${gid}`} me={uid} onJoined={() => setCallOpen(true)} />
+    : !sid && dmId && dmPeerUid
+      ? <CallButton scope={`dm_${dmId}`} me={uid} onJoined={() => setCallOpen(true)} />
+      : null;
+
   return (
     <div className={`ly-app ${mobile ? 'mobile' : ''} ${navOpen ? 'nav-open' : ''}`}>
       <AddonRuntime uid={uid} />
@@ -693,6 +782,7 @@ function WorkspaceFrame({ user }) {
               }}
             />
           )}
+          <MiniCallBar label={activeCallLabel} onOpen={(scope) => openCall(scope)} hidden={callOpen} />
           <UserPanel me={me} onSettings={() => setModal({ type: 'settings' })} onAdmin={() => setModal({ type: 'admin' })} />
         </div>}
       </div>
@@ -759,6 +849,13 @@ function WorkspaceFrame({ user }) {
           groupMemberCount={groupMembersLoading ? undefined : groupMembers.length}
           onGroupSettings={() => setModal({ type: 'group', gid, tab: 'overview' })}
           onOpenPalette={() => setPaletteOpen(true)}
+          extraActions={
+            <>
+              <button className="btn ghost sm ly-icon-btn" onClick={() => setBookmarksOpen((o) => !o)} title="Saved messages" aria-label="Saved messages">🔖</button>
+              {callButton}
+              <NotificationBell me={uid} onNavigate={onNotifNavigate} global />
+            </>
+          }
         />
         <div className="ly-body">
           <div className={`ly-content ${tab}`}>
@@ -777,6 +874,8 @@ function WorkspaceFrame({ user }) {
 
       {/* ---------- modals ---------- */}
       <LinkGuardHost />
+      <CallAudio />
+      <IncomingCallModal me={uid} onAccepted={(scope) => openCall(scope)} isBlocked={(u) => blocked.has(u)} muted={false} />
       <Notifier me={me} sources={notifySources} activeScope={chatConv?.scope || null} reads={reads} onOpen={(src) => openConv(src.conv)} />
       {modal?.type === 'settings' && (
         <SettingsModal
@@ -909,6 +1008,12 @@ function WorkspaceFrame({ user }) {
           </div>
         </Modal>
       )}
+      {bookmarksOpen && (
+        <Modal title="Saved messages" onClose={() => setBookmarksOpen(false)}>
+          <BookmarksPanel me={me} onOpen={openBookmark} />
+        </Modal>
+      )}
+      <ShortcutsOverlay />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
