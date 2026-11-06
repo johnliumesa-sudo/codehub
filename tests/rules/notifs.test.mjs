@@ -1,12 +1,12 @@
 // Notification center: notifs/{uid}/{nid} + notifLog/{from}/{uid} rate limit.
 import { describe, it, before, after, beforeEach } from 'node:test';
-import { getEnv, cleanup, reset, db, TS, assertFails as deny, assertSucceeds as ok } from './helpers.mjs';
+import { getEnv, cleanup, reset, db, TS, assertFails as deny, assertSucceeds as ok, seedFriendReq } from './helpers.mjs';
 
 const send = (from, to, nid, kind, ref) =>
   db(from).ref().update({ [`notifs/${to}/${nid}`]: { kind, from, ts: TS, ...(ref ? { ref } : {}) }, [`notifLog/${from}/${to}`]: TS });
 
 before(getEnv); after(cleanup);
-beforeEach(() => reset(() => {}));
+beforeEach(() => reset(seedFriendReq));
 
 describe('notifications', () => {
   it('ALLOW dm notif between DM members; DENY wrong dmId, forged from, missing notifLog', async () => {

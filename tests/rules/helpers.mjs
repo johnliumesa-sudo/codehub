@@ -149,3 +149,8 @@ export async function putAttMeta(u, base, m, logOverride) {
   const log = logOverride || (prev ? { ws: prev.ws, n: prev.n + 1, id: attId, at: TS } : { ws: TS, n: 1, id: attId, at: TS });
   return db(u).ref().update({ [`${base}/meta`]: m, [`attLog/${u}`]: log });
 }
+
+/** Seed patch: erin has a pending friend request to zoe (needed for friendReq notifications). */
+export const seedFriendReq = (w) => {
+  w.friends = { ...(w.friends || {}), zoe: { erin: { state: 'in', ts: 1 } }, erin: { zoe: { state: 'out', ts: 1 } } };
+};

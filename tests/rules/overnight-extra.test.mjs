@@ -1,9 +1,9 @@
 // Extra attack coverage for notifications, media, appConfig, profile, calls (overnight run).
 import { describe, it, before, after, beforeEach } from 'node:test';
-import { getEnv, cleanup, reset, db, admin, box, TS, assertFails as deny, assertSucceeds as ok, putAttMeta } from './helpers.mjs';
+import { getEnv, cleanup, reset, db, admin, box, TS, assertFails as deny, assertSucceeds as ok, putAttMeta, seedFriendReq } from './helpers.mjs';
 
 before(getEnv); after(cleanup);
-beforeEach(() => reset());
+beforeEach(() => reset(seedFriendReq));
 const send = (from, to, nid, kind, ref) =>
   db(from).ref().update({ [`notifs/${to}/${nid}`]: { kind, from, ts: TS, ...(ref ? { ref } : {}) }, [`notifLog/${from}/${to}`]: TS });
 
@@ -182,4 +182,18 @@ describe('overnight security fixes (round 2)', () => {
     await admin((d) => d.ref(`servers/${SID}/timeouts/dave`).remove());
     await ok(db('dave').ref(`vsignal/${SID}/${VC}/alice/dave`).push({ ...box, ts: TS }));
   });
+  it('notifs: friendReq/gameLike/groupAdd/roleChange must match real data', async () => {
+    await deny(send('mallory', 'alice', 'p1', 'gameLike', { gameId: 'evil' }));
+    await deny(send('bob', 'dave', 'p2', 'gameLike', { gameId: 'gm1' }));
+    await ok(db('bob').ref().update({
+      'games/gm1/likes': 1, 'gameLikes/gm1/bob': true,
+      'notifs/dave/p3': { kind: 'gameLike', from: 'bob', ts: TS, ref: { gameId: 'gm1' } }, 'notifLog/bob/dave': TS,
+    }));
+    await deny(send('dave', 'zoe', 'p4', 'friendReq'));
+    await deny(send('dave', 'bob', 'p5', 'roleChange', { sid: 's1' }));
+    await ok(send('alice', 'carol', 'p6', 'roleChange', { sid: 's1' }));
+    await deny(send('alice', 'zoe', 'p7', 'groupAdd', { gid: 'g1' }));
+    await ok(send('alice', 'dave', 'p8', 'groupAdd', { gid: 'g1' }));
+  });
 });
+
