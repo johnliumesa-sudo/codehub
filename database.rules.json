@@ -1934,14 +1934,43 @@
    }
   },
   "votes": {
-   "$scope": {
-    "$mid": {
-     ".read": "auth != null",
-     "$uid": {
-      ".write": "$uid === auth.uid",
-      ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 9 && newData.val() % 1 === 0"
+   "ch": {
+    "$sid": {
+     "$cid": {
+      "$mid": {
+       ".read": "auth != null && root.child('servers').child($sid).child('members').child(auth.uid).exists() && root.child('servers').child($sid).child('channels').child($cid).exists()",
+       "$uid": {
+        ".write": "$uid === auth.uid && (root.child('servers').child($sid).child('members').child(auth.uid).exists() && root.child('servers').child($sid).child('channels').child($cid).exists() && (!(root.child('servers').child($sid).child('timeouts').child(auth.uid).isNumber() && root.child('servers').child($sid).child('timeouts').child(auth.uid).val() > now) || !newData.exists()))",
+        ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 9 && newData.val() % 1 === 0"
+       }
+      }
      }
     }
+   },
+   "dm": {
+    "$dmId": {
+     "$mid": {
+      ".read": "auth != null && root.child('dms').child($dmId).child('members').child(auth.uid).val() === true",
+      "$uid": {
+       ".write": "$uid === auth.uid && (root.child('dms').child($dmId).child('members').child(auth.uid).val() === true)",
+       ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 9 && newData.val() % 1 === 0"
+      }
+     }
+    }
+   },
+   "grp": {
+    "$gid": {
+     "$mid": {
+      ".read": "auth != null && root.child('groups').child($gid).child('members').child(auth.uid).exists()",
+      "$uid": {
+       ".write": "$uid === auth.uid && (root.child('groups').child($gid).child('members').child(auth.uid).exists())",
+       ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 9 && newData.val() % 1 === 0"
+      }
+     }
+    }
+   },
+   "$other": {
+    ".validate": false
    }
   },
   "bookmarks": {

@@ -1,16 +1,17 @@
 // Polls. The poll definition lives inside the encrypted message body (`body.poll = { q, options[] }`).
-// Votes are plaintext by necessity (RTDB rules must enforce one vote per user): votes/{scope}/{mid}/{uid}
+// Votes are plaintext by necessity (RTDB rules must enforce one vote per user): votes/{ch/{sid}/{cid} | dm/{dmId} | grp/{gid}}/{mid}/{uid}
 // = option index. Option text stays encrypted; only "user X picked option #n" is visible to the server.
 import { onValue, ref, remove, set } from 'firebase/database';
 import { db } from '../firebase.js';
-import { typingScope } from '../messages.js';
+import { typingPath } from '../messages.js';
 
 export const MAX_POLL_OPTIONS = 10;
 export const MIN_POLL_OPTIONS = 2;
 export const MAX_POLL_Q = 200;
 export const MAX_POLL_OPTION = 80;
 
-export const votesPath = (conv, mid) => `votes/${typingScope(conv)}/${mid}`;
+// Split by conversation kind (ch/{sid}/{cid} | dm/{dmId} | grp/{gid}) so rules can check membership.
+export const votesPath = (conv, mid) => `votes/${typingPath(conv)}/${mid}`;
 
 /** Normalises a poll draft. Returns { poll } or { error }. */
 export function buildPoll(q, options) {
