@@ -30,6 +30,8 @@ import { db } from './firebase.js';
 import { decryptJSON, encryptJSON } from './crypto.js';
 import { getDmKey, getServerKey } from './keystore.js';
 import { getGroupKey, groupMessageAad, groupMessagesPath, groupScope, groupSendExtras, groupTypingPath } from './groups.js';
+import { cleanAttachments } from './media/attachments.js';
+import { cleanGif } from './media/giphy.js';
 
 export const PAGE_SIZE = 50;
 export const MAX_TEXT = 4000; // characters of message text
@@ -106,6 +108,10 @@ function cleanBody(body) {
     if (body.code.filename) out.code.filename = String(body.code.filename).slice(0, 200);
   }
   if (body.invite) out.invite = { name: String(body.invite.name || '').slice(0, 64) };
+  const atts = cleanAttachments(body.attachments);
+  if (atts.length) out.attachments = atts;
+  const gif = cleanGif(body.gif);
+  if (gif) out.gif = gif;
   return out;
 }
 

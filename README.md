@@ -37,6 +37,18 @@ Other features:
 
 ---
 
+## Voice/video calls, notifications, media and themes
+
+- **Calls:** 1:1 DM calls, group calls and drop-in server voice channels (create a channel of type *Voice*). WebRTC full mesh, up to 6 people, with mic/camera/screen share. Signaling is end-to-end encrypted with the conversation key. Peers see each other's IP addresses; calls only ring while the app is open (no push).
+- **Notification center:** bell in the header; mentions, replies, DMs, group adds, friend requests, role changes, game likes and call rings. Stores only ids and kinds, never message text.
+- **Media:** profile pictures, server icons, custom server emotes (`:name:`), encrypted image attachments (paste, drag-drop or button; up to 4 per message) and GIPHY GIFs. No video upload (stays on the free Spark plan).
+- **Theme:** dark / light / system toggle in Settings -> Appearance.
+
+### Admin setup for GIPHY and TURN
+1. Get a GIPHY API key at developers.giphy.com. In the app, open Admin panel -> *GIFs & calls* and paste it. The key is readable by every signed-in user (any browser-side key is). Without a key the GIF button is hidden.
+2. Optional TURN servers (up to 4) in the same form, for users behind strict NATs. TURN credentials are also client-visible; use a restricted/time-limited account. Without TURN, calls use Google STUN only and some networks will fail to connect.
+3. GIPHY sees viewers' IP addresses and search terms.
+
 ## 1. Setup
 
 ### Firebase project (already done)

@@ -232,6 +232,7 @@ export function ChannelModal({ sid, me, channel, initialType = 'text', nextPosit
             {[
               ['text', 'hash', 'Text', 'Messages, code snippets, emoji & reactions'],
               ['code', 'code', 'Code workspace', 'Real-time collaborative editor + GitHub'],
+              ['voice', 'users', 'Voice', 'Drop-in voice/video room (up to 6, peer-to-peer)'],
             ].map(([t, icon, label, desc]) => (
               <button type="button" key={t} role="radio" aria-checked={type === t} className={`ly-type ${type === t ? 'on' : ''}`} onClick={() => setType(t)}>
                 <Icon name={icon} size={20} />

@@ -216,6 +216,7 @@ const MessageList = forwardRef(function MessageList(props, ref) {
               <BlockedGate key={r.key} me={me.uid} authorUid={m.uid}>
               <Message
                 m={m}
+                conv={conv}
                 reportTarget={messageTarget(conv, m)}
                 grouped={r.grouped}
                 author={profiles[m.uid]}

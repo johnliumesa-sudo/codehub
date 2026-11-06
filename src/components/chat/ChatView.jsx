@@ -38,6 +38,7 @@ import { useBlocks, useIsBlocked } from '../../lib/blocks.js';
 import { useKeyChangeAck } from '../../lib/verify.js';
 import { isPermissionDenied } from '../layout/hooks.js';
 import './chat.css';
+import { deliverNotif } from '../../lib/notifications.js';
 
 const MAX_LIMIT = 2000;
 
@@ -280,6 +281,7 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
       return false;
     }
     const { mid, done } = res;
+    if (conv.kind === 'dm' && conv.peerUid) done.then(() => deliverNotif({ to: conv.peerUid, kind: 'dm', ref: { dmId: conv.dmId, mid } }), () => {});
     setSendingMids((s) => new Set(s).add(mid));
     const clear = () => setSendingMids((s) => {
       if (!s.has(mid)) return s;
@@ -496,6 +498,7 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
             <div className="chat-composer-wrap">
               <Composer
                 ref={composerRef}
+                conv={conv}
                 disabled={!key}
                 placeholder={placeholder}
                 onSend={handleSend}

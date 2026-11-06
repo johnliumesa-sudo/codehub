@@ -1,0 +1,23 @@
+.nf-wrap { position: relative; display: inline-flex; }
+.nf-bell { position: relative; }
+.nf-badge { position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; border: 2px solid var(--bg-2); box-sizing: content-box; }
+.nf-panel { position: absolute; z-index: 60; width: min(360px, calc(100vw - 24px)); max-height: min(70vh, 520px); display: flex; flex-direction: column; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0, 0, 0, .35); overflow: hidden; }
+.nf-panel.down { top: calc(100% + 8px); }
+.nf-panel.up { bottom: calc(100% + 8px); }
+.nf-panel.right { right: 0; }
+.nf-panel.left { left: 0; }
+.nf-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.nf-head-actions { display: flex; gap: 4px; }
+.nf-list { overflow-y: auto; flex: 1; }
+.nf-empty { padding: 28px 12px; text-align: center; color: var(--text-faint); }
+.nf-item { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
+.nf-item:last-child { border-bottom: 0; }
+.nf-item.unread { background: var(--accent-soft); }
+.nf-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 6px 10px 12px; background: none; border: 0; color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.nf-main:hover { background: var(--bg-hover); }
+.nf-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nf-line { overflow-wrap: anywhere; }
+.nf-time { font-size: 11px; color: var(--text-faint); }
+.nf-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.nf-del { background: none; border: 0; color: var(--text-faint); cursor: pointer; padding: 8px 10px; font-size: 16px; line-height: 1; }
+.nf-del:hover { color: var(--danger); }

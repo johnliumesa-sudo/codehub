@@ -330,7 +330,7 @@ export async function createChannel(sid, { type, name, topic, position }) {
   const key = await getServerKey(sid);
   const enc = await encChannel(key, sid, cid, clean, cleanTopic(topic));
   await set(ref(db, `servers/${sid}/channels/${cid}`), {
-    type: type === 'code' ? 'code' : 'text',
+    type: type === 'code' || type === 'voice' ? type : 'text',
     enc,
     position: Number.isFinite(position) ? position : Date.now(),
     createdAt: serverTimestamp(),

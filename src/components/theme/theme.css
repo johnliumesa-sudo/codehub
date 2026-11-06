@@ -1,0 +1,32 @@
+/* Appearance section: theme chooser */
+.th-card { display: grid; gap: 12px; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-1); }
+.th-card h3 { margin: 0 0 2px; font-size: 14px; }
+.th-card p { margin: 0; font-size: 13px; }
+.th-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.th-option { display: grid; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-2); color: var(--text); cursor: pointer; text-align: left; transition: border-color .15s, box-shadow .15s; }
+.th-option:hover { border-color: var(--line-strong); }
+.th-option:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); border-color: var(--accent); }
+.th-option[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.th-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; font-weight: 600; }
+.th-check { color: var(--accent); font-size: 12px; }
+.th-preview { height: 54px; border-radius: 6px; display: grid; grid-template-columns: 22% 1fr; overflow: hidden; border: 1px solid rgba(128, 128, 128, .25); }
+.th-preview i { display: block; }
+.th-preview .th-main { padding: 8px 8px; display: grid; gap: 5px; align-content: center; }
+.th-preview .th-main b { display: block; height: 6px; border-radius: 3px; }
+.th-preview .th-main b:first-child { width: 70%; }
+.th-preview .th-main b:last-child { width: 45%; opacity: .6; }
+/* Fixed swatches on purpose: they depict each theme regardless of the active one. */
+.th-preview.dark { background: #161a23; }
+.th-preview.dark i:first-child { background: #0b0d12; }
+.th-preview.dark b { background: #e6e9f0; }
+.th-preview.light { background: #ffffff; }
+.th-preview.light i:first-child { background: #e6e9f1; }
+.th-preview.light b { background: #1a1f2b; }
+.th-preview.system { background: linear-gradient(105deg, #161a23 50%, #ffffff 50%); }
+.th-preview.system i:first-child { background: linear-gradient(105deg, #0b0d12 50%, #e6e9f1 50%); }
+.th-preview.system .th-main b:first-child { background: linear-gradient(90deg, #e6e9f0 50%, #1a1f2b 50%); }
+.th-preview.system .th-main b:last-child { background: #7a8497; }
+.th-inline { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-3); }
+.th-inline button { border: 0; background: transparent; color: var(--text-dim); padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; }
+.th-inline button[aria-checked="true"] { background: var(--accent); color: #fff; }
+@media (max-width: 520px) { .th-options { grid-template-columns: 1fr; } }

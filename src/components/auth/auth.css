@@ -13,7 +13,7 @@
 }
 .auth-glow {
   position: absolute; inset: 0; pointer-events: none;
-  background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-image: linear-gradient(var(--tint-grid) 1px, transparent 1px), linear-gradient(90deg, var(--tint-grid) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
 }
@@ -69,11 +69,11 @@
 .auth-eye:hover { color: var(--text); background: var(--bg-hover); }
 
 .auth-submit { width: 100%; padding: 11px 14px; font-weight: 600; margin-top: 4px; }
-.spinner.sm { width: 14px; height: 14px; border-width: 2px; border-color: rgba(255,255,255,.35); border-top-color: #fff; }
+.spinner.sm { width: 14px; height: 14px; border-width: 2px; border-color: rgba(128,128,128,.35); border-top-color: #fff; }
 
 .auth-alert { font-size: 13px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid; }
-.auth-alert.error { color: #ffb3c1; background: rgba(255, 92, 122, 0.08); border-color: rgba(255, 92, 122, 0.3); }
-.auth-alert.ok { color: #a8f0cf; background: rgba(60, 207, 145, 0.08); border-color: rgba(60, 207, 145, 0.3); }
+.auth-alert.error { color: var(--danger-text); background: rgba(255, 92, 122, 0.08); border-color: rgba(255, 92, 122, 0.3); }
+.auth-alert.ok { color: var(--ok-text); background: rgba(60, 207, 145, 0.08); border-color: rgba(60, 207, 145, 0.3); }
 
 .auth-link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-weight: 500; }
 .auth-link:hover { text-decoration: underline; }

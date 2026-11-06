@@ -7,6 +7,8 @@ import CodeSnippet from './CodeSnippet.jsx';
 import { CosmeticBadge, useNameColor } from '../shop/Cosmetics.jsx';
 import AdminBadge from '../admin/AdminBadge.jsx';
 import ReportButton from '../admin/ReportButton.jsx';
+import { MessageAttachments } from '../media/Attachments.jsx';
+import { GifMessage } from '../media/GifPicker.jsx';
 
 function fmtTime(ts) {
   if (typeof ts !== 'number') return '';
@@ -64,7 +66,7 @@ function Message(props) {
   const {
     m, grouped, author, me, profiles, reply, replyAuthor, knownNames, editing, highlighted,
     canDelete, canEdit, canPin, onReply, onEdit, onEditSave, onEditCancel, onDelete, onReact,
-    onOpenReactPicker, onPin, onJump, onCopied, reportTarget,
+    onOpenReactPicker, onPin, onJump, onCopied, reportTarget, conv,
   } = props;
   const nameColor = useNameColor(m.uid);
 
@@ -160,6 +162,8 @@ function Message(props) {
                 />
               )}
               {m.body?.code && <CodeSnippet code={m.body.code} onCopied={onCopied} />}
+              {conv && m.body?.attachments?.length > 0 && <MessageAttachments scope={conv} attachments={m.body.attachments} />}
+              {m.body?.gif && <GifMessage gif={m.body.gif} />}
               {invite && <InviteCard invite={invite} name={m.body?.invite?.name} mine={m.uid === me.uid} />}
               {m.editedAt && <span className="msg-edited" title={`Edited ${fmtFull(m.editedAt)}`}>(edited)</span>}
               {grouped && m.pinned && <span className="msg-pin-flag" title="Pinned">📌</span>}

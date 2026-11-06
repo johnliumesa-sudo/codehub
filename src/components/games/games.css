@@ -39,7 +39,7 @@
   display: flex; flex-direction: column; min-width: 0; overflow: hidden; border-radius: var(--radius);
   background: var(--bg-1); border: 1px solid var(--border); transition: border-color .15s, transform .15s;
 }
-.gm-card:hover { border-color: #34405a; transform: translateY(-1px); }
+.gm-card:hover { border-color: var(--line-strong); transform: translateY(-1px); }
 .gm-cover {
   position: relative; display: grid; place-items: center; height: 118px; width: 100%; border: 0; cursor: pointer; overflow: hidden;
   background:

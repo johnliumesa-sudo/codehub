@@ -4,13 +4,15 @@ import { isMuted, useNotifPrefs } from '../../lib/notify.js';
 import MuteMenu from '../safety/MuteMenu.jsx';
 import { isUnread } from './hooks.js';
 import { Icon, Menu, MenuItem } from './ui.jsx';
+import VoiceChannelParticipants from '../calls/VoiceChannelParticipants.jsx';
+import CallIcon from '../calls/CallIcon.jsx';
 
-function ChannelRow({ ch, active, unread, canEdit, onSelect, onEdit }) {
+function ChannelRow({ sid, ch, active, unread, canEdit, onSelect, onEdit }) {
   const label = ch.failed ? 'undecryptable' : ch.name;
   return (
     <div className={`ly-chan ${active ? 'active' : ''} ${unread ? 'unread' : ''} ${ch.failed ? 'failed' : ''}`}>
       <button className="ly-chan-main" onClick={() => onSelect(ch)} title={ch.topic || label || ''}>
-        <Icon name={ch.type === 'code' ? 'code' : 'hash'} size={17} className="ly-chan-icon" />
+        {ch.type === 'voice' ? <CallIcon name="speaker" size={17} className="ly-chan-icon" /> : <Icon name={ch.type === 'code' ? 'code' : 'hash'} size={17} className="ly-chan-icon" />}
         {ch.pending ? <span className="ly-skel-line" /> : <span className="ly-chan-name">{label}</span>}
         {unread && <span className="ly-unread-dot" aria-label="unread" />}
       </button>
@@ -19,6 +21,7 @@ function ChannelRow({ ch, active, unread, canEdit, onSelect, onEdit }) {
           <Icon name="gear" size={15} />
         </button>
       )}
+      {ch.type === 'voice' && sid && !ch.pending && <VoiceChannelParticipants sid={sid} cid={ch.cid} />}
     </div>
   );
 }
@@ -70,11 +73,13 @@ export default function ChannelSidebar({
   const notifPrefs = useNotifPrefs(myUid);
   const text = channels.filter((c) => c.type === 'text');
   const code = channels.filter((c) => c.type === 'code');
+  const voice = channels.filter((c) => c.type === 'voice');
   const toggle = (k) => setCollapsed((c) => ({ ...c, [k]: !c[k] }));
 
   const row = (ch) => (
     <ChannelRow
       key={ch.cid}
+      sid={sid}
       ch={ch}
       active={ch.cid === activeCid}
       unread={
@@ -103,6 +108,14 @@ export default function ChannelSidebar({
     </Section>
   );
 
+  const voiceSection = (voice.length > 0 || canChannels) && (
+    <Section key="voice" title="Voice channels" collapsed={collapsed.voice}
+      onToggle={() => toggle('voice')} onAdd={canChannels ? () => onCreateChannel('voice') : null} addLabel="Create voice channel">
+      {voice.map(row)}
+      {!loading && voice.length === 0 && <p className="ly-section-empty">No voice channels yet</p>}
+    </Section>
+  );
+
   const serverName = meta.name || (meta.nameFailed ? 'Locked server' : '');
 
   return (
@@ -118,6 +131,7 @@ export default function ChannelSidebar({
           <MenuItem icon="gear" onClick={onOpenSettings}>Server settings</MenuItem>
           {canChannels && <MenuItem icon="hash" onClick={() => onCreateChannel('text')}>Create text channel</MenuItem>}
           {canChannels && <MenuItem icon="code" onClick={() => onCreateChannel('code')}>Create code workspace</MenuItem>}
+          {canChannels && <MenuItem icon="users" onClick={() => onCreateChannel('voice')}>Create voice channel</MenuItem>}
           {myRole !== 'owner' && <div className="ly-menu-sep" />}
           {myRole !== 'owner' && <MenuItem icon="door" danger onClick={onLeave}>Leave server</MenuItem>}
         </Menu>
@@ -135,7 +149,7 @@ export default function ChannelSidebar({
             {[70, 55, 80, 60].map((w, i) => <span key={i} className="ly-skel-line" style={{ width: `${w}%` }} />)}
           </div>
         )}
-        {!loading && (tab === 'collab' ? [codeSection, textSection] : [textSection, codeSection])}
+        {!loading && (tab === 'collab' ? [codeSection, textSection, voiceSection] : [textSection, voiceSection, codeSection])}
       </div>
     </div>
   );

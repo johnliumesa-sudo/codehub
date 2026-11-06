@@ -12,6 +12,8 @@ import AddonsTab from '../shop/AddonsTab.jsx';
 import PromoTab from '../admin/PromoTab.jsx';
 import PrivacyTab from '../safety/PrivacyTab.jsx';
 import NotificationsTab from '../safety/NotificationsTab.jsx';
+import ThemeToggle from '../theme/ThemeToggle.jsx';
+import { AvatarUploader } from '../media/Uploaders.jsx';
 import './settings.css';
 
 const STATUS_MAX = 128;
@@ -19,6 +21,7 @@ const STATUS_MAX = 128;
 const TABS = [
   ['profile', 'My profile'],
   ['security', 'Encryption & keys'],
+  ['appearance', 'Appearance'],
   ['privacy', 'Privacy'],
   ['notifications', 'Notifications'],
   ['github', 'GitHub'],
@@ -492,7 +495,14 @@ export default function SettingsModal({ user, onClose, initialTab = 'profile', o
             </button>
           </header>
           <div className="settings-scroll">
-            {tab === 'profile' && <ProfileTab user={user} />}
+            {tab === 'profile' && (
+              <>
+                <h3>Profile picture</h3>
+                <AvatarUploader uid={user.uid} />
+                <ProfileTab user={user} />
+              </>
+            )}
+            {tab === 'appearance' && <ThemeToggle />}
             {tab === 'security' && <SecurityTab />}
             {tab === 'privacy' && <PrivacyTab user={user} />}
             {tab === 'notifications' && <NotificationsTab user={user} describeScope={describeScope} />}
