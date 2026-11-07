@@ -14,10 +14,13 @@ import ForwardedTag from '../chatx/ForwardedTag.jsx';
 import { Emote } from '../media/EmoteText.jsx';
 import { addBookmark } from '../../lib/chatx/bookmarks.js';
 import { MessageExtActions, MessageExtBadges, MessageExtExtras } from '../ext/ChatExt.jsx';
+import { useClockFormat } from '../../features/personal/lib/appearance.js';
+import { clockOptions } from '../../features/personal/lib/appearanceCore.js';
 
-function fmtTime(ts) {
+// clock: Settings -> Appearance -> Timestamps ('auto' | '12' | '24').
+function fmtTime(ts, clock) {
   if (typeof ts !== 'number') return '';
-  return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return new Date(ts).toLocaleTimeString(undefined, clockOptions(clock));
 }
 
 function fmtFull(ts) {
@@ -74,6 +77,7 @@ function Message(props) {
     onOpenReactPicker, onPin, onJump, onCopied, reportTarget, conv, emotes, onForward,
   } = props;
   const nameColor = useNameColor(m.uid);
+  const clock = useClockFormat();
 
   const text = m.body?.text || '';
   const html = useMemo(
@@ -131,7 +135,7 @@ function Message(props) {
       <div className="msg-row">
         <div className="msg-gutter">
           {grouped ? (
-            <span className="msg-hover-time" title={fmtFull(m.ts)}>{fmtTime(m.ts)}</span>
+            <span className="msg-hover-time" title={fmtFull(m.ts)}>{fmtTime(m.ts, clock)}</span>
           ) : (
             <Avatar profile={author} />
           )}
@@ -143,7 +147,7 @@ function Message(props) {
               <CosmeticBadge uid={m.uid} />
               <AdminBadge uid={m.uid} />
               <MessageExtBadges m={m} />
-              <span className="msg-time" title={fmtFull(m.ts)}>{isSending ? 'sending…' : fmtTime(m.ts)}</span>
+              <span className="msg-time" title={fmtFull(m.ts)}>{isSending ? 'sending…' : fmtTime(m.ts, clock)}</span>
               {m.pinned && <span className="msg-pin-flag" title="Pinned">📌</span>}
             </div>
           )}

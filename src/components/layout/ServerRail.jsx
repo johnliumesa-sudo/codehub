@@ -1,12 +1,14 @@
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { initials } from '../../lib/profiles.js';
 import { ServerIcon as MediaServerIcon } from '../media/Avatar.jsx';
 import { channelScope } from '../../lib/servers.js';
 import { isUnread, useChannelIds, useLastMessages, useServerMeta } from './hooks.js';
 import { Icon } from './ui.jsx';
 import { isMuted, useNotifPrefs } from '../../lib/notify.js';
+import { FolderedServers } from '../../features/personal/components/ServerFolders.jsx';
 
-function RailButton({ active, unread, label, color, onClick, children, className = '' }) {
+// wrapProps / btnProps / hidden: drag and drop, context menu and collapsed server folders (personal).
+function RailButton({ active, unread, label, color, onClick, children, className = '', wrapProps, btnProps, hidden }) {
   // Tooltip is position:fixed so the scrollable rail never clips it.
   const [tip, setTip] = useState(null);
   const show = (e) => {
@@ -14,9 +16,10 @@ function RailButton({ active, unread, label, color, onClick, children, className
     setTip({ top: r.top + r.height / 2, left: r.right + 12 });
   };
   return (
-    <div className={`ly-rail-item ${active ? 'active' : ''} ${unread ? 'unread' : ''} ${className}`}>
+    <div className={`ly-rail-item ${active ? 'active' : ''} ${unread ? 'unread' : ''} ${className}`} hidden={hidden} {...wrapProps}>
       <span className="ly-rail-pill" />
       <button
+        {...btnProps}
         className="ly-rail-btn"
         style={color ? { '--srv': color } : undefined}
         onClick={(e) => { setTip(null); onClick?.(e); }}
@@ -39,7 +42,7 @@ function RailButton({ active, unread, label, color, onClick, children, className
   );
 }
 
-const ServerIcon = memo(function ServerIcon({ sid, nonce, active, onSelect, onStale, reads, myUid }) {
+const ServerIcon = memo(function ServerIcon({ sid, nonce, active, onSelect, onStale, reads, myUid, hidden, wrapProps, btnProps, onInfo }) {
   const meta = useServerMeta(sid, nonce);
   const cids = useChannelIds(meta.status === 'ready' ? sid : null, nonce);
   const last = useLastMessages(meta.status === 'ready' ? `messages/${sid}` : null, cids, nonce);
@@ -48,17 +51,21 @@ const ServerIcon = memo(function ServerIcon({ sid, nonce, active, onSelect, onSt
     !active &&
     !isMuted(notifPrefs, `srv_${sid}`) &&
     cids.some((cid) => isUnread(last[cid], reads[channelScope(sid, cid)], myUid) && !isMuted(notifPrefs, channelScope(sid, cid), Date.now(), { sid }));
+  // Server folders show a collapsed folder's unread state and mini icons.
+  useEffect(() => {
+    onInfo?.(sid, { unread, name: meta.name || null, color: meta.color || null });
+  }, [onInfo, sid, unread, meta.name, meta.color]);
 
   if (meta.status === 'denied' || meta.status === 'missing') {
     return (
-      <RailButton label="Server unavailable — click to remove" className="stale" onClick={() => onStale(sid)}>
+      <RailButton label="Server unavailable — click to remove" className="stale" onClick={() => onStale(sid)} hidden={hidden} wrapProps={wrapProps} btnProps={btnProps}>
         <Icon name="x" size={18} />
       </RailButton>
     );
   }
   const name = meta.name || (meta.nameFailed ? 'Locked server' : '…');
   return (
-    <RailButton active={active} unread={unread} label={name} color={meta.color} onClick={() => onSelect(sid)}>
+    <RailButton active={active} unread={unread} label={name} color={meta.color} onClick={() => onSelect(sid)} hidden={hidden} wrapProps={wrapProps} btnProps={btnProps}>
       {meta.status === 'loading' || (!meta.name && !meta.nameFailed) ? (
         <span className="ly-rail-skeleton" />
       ) : meta.nameFailed ? (
@@ -89,9 +96,14 @@ export default function ServerRail({ servers, loading, activeSid, homeUnread, on
       <div className="ly-rail-sep" />
       <div className="ly-rail-list">
         {loading && [0, 1].map((i) => <div key={i} className="ly-rail-item"><span className="ly-rail-btn ghost"><span className="ly-rail-skeleton" /></span></div>)}
-        {servers.map((s) => (
-          <ServerIcon key={s.sid} sid={s.sid} nonce={`${s.joinedAt}|${refreshTick}`} active={activeSid === s.sid} onSelect={onSelect} onStale={onStale} reads={reads} myUid={myUid} />
-        ))}
+        <FolderedServers
+          servers={servers}
+          activeSid={activeSid}
+          RailButton={RailButton}
+          renderServer={(s, extra) => (
+            <ServerIcon key={s.sid} sid={s.sid} nonce={`${s.joinedAt}|${refreshTick}`} active={activeSid === s.sid} onSelect={onSelect} onStale={onStale} reads={reads} myUid={myUid} {...extra} />
+          )}
+        />
         <RailButton label="Create or join a server" onClick={onCreateJoin} className="add">
           <Icon name="plus" size={22} />
         </RailButton>

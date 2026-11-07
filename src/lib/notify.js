@@ -17,6 +17,7 @@ import { decryptMessage, getConvKey, messagesPath, serverNow } from './messages.
 import { mentionsName } from './markdown.js';
 import { channelScope, decryptChannel, decryptServerName, dmScope } from './servers.js';
 import { setTitleCount } from './title.js';
+import { isDoNotDisturb } from './presence.js';
 
 export const DEFAULT_SETTINGS = Object.freeze({ desktop: false, preview: false, mentionsOnly: false });
 export const LEVELS = ['all', 'mentions', 'none'];
@@ -382,7 +383,7 @@ export function useNotifier({ me, sources, activeScope, prefs, reads, blocked, o
     setPending((p) => ({ ...p, [scope]: [...(p[scope] || []).slice(-98), raw.ts] }));
 
     const settings = L2.prefs?.settings || DEFAULT_SETTINGS;
-    if (!settings.desktop || notificationPermission() !== 'granted') return;
+    if (!settings.desktop || notificationPermission() !== 'granted' || isDoNotDisturb()) return; // DND: counts only
     if (settings.mentionsOnly && !mentioned && !isDm) return;
 
     const who = await senderName(raw.uid);

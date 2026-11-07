@@ -6,6 +6,8 @@ import { Avatar, Icon } from './ui.jsx';
 import GroupList from '../groups/GroupList.jsx';
 import { isMuted, useNotifPrefs } from '../../lib/notify.js';
 import { SidebarSections } from '../ext/WorkspaceExt.jsx';
+import { FavoriteStar } from '../../features/personal/components/Favorites.jsx';
+import { CustomStatusText } from '../../features/personal/components/StatusBits.jsx';
 
 const HOME_EXT = { view: 'home' }; // sidebarSections ctx extra (stable)
 
@@ -85,12 +87,13 @@ export default function DmSidebar({ dms, loading, error, activeDmId, reads, myUi
                     <Avatar profile={p} size={32} presence={presence[d.peer] || 'offline'} />
                     <span className="ly-dm-text">
                       <span className="ly-dm-name">{p?.name || '…'}</span>
-                      {p?.status && <span className="ly-dm-status">{p.status}</span>}
+                      <CustomStatusText uid={d.peer} fallback={p?.status} />
                     </span>
                     <span className="ly-dm-meta">
                       {unread ? <span className="ly-unread-dot" /> : <span className="ly-dm-time">{relTime(d.lastTs)}</span>}
                     </span>
                   </button>
+                  <FavoriteStar conv={{ kind: 'dm', dmId: d.dmId }} name={p?.name} />
                   <button className="ly-dm-close" onClick={() => onHide(d)} aria-label="Close conversation" title="Close conversation">
                     <Icon name="x" size={14} />
                   </button>

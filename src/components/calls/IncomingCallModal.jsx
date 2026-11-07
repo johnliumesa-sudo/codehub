@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useProfile } from '../../lib/profiles.js';
 import { joinCall, markRingHandled, useCallMeta, useIncomingCalls } from '../../lib/calls/useCall.js';
 import { startRingtone } from '../../lib/calls/media.js';
+import { isDoNotDisturb } from '../../lib/presence.js';
 import { Avatar } from '../layout/ui.jsx';
 import CallIcon from './CallIcon.jsx';
 import './calls.css';
@@ -63,7 +64,7 @@ export default function IncomingCallModal({ me, onAccepted, isBlocked, muted }) 
   const rings = useIncomingCalls(me).filter((r) => r.from !== me && !isBlocked?.(r.from));
   if (!rings.length) return null;
   const ring = rings[rings.length - 1];
-  const silent = typeof muted === 'function' ? !!muted(ring.scope) : !!muted;
+  const silent = isDoNotDisturb() || (typeof muted === 'function' ? !!muted(ring.scope) : !!muted); // Do Not Disturb: no ringtone
   return (
     <div className="call-incoming-wrap">
       <Ring key={ring.nid} me={me} ring={ring} onAccepted={onAccepted} muted={silent} />
