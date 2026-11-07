@@ -10,6 +10,7 @@ import { useCategories } from '../../lib/serverx/categories.js';
 import { CategorizedChannels } from '../serverx/CategorizedChannels.jsx';
 import { CategoryManager } from '../serverx/CategoryManager.jsx';
 import { SidebarSections } from '../ext/WorkspaceExt.jsx';
+import { FavoriteStar } from '../../features/personal/components/Favorites.jsx';
 
 function ChannelRow({ sid, ch, active, unread, canEdit, onSelect, onEdit }) {
   const label = ch.failed ? 'undecryptable' : ch.name;
@@ -20,6 +21,7 @@ function ChannelRow({ sid, ch, active, unread, canEdit, onSelect, onEdit }) {
         {ch.pending ? <span className="ly-skel-line" /> : <span className="ly-chan-name">{label}</span>}
         {unread && <span className="ly-unread-dot" aria-label="unread" />}
       </button>
+      {ch.type === 'text' && sid && !ch.pending && !ch.failed && <FavoriteStar conv={{ kind: 'channel', sid, cid: ch.cid }} name={`#${label}`} />}
       {canEdit && !ch.pending && (
         <button className="ly-chan-edit" onClick={() => onEdit(ch)} aria-label={`Edit ${label}`} title="Edit channel">
           <Icon name="gear" size={15} />
