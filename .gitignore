@@ -6,3 +6,4 @@ dist
 *-debug.log
 .smbdelete*
 test-results/
+firebase.test-*.json

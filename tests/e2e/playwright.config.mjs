@@ -1,7 +1,12 @@
 import { defineConfig } from '@playwright/test';
+import { portsFor, testConfigName, writeTestConfig } from '../../scripts/test-ports.mjs';
 
-// Multi-user E2E: Auth + Database emulators (project demo-codehub) + vite on :5199 with VITE_EMULATORS=1.
-// Needs Java on PATH for the database emulator. Never touches the live project.
+// Multi-user E2E: Auth + Database emulators (project demo-codehub) + vite with VITE_EMULATORS=1, on the
+// port block chosen by CODEHUB_PORT_BASE (default: database 9000, auth 9099, vite 5199; see
+// scripts/test-ports.mjs). Needs Java on PATH for the database emulator. Never touches the live project.
+const P = portsFor();
+writeTestConfig(P.base); // firebase.test-<base>.json, also when Playwright is started directly
+
 export default defineConfig({
   testDir: '.',
   testMatch: /.*\.spec\.mjs/,
@@ -12,20 +17,20 @@ export default defineConfig({
   retries: 0,
   reporter: [['list']],
   globalSetup: './global-setup.mjs',
-  use: { baseURL: 'http://127.0.0.1:5199', trace: 'retain-on-failure', permissions: ['clipboard-read', 'clipboard-write'] },
+  use: { baseURL: `http://127.0.0.1:${P.vite}`, trace: 'retain-on-failure', permissions: ['clipboard-read', 'clipboard-write'] },
   webServer: [
     {
-      command: 'npx firebase emulators:start --only auth,database --project demo-codehub',
+      command: `npx firebase emulators:start --config ${testConfigName(P.base)} --only auth,database --project demo-codehub`,
       cwd: '../..',
-      port: 9000,
+      port: P.database,
       reuseExistingServer: !!process.env.E2E_REUSE,
       timeout: 120_000,
     },
     {
-      command: 'npx vite --port 5199 --strictPort --host 127.0.0.1',
+      command: `npx vite --port ${P.vite} --strictPort --host 127.0.0.1`,
       cwd: '../..',
-      env: { VITE_EMULATORS: '1' },
-      url: 'http://127.0.0.1:5199',
+      env: { VITE_EMULATORS: '1', VITE_EMU_DB_PORT: String(P.database), VITE_EMU_AUTH_PORT: String(P.auth) },
+      url: `http://127.0.0.1:${P.vite}`,
       reuseExistingServer: !!process.env.E2E_REUSE,
       timeout: 120_000,
     },
