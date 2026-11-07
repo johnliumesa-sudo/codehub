@@ -9,3 +9,4 @@ import './calls/index.js';
 import './messaging/index.js';
 import './personal/index.js';
 import './community/index.js';
+import './premium/index.js';
