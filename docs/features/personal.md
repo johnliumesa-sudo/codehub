@@ -167,5 +167,5 @@ collapsed state, synced appearance settings.
 - Unit: `tests/unit/personal.test.mjs` (status cleaning/expiry/effective presence, favorites keys and
   ordering, folder layout and moves, notes, appearance validation, clock formats, boot snippet vs. app).
 - E2E: `tests/e2e/46-personal.spec.mjs` (two-user status/DND/invisible incl. muted desktop alerts with a
-  positive control; favorites and folders with keyboard menu, collapse and drag and drop; notes;
+  positive control; auto-idle after 10 minutes (fake clock) and back on input; favorites and folders with keyboard menu, collapse and drag and drop; notes;
   appearance applied before paint, 24-hour times, reduced-motion media, sync upload and removal).

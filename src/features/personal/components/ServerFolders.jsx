@@ -115,8 +115,9 @@ export function FolderedServers({ servers, activeSid, renderServer, RailButton }
       const current = folderOf(folders, menu.sid);
       return [
         { id: 'new', label: 'New folder with this server…', icon: '＋', run: () => openPersonalDialog('folder', { sids: [menu.sid] }) },
-        ...folders
-          .filter((f) => f.id !== current?.id)
+        ...items
+          .filter((it) => it.type === 'folder' && it.folder.id !== current?.id)
+          .map((it) => it.folder)
           .map((f) => ({ id: `to-${f.id}`, label: `Move to “${f.name}”`, icon: <span className="pf-swatch" style={{ background: f.color }} />, run: () => moveServer(folders, menu.sid, f.id).catch(fail) })),
         ...(current ? [{ id: 'out', label: `Take out of “${current.name}”`, icon: '↩', run: () => moveServer(folders, menu.sid, null).catch(fail) }] : []),
         { id: 'sep', separator: true },
@@ -360,21 +361,25 @@ export function FoldersDialog({ onClose }) {
   const ws = useWorkspaceCtx();
   const { loading, folders } = useServerFolders();
   const fail = (e) => ws?.toast(e?.message || "Couldn't delete the folder", 'error');
+  const mine = new Set((ws?.servers || []).map((s) => s.sid));
   return (
     <Dialog title="Server folders" onClose={onClose} className="pf-folders-dialog">
       <p className="pf-note-text">Group servers in the server rail. You can also drag a server onto another one, or right-click a server (Shift+F10 on the keyboard).</p>
       {loading && <p className="muted">Loading…</p>}
       {!loading && folders.length === 0 && <p className="muted">No folders yet.</p>}
       <ul className="pf-folder-list">
-        {folders.map((f) => (
-          <li key={f.id} className="pf-folder-li">
-            <span className="pf-swatch" style={{ background: f.color }} aria-hidden="true" />
-            <span className="pf-check-name">{f.name}</span>
-            <span className="pf-muted-sm">{f.sids.length} server{f.sids.length === 1 ? '' : 's'}</span>
-            <button type="button" className="btn ghost sm" onClick={() => openPersonalDialog('folder', { fid: f.id, back: 'folders' })} aria-label={`Edit folder ${f.name}`}>Edit</button>
-            <button type="button" className="btn ghost sm" onClick={() => deleteFolder(f.id).catch(fail)} aria-label={`Delete folder ${f.name}`}>Delete</button>
-          </li>
-        ))}
+        {folders.map((f) => {
+          const n = f.sids.filter((sid) => mine.has(sid)).length;
+          return (
+            <li key={f.id} className="pf-folder-li">
+              <span className="pf-swatch" style={{ background: f.color }} aria-hidden="true" />
+              <span className="pf-check-name">{f.name}</span>
+              <span className="pf-muted-sm">{n} server{n === 1 ? '' : 's'}</span>
+              <button type="button" className="btn ghost sm" onClick={() => openPersonalDialog('folder', { fid: f.id, back: 'folders' })} aria-label={`Edit folder ${f.name}`}>Edit</button>
+              <button type="button" className="btn ghost sm" onClick={() => deleteFolder(f.id).catch(fail)} aria-label={`Delete folder ${f.name}`}>Delete</button>
+            </li>
+          );
+        })}
       </ul>
       <div className="pf-actions">
         <span className="pf-spacer" />

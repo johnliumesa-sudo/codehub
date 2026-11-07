@@ -254,3 +254,22 @@ test('private notes on profile cards, and appearance settings applied before pai
   expect(await alice.evaluate(() => window.__apBoot)).toEqual({ body: false, app: false, width: 'narrow' });
   await expect(html).toHaveClass(/ap-compact/);
 });
+
+test('auto-idle after 10 minutes without input, back online on activity', async ({ users }) => {
+  const alice = await users('alice');
+  const bob = await users('bob');
+  await createServer(alice, 'Idlers');
+  await joinServer(bob, await makeInvite(alice), 'Idlers');
+  const aliceRow = bob.locator('.ly-member', { hasText: 'Alice' });
+  await expect(aliceRow.locator('.ly-presence.online')).toBeVisible();
+
+  // Eleven minutes pass with no input in Alice's tab (only Date moves; timers keep running).
+  await alice.clock.setFixedTime(Date.now() + 11 * 60_000);
+  await expect(aliceRow.locator('.ly-presence.idle')).toBeVisible({ timeout: 30_000 });
+  await expect(alice.locator('.ly-userpanel .ly-presence.idle')).toBeVisible();
+
+  // Any input brings her back.
+  await alice.mouse.move(300, 300);
+  await alice.mouse.move(320, 340);
+  await expect(aliceRow.locator('.ly-presence.online')).toBeVisible({ timeout: 15_000 });
+});

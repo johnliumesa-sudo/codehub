@@ -25,7 +25,7 @@ function readCollapsed() {
 
 /** Channel favorite: decrypted channel name + server name, unread from the last message. */
 function useChannelInfo(me, sid, cid) {
-  const { value: ch, error } = useDbValue(`servers/${sid}/channels/${cid}`);
+  const { loading: chLoading, value: ch, error } = useDbValue(`servers/${sid}/channels/${cid}`);
   const meta = useServerMeta(sid);
   const [dec, setDec] = useState({ k: null, name: null, failed: false });
   const k = ch?.enc ? channelCacheKey(sid, cid, ch.enc) : null;
@@ -43,7 +43,7 @@ function useChannelInfo(me, sid, cid) {
   const name = (k && peekPlain(k)?.name) || (dec.k === k ? dec.name : null);
   const last = useLastMessages(`messages/${sid}`, useMemo(() => [cid], [cid]))[cid];
   const { value: readTs } = useDbValue(`reads/${me}/${channelScope(sid, cid)}`);
-  const gone = !!error || (ch === null && !error && meta.status !== 'loading') || meta.status === 'denied' || meta.status === 'missing';
+  const gone = !!error || (!chLoading && ch === null) || meta.status === 'denied' || meta.status === 'missing';
   return {
     name: name ? `#${name}` : dec.k === k && dec.failed ? 'Encrypted channel' : null,
     sub: meta.name || '',
@@ -72,7 +72,7 @@ function useDmInfo(me, dmId) {
 }
 
 function useGroupInfo(me, gid) {
-  const { value: meta, error } = useDbValue(`groups/${gid}/meta`);
+  const { loading: metaLoading, value: meta, error } = useDbValue(`groups/${gid}/meta`);
   const { value: last } = useDbValue(`groups/${gid}/last`);
   const { value: readTs } = useDbValue(`reads/${me}/${groupScope(gid)}`);
   const [dec, setDec] = useState({ k: null, name: null, failed: false });
@@ -93,7 +93,7 @@ function useGroupInfo(me, gid) {
   return {
     name: name || (failed ? 'Encrypted group' : null),
     sub: 'Group',
-    gone: !!error || meta === null,
+    gone: !!error || (!metaLoading && meta === null),
     unread: isUnread(last, readTs, me),
     scope: groupScope(gid),
     icon: <GroupAvatar gid={gid} name={name} failed={failed} size={22} />,
