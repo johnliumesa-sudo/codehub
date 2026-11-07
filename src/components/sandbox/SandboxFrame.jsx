@@ -4,7 +4,8 @@
 //   html       unwrapped document (game code or a preview bundle); CSP + bridge/runtime are added here
 //   profile    'strict' (default: add-ons; exactly the original sandbox, CSP and attributes) |
 //              'play' (games, live preview, chat Run: CDN allowlist, compat runtime, pointer lock,
-//              fullscreen/gamepad/autoplay; see src/lib/sandboxPlay.js)
+//              fullscreen/gamepad/autoplay; see src/lib/sandboxPlay.js) |
+//              'snippet' (chat Run: the play CSP and runtime with the strict iframe attributes)
 //   mode       'game' (default) | 'preview' (console bridge)
 //   onConsole  preview only: ({ level, args: [string] }) => void. Called for messages that come from
 //              THIS frame's window and carry this render's token. Values are strings; render as text.
@@ -19,7 +20,7 @@
 //   title      accessible name of the frame
 //   className  extra class on the iframe
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { buildSrcdoc, frameAttrs, newToken } from '../../lib/sandbox.js';
+import { buildSrcdoc, frameAttrs, isPlayProfile, newToken } from '../../lib/sandbox.js';
 import { readRuntimeMessage } from '../../lib/sandboxPlay.js';
 import './sandbox.css';
 
@@ -33,8 +34,8 @@ const SandboxFrame = forwardRef(function SandboxFrame(
 ) {
   const frameRef = useRef(null);
   const preview = mode === 'preview';
-  const play = profile === 'play';
-  const attrs = frameAttrs(play ? 'play' : 'strict');
+  const play = isPlayProfile(profile);
+  const attrs = frameAttrs(play ? profile : 'strict');
   const [reloads, setReloads] = useState(0);
 
   const storageRef = useRef(storage);
@@ -44,11 +45,15 @@ const SandboxFrame = forwardRef(function SandboxFrame(
   // A fresh token for every document we render: a stale frame (or any other window) can't inject
   // lines into the console of a newer run or write into its storage.
   const token = useMemo(() => newToken(), [html, mode, profile, reloads]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The storage a document was rendered with, bound to its token: that document's messages can only
+  // ever reach this storage, even if the `storage` prop later points somewhere else (another game)
+  // while the old document still runs or flushes on unload.
+  const bound = useMemo(() => ({ token, storage: storageRef.current }), [token]);
   const srcDoc = useMemo(() => {
     if (!play) return buildSrcdoc(html, { mode: preview ? 'preview' : 'game', token });
     let initial = {};
     try {
-      initial = storageRef.current?.load?.() || {};
+      initial = bound.storage?.load?.() || {};
     } catch {
       initial = {};
     }
@@ -58,7 +63,7 @@ const SandboxFrame = forwardRef(function SandboxFrame(
       token,
       storage: { persist, local: initial.local, session: initial.session },
     });
-  }, [html, preview, play, token, persist]);
+  }, [html, preview, play, token, persist, bound]);
 
   const cbRef = useRef({ onConsole, onRuntime });
   cbRef.current = { onConsole, onRuntime };
@@ -67,6 +72,7 @@ const SandboxFrame = forwardRef(function SandboxFrame(
     // Strict game mode (add-ons): no listener at all, every message from the frame is ignored.
     if (!preview && !play) return undefined;
     const win = frameRef.current?.contentWindow || null;
+    const store = bound.token === token ? bound.storage : null;
     let firstInst = null;
     let stale = false; // the document reloaded itself: drop its messages until the re-render
     let closing = false;
@@ -94,7 +100,7 @@ const SandboxFrame = forwardRef(function SandboxFrame(
         }
         if (stale) return;
         if (msg.kind === 'storage') {
-          if (persist) storageRef.current?.save?.(msg.area, msg.data);
+          if (persist) store?.save?.(msg.area, msg.data);
           return;
         }
         if (!closing && !preview) cbRef.current.onRuntime?.(msg);
@@ -114,7 +120,7 @@ const SandboxFrame = forwardRef(function SandboxFrame(
       closing = true;
       setTimeout(() => window.removeEventListener('message', onMessage), UNLOAD_GRACE_MS);
     };
-  }, [preview, play, persist, token]);
+  }, [preview, play, persist, token, bound]);
 
   useImperativeHandle(ref, () => ({
     focus: () => {

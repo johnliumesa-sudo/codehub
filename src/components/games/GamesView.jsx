@@ -287,7 +287,7 @@ export default function GamesView({ me, openGameId, onOpenGameHandled, onMenu })
         )}
       </div>
 
-      {playing && <GamePlayer gameId={playing} me={me} onClose={() => setPlaying(null)} onEdit={(g) => setEditing(g)} />}
+      {playing && <GamePlayer key={playing} gameId={playing} me={me} onClose={() => setPlaying(null)} onEdit={(g) => setEditing(g)} />}
       {editing && <EditGameModal game={editing} me={me} onClose={() => setEditing(null)} />}
     </div>
   );
