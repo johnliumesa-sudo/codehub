@@ -49,6 +49,11 @@ Other features:
 2. Optional TURN servers (up to 4) in the same form, for users behind strict NATs. TURN credentials are also client-visible; use a restricted/time-limited account. Without TURN, calls use Google STUN only and some networks will fail to connect.
 3. GIPHY sees viewers' IP addresses and search terms.
 
+## Round 3 features
+
+Built on the round 3 extension points (ARCHITECTURE.md, "Round 3: extension points"). Each feature is
+documented in [`docs/features/`](docs/features/).
+
 ## Chat and server extras
 
 - **Polls** (📊 in the composer), **spoilers** (`||hidden||`, click to reveal), **saved messages** (🔖 on a message; 🔖 in the header lists them, encrypted to your vault) and a "Forwarded" tag on forwarded messages.
@@ -143,7 +148,8 @@ that, so paste the minified copy instead:
 3. Replace the whole editor contents with the copied rules.
 4. Click **Publish**.
 
-The minifier only strips whitespace and merges `.child()` chains. To check a minified copy, save it
+The minifier strips whitespace, merges `.child()` chains, renames `$wildcards` to short names and writes
+`===`/`!==` as `==`/`!=` (identical in database rules). To check a minified copy, save it
 to a file and run `RULES_PATH=<file> npm run test:rules`.
 
 ### Tests
@@ -152,6 +158,17 @@ to a file and run `RULES_PATH=<file> npm run test:rules`.
 `npm run test:unit` (pure helpers), `npm run test:rules` (security rules on the Database emulator) and
 `npm run test:e2e` (Playwright: real sign-ups, chat, and two- and three-browser voice/video calls with a
 fake camera and microphone).
+
+Several checkouts can run tests at the same time on separate ports: set `CODEHUB_PORT_BASE` (default
+9000 = database 9000, auth 9099, Vite 5199). A base `B` such as 9100, 9200 … uses database `B`, auth
+`B+99`, Vite `B+80`, emulator hub `B+50` and logging `B+51`; the runner writes a gitignored
+`firebase.test-<B>.json` and only stops processes on its own ports. Pass files to run a subset:
+
+```bash
+CODEHUB_PORT_BASE=9300 npm run test:rules -- tests/rules/ext.test.mjs
+CODEHUB_PORT_BASE=9300 npm run test:e2e -- 40-ext
+node scripts/test-env.mjs ports   # this block's ports; `kill` stops leftovers on them
+```
 
 The console also has a **Rules Playground** for testing reads and writes as a specific uid.
 
