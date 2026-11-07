@@ -53,6 +53,7 @@
 .asst-actions { display: flex; flex-wrap: wrap; gap: 2px; margin-left: -6px; }
 .asst-actions .btn.sm { padding: 3px 7px; font-size: 11.5px; color: var(--text-dim); }
 .asst-actions .btn.sm:hover, .asst-actions .btn.sm:focus-visible { color: var(--text); }
+.asst-share-note { align-self: center; padding: 3px 7px; font-size: 11.5px; color: var(--text-dim); }
 .asst-input { display: flex; gap: 6px; align-items: flex-end; }
 .asst-input textarea { resize: vertical; min-height: 40px; max-height: 200px; font: inherit; font-size: 13.5px; padding: 7px 9px; }
 .asst-input .btn { flex: none; }

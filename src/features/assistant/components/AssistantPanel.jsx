@@ -161,8 +161,14 @@ function ReplyTurn({ t, user, ctx, ws }) {
   }, [copied]);
   const hasText = !!t.text.trim();
   const finished = t.status !== 'streaming';
-  const canShare = t.kind === 'ask' && t.status === 'done' && hasText && ctx.canSend;
+  // An answer can only be shared into the conversation it was asked in: it may quote that
+  // conversation's messages, which must not leak into another one (the panel follows the open chat).
+  const askedIn = user?.conv || null;
+  const here = !!askedIn?.scope && askedIn.scope === ctx.conv?.scope;
+  const shareable = t.kind === 'ask' && t.status === 'done' && hasText;
+  const canShare = shareable && here && ctx.canSend;
   const share = async () => {
+    if (!canShare) return;
     const ok = await ctx.send({ text: shareText({ question: user?.question || '', answer: t.text }), extra: { assistant: { v: 1, model: String(t.model || '').slice(0, 64) } } });
     if (ok) ctx.toast('Shared to the conversation', 'ok');
   };
@@ -201,6 +207,11 @@ function ReplyTurn({ t, user, ctx, ws }) {
             <button type="button" className="btn ghost sm" onClick={share}>
               Share to {ctx.conv?.kind === 'channel' ? `#${ctx.conv.name || 'channel'}` : 'chat'}
             </button>
+          )}
+          {shareable && !here && (
+            <span className="asst-share-note">
+              {askedIn?.short ? `Asked in ${askedIn.short}: open it to share this answer there.` : 'Open the conversation it was asked in to share it.'}
+            </span>
           )}
           {(t.status === 'error' || t.status === 'refusal' || t.status === 'stopped') && (
             <button type="button" className="btn ghost sm" onClick={() => retryTurn(t.id)}>Retry</button>
