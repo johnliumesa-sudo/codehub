@@ -47,6 +47,7 @@ export function blankForm({ creator = false } = {}) {
     extId: FIRST_EXT,
     glyph: '',
     color: '#5b8cff',
+    premium: false,
   };
 }
 
@@ -69,6 +70,7 @@ export function formFromItem(item) {
     extId: item.kind === 'editorExt' ? item.data.builtinId : f.extId,
     glyph: item.kind === 'badge' ? item.data.glyph : '',
     color: item.kind === 'nameColor' ? item.data.color : f.color,
+    premium: !!item.premium,
   };
 }
 
@@ -90,7 +92,7 @@ function dataFor(f) {
 }
 
 function toInput(f) {
-  return { name: f.name, desc: f.desc, kind: f.kind, price: f.price === '' ? NaN : Number(f.price), active: f.active, data: dataFor(f) };
+  return { name: f.name, desc: f.desc, kind: f.kind, price: f.price === '' ? NaN : Number(f.price), active: f.active, premium: f.premium, data: dataFor(f) };
 }
 
 export function ColorField({ label, value, onChange }) {
@@ -203,6 +205,10 @@ export default function ItemForm({ initial, me, mode = 'creator', current = null
           <label className="shop-check">
             <input type="checkbox" checked={f.active} onChange={(e) => set({ active: e.target.checked })} />
             Active (listed in the shop)
+          </label>
+          <label className="shop-check">
+            <input type="checkbox" checked={!!f.premium} onChange={(e) => set({ premium: e.target.checked })} />
+            Premium members only (only active premium members can buy or get it)
           </label>
 
           {f.kind === 'theme' && (
