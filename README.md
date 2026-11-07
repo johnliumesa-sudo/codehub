@@ -31,7 +31,8 @@ Other features:
 - **App admins** (promo code), **global announcement banner**, and **reports** to app admins.
 - **Premium membership**: 30 days per redemption of the owner's **monthly code** (Settings → Premium). Perks: double
   daily coins, premium-only shop items, a premium badge, a custom role tag, animated profile banners, name, card and
-  avatar effects, and agent mode in codespaces. The owner manages codes and members in Admin panel → **Owner**.
+  avatar effects, and **agent mode** in codespaces (an Agent panel in code workspaces: Claude reads, searches and
+  edits the files with the member's own Anthropic API key, every change as a diff to approve, one-click undo). The owner manages codes and members in Admin panel → **Owner**.
   See [docs/features/premium.md](docs/features/premium.md) and "Owner setup" below.
 - **Safety**:
   - blocking, enforced by the rules for DMs and friend requests;
@@ -120,7 +121,8 @@ security notes and limits.
 **Premium**
 
 32. **Premium membership** with monthly codes, an owner dashboard (codes, members, database rules) and perks: double
-    daily coins, premium-only items, badge, custom role tag, banners and effects. [premium](docs/features/premium.md)
+    daily coins, premium-only items, badge, custom role tag, banners and effects, and agent mode in code workspaces.
+    [premium](docs/features/premium.md)
 
 Privacy notes:
 

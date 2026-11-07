@@ -12,6 +12,8 @@ import {
   TAG_MAX, normalizeLook, tagLength, tagProblem,
 } from '../lib/lookCore.js';
 import { DiamondIcon, TagPill, nameFxProps } from './PremiumBits.jsx';
+import { useAssistant } from '../../assistant/components/common.jsx';
+import { keyState } from '../../assistant/lib/session.js';
 import '../premium.css';
 
 const fmtDate = (ms) => new Date(ms).toLocaleDateString(undefined, { dateStyle: 'medium' });
@@ -34,7 +36,36 @@ export default function PremiumSettings({ ctx }) {
       <StatusCard prem={prem} />
       <RedeemCard prem={prem} />
       {prem.active ? <LookEditor uid={uid} /> : <PerksCard />}
+      <AgentCard uid={uid} prem={prem} openSettings={ctx?.openSettings} />
     </div>
+  );
+}
+
+// Agent mode (src/features/premium/agent) lives in the code workspaces; this card says what it needs and
+// where to find it: an active membership, the Anthropic API key from Settings → Assistant, a workspace.
+function AgentCard({ uid, prem, openSettings }) {
+  const session = useAssistant(uid);
+  const key = session ? keyState(session) : 'none';
+  const keyText = { ready: 'Your Anthropic API key is set up.', locked: 'Your API key is saved but locked: unlock it in Settings → Assistant.', none: 'Add your own Anthropic API key in Settings → Assistant.' }[key];
+  return (
+    <section className="pm-card" aria-labelledby="pm-agent-h">
+      <div className="pm-card-head">
+        <h3 id="pm-agent-h">Agent mode in codespaces</h3>
+        {openSettings && key !== 'ready' && (
+          <button type="button" className="btn ghost sm" onClick={() => openSettings('assistant')}>Open Settings → Assistant</button>
+        )}
+      </div>
+      <p className="muted">
+        Describe a task and Claude reads, searches and edits the files of a code channel or codespace, runs the preview,
+        and shows every change as a diff you approve. Each run can be undone. It uses your own API key; the files it reads
+        are sent to Anthropic under your account.
+      </p>
+      <ol className="pm-steps">
+        <li className={prem.active ? 'done' : ''}>{prem.active ? 'Premium is active.' : 'Redeem this month\'s code above.'}</li>
+        <li className={key === 'ready' ? 'done' : ''}>{keyText}</li>
+        <li>Open a code channel or codespace and press <strong>Agent</strong> in the workspace toolbar.</li>
+      </ol>
+    </section>
   );
 }
 

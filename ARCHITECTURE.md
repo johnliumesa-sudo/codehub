@@ -212,6 +212,8 @@ premiumCodes/{YYYYMM}      { c(8..64), from, until }   // UTC month window; read
 upub/{uid}/premium/look    { tag?, tagA, tagB?, nameFx, fxA, fxB, cardFx, banner, frame }  // shown only while premium
 shop/items/{id}/premium    true            // premium-only item: inventory create needs premium/{uid}/until > now
                                            // daily claim: +200 while premium/{uid}/until > now, else +100
+# agent mode (premium, src/features/premium/agent): no new paths; edits the collab files through the existing
+# collab paths and AAD strings, like the editor; prefs in localStorage codehub.agent.prefs.<uid>
 
 # Safety & notifications (F11, F12, F19), private to the owner, not E2EE
 blocks/{uid}/{otherUid}         true
@@ -512,6 +514,8 @@ comes first, extensions after.
 | `appMounts` | `{ id, Component }` (gets `ctx` prop) or `{ id, render(ctx) }` | Mounted once inside the signed-in Workspace (schedulers, idle detection, add-on hosts) |
 | `chatMounts` | `{ id, Component }` (gets `ctx` prop) or `{ id, render(ctx) }` | Mounted once per open ChatView inside its ChatContext, also while the composer is hidden (timeout, block, missing key): chat-level hooks without UI, e.g. messaging's bridge that lets message links jump. ctx = ChatContext |
 | `adminTabs` | `{ id, label, render({ me }) }` | Admin panel, after the built-in tabs |
+| `collabTools` | `{ id, order?, render(ctx, place) }` | Collab workspace (code channels, codespaces): the toolbar (`place` `'toolbar'`) and the empty workspace's welcome actions (`'welcome'`). ctx = the CollabExtras ctx `{ space, key, me, readOnly, title, files, activeFid, activePath, provider, insertText, getSelection, openFile, notify }` (premium agent: `premium.agent`) |
+| `collabMounts` | `{ id, order?, render(ctx) }` | Once per open collab workspace, last child of `.cx-root` (a flex row: a panel there becomes a right column); stays mounted while files open and close. Same ctx as `collabTools` |
 | `reportTargets` | `{ id, label, match(report), render(report), actions?(report, { act, dismiss, busy }) }` | Admin reports queue: the kind pill, target line and extra actions of matching reports (bots: kind `bot`; add-ons: kind `addon`, plus older `shopItem` + `addon:{id}` reports) |
 | `serverCreateOptions` | `{ id, label, description?, icon?, render(ctx) }` | Extra choices in "Add a server"; the choice opens `render(ctx)` with ctx `{ me, name, color, busy, error, createWith(template), back(), close() }`. `template = { name?, color?, channels?: [{ type: 'text'|'code'|'voice', name, topic? }], after?({ sid, cids, generalCid, workspaceCid, uid }) }`; `createWith` creates the server in one update (`createServer(uid, { name, color, channels })`, up to 50 channels), awaits `after`, opens the server, and resolves to the result or `null` on failure |
 

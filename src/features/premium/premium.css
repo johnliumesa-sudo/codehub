@@ -112,6 +112,9 @@ html.ap-reduce-motion .pm-cardfx { display: none; }
 .pm-perks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .pm-perks li { display: grid; gap: 2px; font-size: 13px; padding: 10px 12px; border-radius: 8px; background: var(--bg-2); }
 .pm-perks .muted { font-size: 12px; }
+.pm-steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 13px; }
+.pm-steps li.done::marker { color: var(--ok); }
+.pm-steps li.done::after { content: ' \2713'; color: var(--ok); }
 .pm-redeem-row { display: flex; gap: 8px; }
 .pm-redeem-row .input { flex: 1; min-width: 0; }
 .pm-redeem-row .btn { flex: none; min-width: 96px; }

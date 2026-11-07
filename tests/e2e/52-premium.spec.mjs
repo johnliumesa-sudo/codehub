@@ -104,6 +104,12 @@ test('owner dashboard, redeem, perks, premium-only items, revoke, rules panel', 
   await look.getByRole('button', { name: 'Save look' }).click();
   await expect(look.getByText(/^Saved\./)).toBeVisible();
   expect(await adminGet(`upub/${bobUid}/premium/look`)).toMatchObject({ tag: '🚀 Rustacean', nameFx: 'gradient', banner: 'aurora', cardFx: 'sparkles', frame: 'gradient' });
+  // The agent mode card: premium done, no API key yet, and its button switches to Settings → Assistant.
+  const agentCard = dlg.getByRole('region', { name: 'Agent mode in codespaces' });
+  await expect(agentCard.getByText('Premium is active.')).toBeVisible();
+  await expect(agentCard.getByText(/Add your own Anthropic API key/)).toBeVisible();
+  await agentCard.getByRole('button', { name: 'Open Settings → Assistant' }).click();
+  await expect(dlg.getByRole('button', { name: 'Assistant', exact: true })).toHaveClass(/\bon\b/);
   await dlg.getByRole('button', { name: 'Close settings' }).click();
 
   // Bob's own badge in the user panel; then in a server everyone sees badge, tag and effects.

@@ -4,9 +4,7 @@
 // Premium is granted by writing premium/{uid} with admin REST (the monthly-code redemption is the
 // premium workstream's own test). The agent lists the files, reads one, proposes an edit; the member
 // approves the diff; the edit reaches a collaborator live; a checkpoint exists; Undo restores the file.
-import { readFileSync } from 'node:fs';
 import { test, expect, createServer, makeInvite, joinServer, adminPut, uid } from './fixtures.mjs';
-import { DB, NS, RULES } from './global-setup.mjs';
 
 const FAKE_KEY = 'sk-ant-api03-e2e-fake-key-never-valid-0000';
 const DAY = 24 * 60 * 60 * 1000;
@@ -15,24 +13,6 @@ const CORS = {
   'access-control-allow-methods': 'GET, POST, OPTIONS',
   'access-control-expose-headers': '*',
 };
-
-// The premium rules (premium/{uid} readable when signed in) come from the premium workstream. Until
-// that merge, give this spec's emulator the read rule so usePremium can see the admin-written record.
-const ORIGINAL_RULES = readFileSync(RULES, 'utf8');
-async function putRules(text) {
-  const r = await fetch(`${DB}/.settings/rules.json?ns=${NS}`, { method: 'PUT', headers: { Authorization: 'Bearer owner' }, body: text });
-  if (!r.ok) throw new Error(`rules: ${r.status} ${await r.text()}`);
-}
-test.beforeAll(async () => {
-  const rules = JSON.parse(ORIGINAL_RULES);
-  if (!rules.rules.premium) {
-    rules.rules.premium = { $uid: { '.read': 'auth != null' } };
-    await putRules(JSON.stringify(rules));
-  }
-});
-test.afterAll(async () => {
-  await putRules(ORIGINAL_RULES);
-});
 
 /** One streamed assistant turn: a thinking block, then text and tool_use blocks. */
 function sse(model, blocks, stop) {
