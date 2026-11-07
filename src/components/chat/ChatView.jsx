@@ -443,7 +443,10 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
   const onDelete = useCallback((mid, skipConfirm) => (skipConfirm ? handleDelete(mid) : setConfirmDelete(mid)), [handleDelete]);
   const onOpenReactPicker = useCallback((mid, rect) => setReactPicker({ mid, rect }), []);
   const closeReactPicker = useCallback(() => setReactPicker(null), []);
-  const onCopied = useCallback((msg) => flash(typeof msg === 'string' ? msg : 'Copied to clipboard', 'ok'), [flash]);
+  const onCopied = useCallback(
+    (msg, kind = 'ok') => flash(typeof msg === 'string' ? msg : 'Copied to clipboard', kind === 'error' ? 'error' : 'ok'),
+    [flash],
+  );
   const onForward = useCallback((m) => setForwarding({ body: m.body, fromName: profilesRef.current[m.uid]?.name || 'Unknown' }), []);
 
   const onTyping = useCallback(() => setTyping(tPath, me.uid, true), [tPath, me.uid]);

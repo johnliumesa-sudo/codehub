@@ -58,7 +58,7 @@ documented in [`docs/features/`](docs/features/).
 
 - **Polls** (📊 in the composer), **spoilers** (`||hidden||`, click to reveal), **saved messages** (🔖 on a message; 🔖 in the header lists them, encrypted to your vault) and a "Forwarded" tag on forwarded messages.
 - **Slowmode** per text channel (channel settings; moderators are exempt), **channel categories** (server menu → Manage categories; names are encrypted), **profile bio, pronouns, links and banner color** (Settings → My profile), and a **keyboard shortcut overlay** (press `?`).
-- Plaintext by design: poll vote indices (not the option text), slowmode timers, category order, profile bio/pronouns/links. Poll votes can be read by any signed-in user who knows the message id.
+- Plaintext by design: poll vote indices (not the option text), slowmode timers, category order, profile bio/pronouns/links. Poll votes can be read by members of the conversation the poll is in.
 
 ## 1. Setup
 

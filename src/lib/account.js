@@ -178,9 +178,10 @@ export async function deleteAccount(onStep) {
     `notifLog/${uid}`,
     `avatars/${uid}`,
     `bookmarks/${uid}`,
-    `udata/${uid}`,
-    `upub/${uid}`,
   ]);
+  // Round 3 per-user data. Separate, best-effort writes: until the round 3 rules are published these
+  // paths don't exist in the rules, and one refused path would fail the whole batch above.
+  await Promise.all([`udata/${uid}`, `upub/${uid}`].map((p) => update(ref(db), { [p]: null }).catch(() => {})));
   try {
     localStorage.removeItem('codehub.trustedDomains');
     sessionStorage.removeItem('codehub.keyChangeAck');

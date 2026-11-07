@@ -32,7 +32,7 @@ export default function ForwardModal({ body, fromName, me, targets = [], onClose
     <Modal title="Forward message" onClose={onClose}>
       <div className="cx-fwd-preview">
         <span className="cx-fwd-from">{fromName}</span>
-        <div className="cx-fwd-text">{(body?.text || body?.code?.filename || 'Code snippet').slice(0, 200)}</div>
+        <div className="cx-fwd-text">{forwardPreviewText(body).slice(0, 200)}</div>
       </div>
       <input className="cx-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search conversations" aria-label="Search conversations" />
       <ul className="cx-list" role="list">
@@ -49,4 +49,15 @@ export default function ForwardModal({ body, fromName, me, targets = [], onClose
       {err && <div className="cx-err" role="alert">{err}</div>}
     </Modal>
   );
+}
+
+/** One-line preview of what is being forwarded (text first, else what kind of content it is). */
+function forwardPreviewText(body) {
+  if (body?.text) return body.text;
+  if (body?.code) return body.code.filename ? `Code snippet: ${body.code.filename}` : 'Code snippet';
+  if (body?.gif) return 'GIF';
+  const n = Array.isArray(body?.attachments) ? body.attachments.length : 0;
+  if (n) return 'Images can’t be forwarded (they stay encrypted to this conversation)';
+  if (body?.poll) return 'Poll';
+  return 'Message';
 }

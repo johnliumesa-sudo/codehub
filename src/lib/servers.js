@@ -3,6 +3,7 @@
 import { clearCategoryCache } from './serverx/categories.js';
 import { get, push, ref, remove, serverTimestamp, set, update } from 'firebase/database';
 import { db } from './firebase.js';
+import { updateWithCleanup } from './cleanupUpdate.js';
 import {
   decryptJSON,
   decryptText,
@@ -177,14 +178,16 @@ export async function deleteServer(sid, uid) {
     /* not readable: nothing to purge */
   }
   await purgeChannelAttachments(sid, cids).catch(() => {});
-  await update(ref(db), {
-    [`messages/${sid}`]: null,
-    [`collab/${sid}`]: null,
-    [`audit/${sid}`]: null,
-    [`servers/${sid}`]: null,
-    [`userServers/${uid}/${sid}`]: null,
-    ...Object.fromEntries(serverSidePaths(sid).map((p) => [p, null])),
-  });
+  await updateWithCleanup(
+    {
+      [`messages/${sid}`]: null,
+      [`collab/${sid}`]: null,
+      [`audit/${sid}`]: null,
+      [`servers/${sid}`]: null,
+      [`userServers/${uid}/${sid}`]: null,
+    },
+    serverSidePaths(sid),
+  );
   // A discovery listing is public and outlives the server unless removed; only its publisher (the
   // owner) or an app admin can. Separate write: it may not exist.
   await remove(ref(db, `pub/servers/${sid}`)).catch(() => {});
@@ -392,12 +395,14 @@ export async function updateChannel(sid, cid, { name, topic }) {
 
 export async function deleteChannel(sid, cid) {
   await purgeChannelAttachments(sid, [cid]).catch(() => {});
-  await update(ref(db), {
-    [`messages/${sid}/${cid}`]: null,
-    [`collab/${sid}/${cid}`]: null,
-    [`servers/${sid}/channels/${cid}`]: null,
-    ...Object.fromEntries(channelSidePaths(sid, cid).map((p) => [p, null])),
-  });
+  await updateWithCleanup(
+    {
+      [`messages/${sid}/${cid}`]: null,
+      [`collab/${sid}/${cid}`]: null,
+      [`servers/${sid}/channels/${cid}`]: null,
+    },
+    channelSidePaths(sid, cid),
+  );
 }
 
 // ---------- DMs ----------

@@ -242,7 +242,7 @@ function Message(props) {
               title="Save (bookmark)"
               onClick={() => addBookmark(me.uid, conv, { mid: m.mid, uid: m.uid, ts: m.ts }, m.body, author?.name || '').then(
                 () => onCopied?.('Saved to bookmarks'),
-                (err) => onCopied?.(err?.message || 'Could not save'),
+                (err) => onCopied?.(err?.message || 'Could not save', 'error'),
               )}
             >
               🔖
