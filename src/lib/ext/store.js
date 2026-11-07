@@ -40,7 +40,7 @@ export const SITEM_FIELDS = Object.freeze(['by', 'iv', 'ct', 's', 'v', 'ts']);
  */
 export const PUB_FIELDS = Object.freeze([
   'by', 'ts', 'name', 'desc', 'glyph', 'def', 'img', 'imgType', 'ver', 'created', 'icon', 'version', 'sha', 'size',
-  'perms', 'seed', 'code', 'tags', 'color', 'members', 'iid', 'k',
+  'perms', 'seed', 'rt', 'code', 'tags', 'color', 'members', 'iid', 'k',
 ]);
 /** One new pub entry per minute per account, shared with games and community shop items (publishLog). */
 export const PUBLISH_WINDOW_MS = 60_000;

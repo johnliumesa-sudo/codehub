@@ -63,7 +63,7 @@ describe('sec-misc: size and rate limits', () => {
     it('pub: every field the bots, add-ons and discovery code writes', async () => {
       await ok(create('zoe', 'pub/bots/b1', bot('zoe', { def: big(20000), desc: big(300), glyph: '🛠', img: big(20000), imgType: 'image/png' })));
       await ok(db('mallory').ref().update({
-        'pub/addons/a1': { by: 'mallory', ts: TS, name: 'Timer', icon: '⏱', version: '1.0.0', sha: 'ab'.repeat(32), size: 9, desc: big(500), perms: 'storage', seed: 'pomodoro' },
+        'pub/addons/a1': { by: 'mallory', ts: TS, name: 'Timer', icon: '⏱', version: '1.0.0', sha: 'ab'.repeat(32), size: 9, desc: big(500), perms: 'storage', seed: 'pomodoro', rt: 2 },
         'pub/addonCode/a1': { by: 'mallory', ts: TS, code: big(65536), sha: 'ab'.repeat(32) },
         ...pubStamp('mallory', 'a1'),
       }));

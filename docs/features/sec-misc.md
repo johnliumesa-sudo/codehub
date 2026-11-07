@@ -25,8 +25,8 @@ string directly at `udata/{uid}` or `upub/{uid}` (the `$feat` rules only apply b
   rules-accepted marker write); `ct` ≤ 20,000 characters, every other string ≤ 200. An item is at most
   about 21 KB.
 - `pub/$kind/$id/$f`: `$f` must be one of `by ts name desc glyph def img imgType ver created icon version
-  sha size perms seed code tags color members iid k` (every field bots, add-ons, add-on code and
-  discovery listings write); `code` ≤ 65,536, `def` and `img` ≤ 20,000, every other string ≤ 1,000. An
+  sha size perms seed rt code tags color members iid k` (every field bots, add-ons, add-on code and
+  discovery listings write; `rt` is the add-on runtime version added by the sec-addons fix); `code` ≤ 65,536, `def` and `img` ≤ 20,000, every other string ≤ 1,000. An
   entry is at most about 145 KB.
 - `pub/$kind/$id` create (`!data.exists()`): the same update must set `publishLog/{me}` = `now` (the
   existing path; its rule already enforces the 60 s window shared by games and community shop items),
@@ -106,5 +106,5 @@ write it." under the message.
 
 ## Limits
 
-Rule bytes: +548 (minified 100,218 → 100,766 of 102,400): `udata`/`upub` objects 72, `sitems` fields 35,
-`pub` create stamp 267, `pub` fields and caps 124, calls `away`/`hb` 50.
+Rule bytes: +551 (minified 100,218 → 100,769 of 102,400): `udata`/`upub` objects 72, `sitems` fields 35,
+`pub` create stamp 267, `pub` fields and caps 127, calls `away`/`hb` 50.

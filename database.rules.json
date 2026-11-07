@@ -2112,7 +2112,7 @@
      ".write": "$kind.matches(/^(bots|addons|addonCode|servers)$/) && ((!newData.exists() && (data.child('by').val() === auth.uid || root.child('admins').child(auth.uid).exists())) || (newData.child('by').val() === auth.uid && (!data.exists() || data.child('by').val() === auth.uid) && ($kind !== 'servers' || root.child('servers').child($id).child('meta').child('ownerId').val() === auth.uid)))",
      ".validate": "newData.child('ts').val() === now && (data.exists() || root.child('admins').child(auth.uid).exists() || (newData.parent().parent().parent().child('publishLog').child(auth.uid).val() === now && root.child('publishLog').child(auth.uid).val() !== now && newData.parent().parent().parent().child('udata').child(auth.uid).child('pub').child('last').val() === $id))",
      "$f": {
-      ".validate": "$f.matches(/^(by|ts|name|desc|glyph|def|img|imgType|ver|created|icon|version|sha|size|perms|seed|code|tags|color|members|iid|k)$/) && !newData.hasChildren() && (!newData.isString() || newData.val().length <= ($f === 'code' ? 65536 : $f.matches(/^(def|img)$/) ? 20000 : 1000))"
+      ".validate": "$f.matches(/^(by|ts|name|desc|glyph|def|img|imgType|ver|created|icon|version|sha|size|perms|seed|rt|code|tags|color|members|iid|k)$/) && !newData.hasChildren() && (!newData.isString() || newData.val().length <= ($f === 'code' ? 65536 : $f.matches(/^(def|img)$/) ? 20000 : 1000))"
      }
     }
    }
