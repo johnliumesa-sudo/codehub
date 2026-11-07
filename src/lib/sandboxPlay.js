@@ -8,7 +8,10 @@
 //     arbitrary origin (jsDelivr /npm/ and /pyodide/, cdnjs /ajax/libs/, unpkg) and Google Fonts;
 //   - eval / new Function / WebAssembly (no new capability inside an opaque origin, needed by
 //     Babel-in-the-browser, Alpine, Pyodide …);
-//   - fetch data:/blob: URLs and the CDN paths above; nothing else on the network.
+//   - fetch data:/blob: URLs and the CDN paths above. WebRTC (whose ICE traffic connect-src doesn't
+//     cover) is removed, and nested frames (which would bring a fresh window with it) are removed.
+//     Known residuals: a frame can navigate itself to any URL, and a closed declarative shadow root
+//     could hide a nested frame from the observer; treat anything typed into a game as public.
 // A small compatibility runtime runs before any user script (playRuntime): working
 // localStorage/sessionStorage/document.cookie (in memory; persisted per Arcade game through the
 // parent), non-blocking alert/confirm/prompt, and error/CSP-violation reports to the parent.
@@ -71,9 +74,15 @@ export function isAllowedUrl(url, kind = 'script') {
 const ESM_HOST = /^https?:\/\/(?:esm\.sh|cdn\.skypack\.dev)\/((?:@[\w.-]+\/)?[\w.-]+)(?:@([\w.^~<>=*-]+))?(\/[^?#]*)?(?:[?#].*)?$/i;
 const JQUERY = /^https?:\/\/code\.jquery\.com\/jquery-(\d+\.\d+\.\d+)((?:\.slim)?(?:\.min)?)\.js(?:[?#].*)?$/i;
 
+// The Tailwind Play CDN (cdn.tailwindcss.com, in most AI-made pages) generates styles in the page; the
+// official browser build of the same thing is published on npm as @tailwindcss/browser.
+const TAILWIND = /^(?:https?:)?\/\/cdn\.tailwindcss\.com(?:\/[\w.-]*)?\/?(?:[?#].*)?$/i;
+export const TAILWIND_BROWSER_URL = 'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.5/dist/index.global.js';
+
 /** The allowed equivalent of a well-known CDN URL, or the URL unchanged. */
 export function rewriteCdnUrl(url) {
   const s = String(url || '').trim();
+  if (TAILWIND.test(s)) return TAILWIND_BROWSER_URL;
   let m = ESM_HOST.exec(s);
   if (m) {
     const [, name, ver, sub] = m;
@@ -387,6 +396,96 @@ function playRuntime(C) {
     } catch (e) {
       /* leave the browser's behaviour */
     }
+  }
+
+  // ---- focus: a game that focused its own field (or has autofocus) gets it back when the frame gets
+  // keyboard focus. A focus() call made before the frame had focus is otherwise lost (the field stays
+  // unfocused while the Arcade has focused the frame, and typing goes nowhere).
+  var wanted = null;
+  var HP = W.HTMLElement && W.HTMLElement.prototype;
+  if (HP && HP.focus) {
+    var fo = HP.focus;
+    HP.focus = function () {
+      wanted = this;
+      return fo.apply(this, arguments);
+    };
+  }
+  W.addEventListener('focus', function () {
+    setTimeout(function () {
+      var a = D.activeElement;
+      if (a && a !== D.body && a !== D.documentElement) return;
+      var el = wanted && wanted.isConnected ? wanted : D.querySelector('[autofocus]');
+      if (!el || el.disabled || !el.isConnected) return;
+      try {
+        el.focus({ preventScroll: true });
+      } catch (e) {
+        /* not focusable */
+      }
+    }, 0);
+  });
+
+  // ---- no WebRTC: ICE (STUN/TURN) isn't governed by connect-src, so it would reach any host ----
+  ['RTCPeerConnection', 'webkitRTCPeerConnection', 'mozRTCPeerConnection', 'RTCDataChannel', 'RTCIceTransport', 'RTCRtpTransceiver'].forEach(function (n) {
+    try {
+      if (n in W) Object.defineProperty(W, n, { value: undefined, configurable: false, writable: false, enumerable: false });
+    } catch (e) {
+      /* not configurable here */
+    }
+  });
+  // A nested srcdoc/about:blank frame would get a fresh window with its own RTCPeerConnection (frame-src
+  // 'none' doesn't cover srcdoc). Nested frames can't load anything else anyway, so remove each one
+  // before it loads (a srcdoc frame navigates asynchronously; the observer runs first). Open shadow
+  // roots are watched too.
+  var FRAMES = /^(?:IFRAME|FRAME|OBJECT|EMBED|PORTAL|FENCEDFRAME)$/;
+  var warned = false;
+  function drop(n) {
+    try {
+      n.remove();
+    } catch (e) {
+      /* already gone */
+    }
+    if (!warned) {
+      warned = true;
+      try {
+        console.warn('[Codehub] Nested frames are not available in games; one was removed.');
+      } catch (e) {
+        /* console replaced */
+      }
+    }
+  }
+  function sweep(n) {
+    if (!n || n.nodeType !== 1) return;
+    if (FRAMES.test(n.nodeName)) return drop(n);
+    if (n.shadowRoot) watch(n.shadowRoot); // eslint-disable-line no-use-before-define
+    if (!n.firstElementChild) return;
+    var list = n.querySelectorAll('iframe,frame,object,embed,portal,fencedframe');
+    for (var i = 0; i < list.length; i++) drop(list[i]);
+  }
+  var mo = !W.MutationObserver ? null : new W.MutationObserver(function (records) {
+    for (var i = 0; i < records.length; i++) {
+      var added = records[i].addedNodes;
+      for (var j = 0; j < added.length; j++) sweep(added[j]);
+    }
+  });
+  function watch(root) {
+    if (!mo) return;
+    try {
+      mo.observe(root, { childList: true, subtree: true });
+      var list = root.querySelectorAll ? root.querySelectorAll('iframe,frame,object,embed,portal,fencedframe') : [];
+      for (var i = 0; i < list.length; i++) drop(list[i]);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+  watch(D);
+  var EP = W.Element && W.Element.prototype;
+  if (EP && EP.attachShadow) {
+    var as = EP.attachShadow;
+    EP.attachShadow = function () {
+      var r = as.apply(this, arguments);
+      watch(r);
+      return r;
+    };
   }
 
   // ---- errors and blocked loads ----

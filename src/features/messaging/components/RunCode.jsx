@@ -1,6 +1,6 @@
 // Run code snippets (messageExtras): a "Run" button under messages with JavaScript, HTML or HTML + CSS
 // code (fenced blocks or a shared snippet). Nothing runs until the reader clicks. The code runs in the
-// app's sandbox (SandboxFrame profile="play": opaque origin, no network except the public code CDNs,
+// app's sandbox (SandboxFrame profile="snippet": opaque origin, no fullscreen or pointer lock, no network except the public code CDNs,
 // working localStorage and non-blocking alert/confirm/prompt) with the console bridge; output is shown
 // as text with Stop / Clear / Run again. JavaScript runs in a worker inside the frame and is stopped
 // after 5 s; an HTML page is torn down when it is busy for 5 s.
@@ -118,7 +118,7 @@ function RunPanel({ unit, onClose }) {
         <SandboxFrame
           key={run}
           html={html}
-          profile="play"
+          profile="snippet"
           mode="preview"
           onConsole={onConsole}
           title={`${unit.label} snippet (sandboxed)`}
@@ -144,7 +144,7 @@ function RunCode({ m }) {
       {!unit && (
         <div className="mx-run-bar">
           {units.map((u) => (
-            <button key={u.id} type="button" className="mx-run-btn" onClick={() => setOpen(u.id)} title="Runs in an isolated sandbox without network access">
+            <button key={u.id} type="button" className="mx-run-btn" onClick={() => setOpen(u.id)} title="Runs in an isolated sandbox. It can load public libraries from jsDelivr, cdnjs, unpkg and Google Fonts, and nothing else on the network.">
               <span aria-hidden="true">▶</span> Run {u.label}
             </button>
           ))}

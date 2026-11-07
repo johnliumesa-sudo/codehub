@@ -9,7 +9,9 @@
 //   'strict' (default)  add-ons. Exactly the original policy: sandbox="allow-scripts", allow="",
 //                       STRICT_CSP with connect-src 'none' and no external sources at all. The add-on
 //                       Worker inherits this CSP; a security fix depends on it. Never loosen it.
-//   'play'              games, the live preview and chat "Run" snippets (src/lib/sandboxPlay.js):
+//   'snippet'           chat "Run" snippets: the play CSP and runtime, but sandbox="allow-scripts" and
+//                       allow="" (no fullscreen or pointer lock for code from any chat author).
+//   'play'              games and the live preview (src/lib/sandboxPlay.js):
 //                       the same opaque origin plus pointer lock, fullscreen/gamepad/autoplay, eval and
 //                       wasm, a pinned public-CDN allowlist, and a compatibility runtime (storage,
 //                       dialogs, error reports) injected before any user script.
@@ -31,11 +33,17 @@ export const GAME_CSP =
 /** The strict profile's CSP (add-ons). Same string as the original GAME_CSP; kept under both names. */
 export const STRICT_CSP = GAME_CSP;
 
-export const PROFILES = ['strict', 'play'];
+export const PROFILES = ['strict', 'play', 'snippet'];
+
+/** Profiles that get the play CSP and the play runtime ('snippet' = play without fullscreen/pointer lock). */
+export const isPlayProfile = (profile) => profile === 'play' || profile === 'snippet';
 
 /** iframe attributes for a profile: { sandbox, allow, csp }. Unknown profiles get 'strict'. */
 export function frameAttrs(profile = 'strict') {
   if (profile === 'play') return { sandbox: PLAY_SANDBOX, allow: PLAY_ALLOW, csp: PLAY_CSP };
+  // Chat "Run": code from any chat author runs after one click, so no fullscreen / pointer lock
+  // (a snippet must not be able to cover Codehub with a fake screen).
+  if (profile === 'snippet') return { sandbox: SANDBOX, allow: '', csp: PLAY_CSP };
   return { sandbox: SANDBOX, allow: '', csp: STRICT_CSP };
 }
 
@@ -106,7 +114,7 @@ function consoleBridge(token) {
  *   storage  play only: { persist, local, session } initial storage contents (see sandboxPlay.js)
  */
 export function buildSrcdoc(html, { mode = 'game', token, profile = 'strict', storage = null } = {}) {
-  const play = profile === 'play';
+  const play = isPlayProfile(profile);
   const head =
     '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="' +
     (play ? PLAY_CSP : GAME_CSP).replace(/"/g, '&quot;') +
@@ -222,6 +230,8 @@ function fileMap(files) {
 
 /** Import-map key prefix of workspace modules ("@codehub-ws/src/player.js"). */
 export const WS_PREFIX = '@codehub-ws/';
+// Generated modules that link a package's stylesheet ("@codehub-ws/.codehub-npm-css/pkg/x.css").
+const NPM_CSS_DIR = '.codehub-npm-css/';
 
 const MODULE_EXTS = ['js', 'mjs', 'cjs', 'json'];
 const URL_LIKE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
@@ -245,6 +255,37 @@ export function npmModuleUrl(spec, version) {
   const { name, sub } = splitBare(spec);
   const v = version && VERSION_OK.test(version) && version.trim() !== '*' ? `@${encodeURI(version.replace(/\s+/g, ''))}` : '';
   return `https://cdn.jsdelivr.net/npm/${name}${v}${sub ? `/${sub}` : ''}/+esm`;
+}
+
+/**
+ * An exact version for a simple range ("^18.3.1", "~1.2.0", ">=2.0.0", "=1.0.0", "v3.1.4" -> the
+ * version itself), else null. jsDelivr "+esm" builds import their dependencies by exact version, so a
+ * range would load a second copy of a package that two modules share (React).
+ */
+export function exactVersion(v) {
+  const m = /^\s*(?:\^|~|>=|=|v)?\s*(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s*$/.exec(String(v ?? ''));
+  return m ? m[1] : null;
+}
+
+// React, react-dom and react/jsx-runtime must be one instance: one exact version for all of them. For
+// a missing or partial version, the last release of that major line (whose react-dom build imports
+// exactly that react).
+const REACT_PACKAGES = new Set(['react', 'react-dom']);
+const REACT_LATEST = { 16: '16.14.0', 17: '17.0.2', 18: '18.3.1', 19: '19.3.1' };
+export const REACT_DEFAULT = REACT_LATEST[19];
+
+/** The single React version a game uses, from package.json dependencies ({ name: range }). */
+export function reactVersion(deps) {
+  const ranges = [deps?.react, deps?.['react-dom']].filter((v) => typeof v === 'string');
+  for (const r of ranges) {
+    const v = exactVersion(r);
+    if (v) return v;
+  }
+  for (const r of ranges) {
+    const major = /^\s*[\^~>=v]*\s*(\d+)/.exec(r);
+    if (major && REACT_LATEST[major[1]]) return REACT_LATEST[major[1]];
+  }
+  return REACT_DEFAULT;
 }
 
 function readPackageJson(map) {
@@ -468,6 +509,8 @@ export function bundle(entryPath, files, { html: htmlOverride, transform = null,
     // TypeScript convention: import "./a.js" that is really a.ts.
     const m = /^(.*)\.(m?)js(x?)$/.exec(p);
     if (m && transform) cands.push(`${m[1]}.${m[2]}ts${m[3]}`, `${m[1]}.${m[2]}tsx`);
+    // import './style.css' (Vite, CRA): a module that adds the stylesheet to the page.
+    if (extOf(p) === 'css' && map.has(p)) return p;
     return cands.find((c) => map.has(c) && codeExts.has(extOf(c))) || null;
   };
 
@@ -477,9 +520,18 @@ export function bundle(entryPath, files, { html: htmlOverride, transform = null,
 
   const addBare = (spec) => {
     if (bare.has(spec) || coveredByUserMap(spec)) return;
-    const { name } = splitBare(spec);
-    const v = typeof deps[name] === 'string' && VERSION_OK.test(deps[name]) && deps[name].trim() !== '*' ? deps[name] : null;
-    if (!v) unpinned.add(name);
+    const { name, sub } = splitBare(spec);
+    const declared = typeof deps[name] === 'string' && VERSION_OK.test(deps[name]) && deps[name].trim() !== '*' ? deps[name] : null;
+    if (!declared) unpinned.add(name);
+    const v = REACT_PACKAGES.has(name) ? reactVersion(deps) : exactVersion(declared) || declared;
+    // A stylesheet from a package ("bootstrap/dist/css/bootstrap.css"): a module that links it.
+    if (/\.css$/i.test(sub)) {
+      const href = noteExternal(`https://cdn.jsdelivr.net/npm/${name}${v ? `@${encodeURI(v.replace(/\s+/g, ''))}` : ''}/${sub}`, 'style');
+      const path = `${NPM_CSS_DIR}${spec}`;
+      modules.set(path, `const l=document.createElement('link');l.rel='stylesheet';l.href=${JSON.stringify(href)};document.head.appendChild(l);`);
+      bare.set(spec, WS_PREFIX + path);
+      return;
+    }
     const url = npmModuleUrl(spec, v);
     bare.set(spec, url);
     noteExternal(url, 'script');
@@ -557,6 +609,18 @@ export function bundle(entryPath, files, { html: htmlOverride, transform = null,
     const ext = extOf(path);
     if (ext === 'json') {
       modules.set(path, code);
+      return key;
+    }
+    if (ext === 'css') {
+      // eslint-disable-next-line no-use-before-define
+      const css = inlineCss(code, path, 0);
+      // CSS modules (x.module.css): class names stay as written; the default export maps each to itself.
+      const names = /\.module\.css$/i.test(path) ? [...new Set([...css.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)].map((m) => m[1]))] : [];
+      modules.set(
+        path,
+        `const s=document.createElement('style');s.dataset.file=${JSON.stringify(path)};s.textContent=${JSON.stringify(css)};` +
+          `document.head.appendChild(s);export default ${JSON.stringify(Object.fromEntries(names.map((n) => [n, n])))};`,
+      );
       return key;
     }
     if (!MODULE_EXTS.includes(ext) && transform) {
@@ -737,7 +801,7 @@ export function bundle(entryPath, files, { html: htmlOverride, transform = null,
     html,
     inlined: [...inlined],
     missing: [...missing],
-    modules: [...modules.keys()],
+    modules: [...modules.keys()].filter((p) => !p.startsWith(NPM_CSS_DIR)),
     assets: [...assets.keys()],
     external: [...external.values()],
     unpinned: [...unpinned],
@@ -794,9 +858,15 @@ export function htmlFilesReferencing(path, files) {
     return out;
   };
   const found = direct(target);
-  if (found.length || !/^(?:m?js|cjs)$/.test(extOf(target))) return found;
+  const CODE = /^(?:m?js|cjs|m?ts|tsx|jsx)$/;
+  if (found.length || !CODE.test(extOf(target))) return found;
   // Walk importers upwards (breadth first, bounded) until a page that loads one of them.
-  const code = (files || []).filter((f) => typeof f.text === 'string' && /^(?:m?js|cjs)$/.test(extOf(f.path)) && f.text.includes(target.split('/').pop().replace(/\.[^.]+$/, '')));
+  const code = (files || []).filter((f) => typeof f.text === 'string' && CODE.test(extOf(f.path)));
+  // The specifiers that name a module: "./a.js", "./a" (and "./a.js" for a.ts, the TypeScript way).
+  const names = (t) => {
+    const bare = t.replace(/\.(?:m?[jt]s|cjs|[jt]sx)$/, '');
+    return [t, bare, `${bare}.js`, `${bare}.mjs`, `${bare}.jsx`].concat(/(^|\/)index$/.test(bare) ? [bare.replace(/\/?index$/, '')] : []);
+  };
   const seen = new Set([target]);
   let frontier = [target];
   for (let depth = 0; depth < 6 && frontier.length; depth++) {
@@ -810,7 +880,7 @@ export function htmlFilesReferencing(path, files) {
       } catch {
         continue;
       }
-      if (specs.some((sp) => RELATIVE.test(sp.spec) && frontier.some((t) => [t, t.replace(/\.m?js$/, '')].includes(resolveRef(fp, sp.spec))))) {
+      if (specs.some((sp) => RELATIVE.test(sp.spec) && frontier.some((t) => names(t).includes(resolveRef(fp, sp.spec))))) {
         seen.add(fp);
         next.push(fp);
       }
