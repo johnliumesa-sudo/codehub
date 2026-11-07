@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useWorkspaceCtx } from '../../../lib/ext/workspaceContext.js';
 import { ExtMenu } from '../../../components/ext/ExtRender.jsx';
-import { notificationPermission, showNotification, useNotifPrefs } from '../../../lib/notify.js';
+import { desktopAlertsOn, showNotification, useNotifPrefs } from '../../../lib/notify.js';
 import { deleteReminder, fireReminder, markDone, markUndone, snoozeReminder, useReminders } from '../lib/reminders.js';
 import { dueToFire, nextDue, reminderSummary, sections } from '../lib/reminderModel.js';
 import { formatDue, snoozeChoices } from '../lib/when.js';
@@ -214,7 +214,7 @@ export function ReminderScheduler({ ctx }) {
 function alertDesktop(r, tagId, { prefs, ws }) {
   if (typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus()) return;
   const s = prefs?.settings;
-  if (!s?.desktop || notificationPermission() !== 'granted') return;
+  if (!desktopAlertsOn(s)) return; // Do Not Disturb: the bell entry and the card still appear
   // Like message alerts, the text only shows when previews are on in notification settings.
   const body = s.preview ? `${reminderSummary(r)}${r.title ? ` (${r.title})` : ''}` : 'It’s time for your reminder.';
   // Same tag as the notification center's own alert for this entry, so the two never stack.

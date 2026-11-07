@@ -49,7 +49,8 @@ Two pieces of glue are shared by several features:
   `/remind tomorrow 9:00 standup`, `/remind fri 15:00 demo`, `/remind 2026-12-24 present` (relative
   `s/m/h/d/w`, clock times, `today`/`tomorrow`, weekdays, dates; never posted). A scheduler
   (`appMounts`) fires due reminders: it writes a notification to my notification center (the bell), shows
-  a desktop notification when the tab isn't focused (respecting the desktop and preview settings), and
+  a desktop notification when the tab isn't focused (respecting the desktop and preview settings and
+  Do Not Disturb), and
   shows an in-app card with Open message / Snooze / Done. Reminders that came due while no tab was open
   fire on the next load. The "Reminders" chat panel (header button ⏰, palette "Show reminders") lists Due,
   Upcoming and Done reminders with Open, Snooze (10 min, 1 h, 3 h, tomorrow 9:00), Done/Undo and Delete.

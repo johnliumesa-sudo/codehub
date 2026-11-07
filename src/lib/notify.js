@@ -232,9 +232,26 @@ export async function requestNotificationPermission() {
   }
 }
 
-/** Shows a notification; returns it, or null if the platform refused (e.g. Android needs a SW). */
-export function showNotification(title, { body = '', tag, onClick } = {}) {
+/**
+ * The one gate for desktop alerts and alert sounds: while Do Not Disturb is on (personal's status
+ * mode) nothing pops up or rings; bell entries, unread counts and in-app cards still update. Sound
+ * players (e.g. the call ringtone) check this before playing.
+ */
+export const alertsSilenced = () => isDoNotDisturb();
+
+/** Whether a desktop alert may be shown now: enabled in notification settings, allowed by the browser, not DND. */
+export function desktopAlertsOn(settings) {
+  return !!settings?.desktop && notificationPermission() === 'granted' && !alertsSilenced();
+}
+
+/**
+ * Shows a notification; returns it, or null if it is not allowed (no permission, Do Not Disturb) or
+ * the platform refused (e.g. Android needs a SW). Every desktop notification goes through here.
+ * `force` (an explicit "Send a test notification" click) skips the Do Not Disturb check only.
+ */
+export function showNotification(title, { body = '', tag, onClick, force = false } = {}) {
   if (notificationPermission() !== 'granted') return null;
+  if (!force && alertsSilenced()) return null;
   try {
     const n = new Notification(String(title).slice(0, 120), { body: String(body).slice(0, 240), tag, silent: false });
     n.onclick = () => {
@@ -383,7 +400,7 @@ export function useNotifier({ me, sources, activeScope, prefs, reads, blocked, o
     setPending((p) => ({ ...p, [scope]: [...(p[scope] || []).slice(-98), raw.ts] }));
 
     const settings = L2.prefs?.settings || DEFAULT_SETTINGS;
-    if (!settings.desktop || notificationPermission() !== 'granted' || isDoNotDisturb()) return; // DND: counts only
+    if (!desktopAlertsOn(settings)) return; // DND: counts only
     if (settings.mentionsOnly && !mentioned && !isDm) return;
 
     const who = await senderName(raw.uid);

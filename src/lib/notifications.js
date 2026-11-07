@@ -14,9 +14,8 @@ import { get, limitToLast, onValue, orderByKey, query, ref, remove, update } fro
 import { db } from './firebase.js';
 import { NOTIF_KINDS } from './notifSend.js';
 import { useBlocks } from './blocks.js';
-import { isMuted, notificationPermission, showNotification, useNotifPrefs } from './notify.js';
+import { desktopAlertsOn, isMuted, showNotification, useNotifPrefs } from './notify.js';
 import { useProfiles } from './profiles.js';
-import { isDoNotDisturb } from './presence.js';
 import { setTitleCount } from './title.js';
 
 export {
@@ -227,7 +226,7 @@ export function useNotificationAlerts({ me, state, onOpen }) {
       seen.current.add(n.id);
       if (n.read || bl.has(n.from)) return;
       const s = p?.settings;
-      if (!s?.desktop || notificationPermission() !== 'granted' || isDoNotDisturb()) return; // DND: the bell still counts
+      if (!desktopAlertsOn(s)) return; // DND: the bell still counts
       if (document.visibilityState === 'visible' && document.hasFocus()) return;
       const scope = scopeOfNotif(n);
       if (scope && isMuted(p, scope, Date.now(), { sid: n.ref.sid, mention: n.kind === 'mention' || n.kind === 'reply' })) return;

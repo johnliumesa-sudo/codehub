@@ -5,7 +5,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useWorkspaceCtx } from '../../../lib/ext/workspaceContext.js';
 import { useServerMeta } from '../../../components/layout/hooks.js';
-import { showNotification, useNotifPrefs } from '../../../lib/notify.js';
+import { desktopAlertsOn, showNotification, useNotifPrefs } from '../../../lib/notify.js';
 import { canJoinVoice, dueReminders, fmtRange, nextReminderIn, reminderId, relTime } from '../lib/events.js';
 import { useMyRsvpIndex, useServerEvents } from '../lib/data.js';
 import { closeDiscover, closeEventDetail, closeEventEditor, openEventDetail, useUi } from '../lib/bus.js';
@@ -111,7 +111,7 @@ function EventReminders() {
       due.forEach((r) => { fired[reminderId(r.sid, r.ev)] = now; });
       saveFired(fired);
       setActive((a) => [...a.filter((x) => !due.some((d) => d.ev.id === x.ev.id)), ...due].slice(-4));
-      if (prefs.settings?.desktop) {
+      if (desktopAlertsOn(prefs.settings)) { // off while Do Not Disturb is on (the in-app card still shows)
         // Like message alerts, the (encrypted) title only shows when previews are on.
         due.forEach((r) => showNotification(prefs.settings?.preview ? `Starting soon: ${r.ev.title}` : 'An event you’re going to starts soon', {
           body: fmtRange(r.ev),
