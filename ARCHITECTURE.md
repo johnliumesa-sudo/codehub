@@ -163,14 +163,21 @@ collab/{sid}/{cid}/checkpoints/{fid}/{cpid}  { uid, ts, iv, ct }   // server key
 csCollab/{csid}/checkpoints/{fid}/{cpid}     { uid, ts, iv, ct }   // codespace key
 snippets/{uid}/{id}                          { ts, iv, ct }        // vault key; owner only
 
-# Shop (F3), PLAINTEXT
+# Shop (F3; community items and earnings since round 3, see docs/features/shop.md), PLAINTEXT
 shop/items/{itemId}       { name<=48, desc<=280, kind:'theme'|'editorTheme'|'editorExt'|'badge'|'nameColor', price:int 0..10000,
-                            data, active:bool, updatedAt(=now), updatedBy(=auth.uid) }   // signed-in read; app admins write
+                            data, active:bool, updatedAt(=now), updatedBy(=auth.uid), by?: creator uid, createdAt?(=now once) }
+                            // signed-in read. Create: anyone signed in, push id, by = me, in the publishLog window, with
+                            // udata/{me}/shop/last = id. Edit/delete: the creator (by never changes) or app admins.
+                            // Items without `by` (official) and any data.builtinId are app-admin only.
                             data: theme {tokens:{bg0|bg1|bg2|bg3|bgHover|border|text|textDim|textFaint|accent|accent2|ok|warn|danger:'#rrggbb'}}
-                                  editorTheme|editorExt {builtinId:[a-z0-9-]{1,32}} · badge {glyph:1..8 chars} · nameColor {color:'#rrggbb'}
-wallets/{uid}             { balance:int>=0, lastClaim, lastItem? }   // owner read/write; never deletable
+                                  editorTheme {tokens:{bg|fg|sel|caret|kw|str|cmt|num|fn|type|op:'#rrggbb'}} or {builtinId}
+                                  editorExt {builtinId:[a-z0-9-]{1,32}} · badge {glyph:1..8 chars} · nameColor {color:'#rrggbb'}
+wallets/{uid}             { balance:int>=0, lastClaim, lastItem?, lastEarn? }   // owner read/write; never deletable
 inventory/{uid}/{itemId}  { at(=now), price }                        // owner read; create-once; never deletable
+earnings/{creator}/{buyerUid}_{itemId}  { price, ts(=now) }          // creator reads and deletes; created only by the buyer,
+                                                                     // in the purchase update (price = catalog price)
 equipped/{uid}            { theme?, editorTheme?, badge?, nameColor?: itemId, ext?: { {itemId}: true } }  // signed-in read; owner writes
+udata/{uid}/shopSales/{buyerUid}_{itemId}  { item, price, at }       // collected-sales history (generic udata block)
 
 # Games (F4), PUBLIC PLAINTEXT
 games/{gameId}            { ownerId, title<=80, desc<=500, createdAt, updatedAt, likes:int>=0, size:int<=262144 }  // .indexOn createdAt, likes, ownerId
@@ -190,7 +197,7 @@ config/adminPromo          string          // set in the Firebase console only; 
 promoAttempts/{uid}        { code, at }    // last guess; one write per 30 s per account; nobody can read it
 admins/{uid}               { at }          // readable by self only; created only if promoAttempts/{uid}.code === config/adminPromo and at is under 2 min old
 adminBadges/{uid}          true            // public admin shield (signed-in read); self may set if admin, or remove
-reports/{rid}              { by, kind: game|user|shopItem|message, target<=256, reason: spam|abuse|malware|nsfw|other, note?<=500, excerpt?<=2000, ts }  // admin read/delete only
+reports/{rid}              { by, kind: game|user|shopItem|message|bot|addon, target<=256, reason: spam|abuse|malware|nsfw|other, note?<=500, excerpt?<=2000, ts }  // admin read/delete only
 reportLog/{uid}            ts              // 1 report per 30 s, written in the same update as reports/{rid}
 announcements/current      { text<=280, level: info|warn, ts, by }   // signed-in read; admin write
 
@@ -268,13 +275,26 @@ CollabView:
 - **Navigation:** `nav.view === 'codespaces'` plus `nav.csid`.
 
 ## Shop and add-ons (F3)
-- Items are data only. Behavior comes from first-party modules in `src/lib/addons/`, selected by `builtinId`.
+Round 3 opened the catalog to every signed-in user and added creator earnings; details, rules and tests in
+`docs/features/shop.md`.
+- Items are data only. Behavior comes from first-party modules in `src/lib/addons/`, selected by `builtinId` (admin
+  items only). Community `editorTheme` items carry eleven color tokens that the first-party generator
+  (`editorThemeFromTokens`) turns into a CodeMirror theme.
 - App themes write only a fixed token→CSS-variable map (plus a derived `--accent-soft`) through `style.setProperty`, using
   validated hex values. Badge glyphs render as React text.
 - `AddonRuntime` is mounted once in Workspace. `useEditorAddons()` feeds a CollabEditor Compartment that replaces `oneDark`.
+- **Community items:** anyone signed in creates `theme`, `editorTheme` (tokens), `badge` and `nameColor` items, live
+  immediately. Create is one update of the item (`by` = me, `createdAt` = now), `publishLog/{me}` and
+  `udata/{me}/shop/last`. The creator edits, switches off or deletes; app admins can take down (switch off; the
+  creator can then only delete), restore or delete any item. Items are re-checked on every render (`findForbidden`,
+  `normalizeItem`, theme contrast); failing ones are hidden. UI cap: 50 items per creator.
 - **Purchase:** one multi-path update: `wallets/{uid}/balance -= price`, `wallets/{uid}/lastItem = itemId`, and
-  `inventory/{uid}/{itemId} = {at, price}`.
+  `inventory/{uid}/{itemId} = {at, price}`; for someone else's paid item also `earnings/{by}/{uid}_{itemId} = {price, ts}`.
+- **Collect:** one update per earning: `wallets/{me}/balance += price`, `wallets/{me}/lastEarn = key`,
+  `earnings/{me}/{key} = null`, plus a history row in `udata/{me}/shopSales/{key}`. "Collect all" runs them in sequence.
+  Coins only move from buyer to creator; nothing mints them.
 - **Claim:** +100 coins, at least 20 h after the last claim (server `now`). The first claim creates the wallet with 100.
+  One wallet write is a claim, a purchase or a collect, never two.
 
 ## Sandbox: games and live preview (F4, F7)
 - `src/lib/sandbox.js` + `SandboxFrame`: `<iframe sandbox="allow-scripts" srcdoc referrerPolicy="no-referrer" allow="">`.
@@ -339,7 +359,8 @@ It is persisted per user in localStorage and holds ids only. While `view` is set
 Every navigation action clears `view`.
 
 ## Plaintext by design (documented to users)
-- **Shop:** catalog, wallets, inventory, equipped cosmetics.
+- **Shop:** catalog (including each community item's creator `by` and `createdAt`), wallets, inventory, earnings
+  (keys contain the buyer's uid, so creators see who bought), equipped cosmetics.
 - **Games:** game code, likes, publishLog.
 - **App admin:** announcements, reports (including any excerpt the reporter opts into), adminBadges.
 - **Codespaces:** template id; membership, roles and joinedAt/addedBy.
@@ -356,7 +377,7 @@ Every navigation action clears `view`.
 - Promo guessing is rate-limited per account only.
 - These caps are enforced in the UI only: 25 members, 20 checkpoints per file, 500 snippets.
 - Admins can never decrypt E2EE content.
-- Account deletion can't remove `wallets`, `inventory`, `publishLog`, `reportLog`, `promoAttempts`, `admins` or filed
+- Account deletion can't remove `wallets`, `inventory`, `publishLog`, `reportLog`, `notifLog`, `attLog`, `promoAttempts`, `admins` or filed
   reports. That is by design.
 
 ## Module ownership (additions)
@@ -443,7 +464,9 @@ this is client code plus five generic rules blocks; nothing needs a server.
 ### Ownership
 - `src/features/<ws>/` belongs to one workstream (`bots`, `addons`, `assistant`, `calls`, `messaging`,
   `personal`, `community`). Its `index.js` registers everything the feature adds; `src/features/index.js`
-  imports every folder once at start-up (from `src/main.jsx`) and is never edited by a workstream.
+  imports every folder once at start-up (from `src/main.jsx`) and is never edited by a workstream. The
+  community shop (`shop` workstream) extends the existing `src/lib/shop.js`, `src/lib/addons/*` and
+  `src/components/shop/*` instead of a feature folder.
 - Feature docs: `docs/features/<ws>.md` (purpose, data paths, AAD strings, security notes, limits).
   Tests: `tests/rules/<ws>.test.mjs`, `tests/unit/<ws>.test.mjs`, `tests/e2e/<NN>-<ws>.spec.mjs`.
 - Foundation (shared, change only through the integrator): `src/lib/ext/*` (registry, contexts, send
@@ -464,10 +487,10 @@ comes first, extensions after.
 | `messageActions` | `{ id, label, icon?, inline?, danger?, when?(m, ctx), run(m, ctx) }` | Message hover toolbar: `inline` + `icon` entries get their own button, the rest a "More actions" menu (keyboard: arrows, Home/End, Esc). ctx = ChatContext |
 | `messageBadges` | `{ id, render(m, ctx) => node, groupKey?(m) => string }` | After the author name. Messages only group under one header while every `groupKey` agrees (a bot reply starts its own header) |
 | `messageExtras` | `{ id, render(m, ctx) => node }` | Under the message body (not for deleted, undecryptable or editing messages) |
-| `composerButtons` | `{ id, label, icon, when?(ctx), run(ctx) }` or `{ id, render(ctx) }` | After the composer's own buttons |
+| `composerButtons` | `{ id, label, icon, when?(ctx), run(ctx) }` or `{ id, render(ctx) }` | After the composer's own buttons. When the composer is narrower than 520 px (phones, or a panel open beside the chat) the text box takes its own row above the buttons |
 | `sendHooks` | `{ id, order?, run(draft, ctx) }` | The send pipeline (below) |
-| `slashCommands` | `{ name, description, args?, scopes?: ['channel','dm','group'], run(argsText, ctx) }` | Composer `/` menu and the first send hook |
-| `chatHeaderButtons` | `{ id, label, icon?, panel?, when?(ctx), run?(ctx) }` | Chat header, after Pinned/Search. With `panel` the button toggles that chat panel (`aria-pressed`) |
+| `slashCommands` | `{ name, description, args?, scopes?: ['channel','dm','group'], group?: 'builtin'\|'feature'\|'bot', run(argsText, ctx) }` | Composer `/` menu (grouped by `group`, default `feature`) and the first send hook |
+| `chatHeaderButtons` | `{ id, label, icon?, panel?, when?(ctx), run?(ctx) }` | Chat header, after Pinned/Search. With `panel` the button toggles that chat panel (`aria-pressed`). At 900 px and below, past four buttons (two at 600 px) the rest move into a "More chat tools" menu, in registry order |
 | `chatPanels` | `{ id, title, render(ctx) }` | Right-side panel inside ChatView, one at a time (shared with Search / Pinned), closable (button, Esc returns focus to the opener), an overlay below 900 px |
 | `userSettingsTabs` | `{ id, label, visible?(ctx), render(ctx) }` | Settings modal after the built-in tabs. ctx = WorkspaceContext + `{ user, close }` |
 | `serverSettingsTabs` | `{ id, label, icon?, visible?(ctx), render(ctx) }` | Server settings after the built-in tabs. ctx = WorkspaceContext + `{ sid, perms, me, server: { meta, members, roles, timeouts, myRole, meMember }, close }` |
@@ -475,6 +498,9 @@ comes first, extensions after.
 | `profileSections` | `{ id, render(uid, ctx) }` | Member profile card. ctx = WorkspaceContext + `{ sid, member, isMe, close }` |
 | `sidebarSections` | `{ id, render(ctx) }` | Top of the channel sidebar and of the DM/home sidebar. ctx = WorkspaceContext + `{ view: 'server', sid, server: { meta, channels, perms, myRole, tab, activeCid } }` or `{ view: 'home' }` |
 | `appMounts` | `{ id, Component }` (gets `ctx` prop) or `{ id, render(ctx) }` | Mounted once inside the signed-in Workspace (schedulers, idle detection, add-on hosts) |
+| `chatMounts` | `{ id, Component }` (gets `ctx` prop) or `{ id, render(ctx) }` | Mounted once per open ChatView inside its ChatContext, also while the composer is hidden (timeout, block, missing key): chat-level hooks without UI, e.g. messaging's bridge that lets message links jump. ctx = ChatContext |
+| `adminTabs` | `{ id, label, render({ me }) }` | Admin panel, after the built-in tabs |
+| `reportTargets` | `{ id, label, match(report), render(report), actions?(report, { act, dismiss, busy }) }` | Admin reports queue: the kind pill, target line and extra actions of matching reports (bots: kind `bot`; add-ons: kind `addon`, plus older `shopItem` + `addon:{id}` reports) |
 | `serverCreateOptions` | `{ id, label, description?, icon?, render(ctx) }` | Extra choices in "Add a server"; the choice opens `render(ctx)` with ctx `{ me, name, color, busy, error, createWith(template), back(), close() }`. `template = { name?, color?, channels?: [{ type: 'text'|'code'|'voice', name, topic? }], after?({ sid, cids, generalCid, workspaceCid, uid }) }`; `createWith` creates the server in one update (`createServer(uid, { name, color, channels })`, up to 50 channels), awaits `after`, opens the server, and resolves to the result or `null` on failure |
 
 Ids of settings tabs that collide with built-in tab ids are ignored. `when` / `visible` that throw count
@@ -501,8 +527,10 @@ Provided by ChatView; the ctx of every chat-level point (message-level ctx is th
 
 ### WorkspaceContext (`src/lib/ext/workspaceContext.js`, `useWorkspaceCtx()`)
 `{ me, nav, setNav, servers: [{ sid, joinedAt }], openSettings(tabId?), openServerSettings(tabId?),
-openConv({ kind, sid, cid } | { kind: 'dm', dmId } | { kind: 'group', gid }), toast(text, 'success'|'error'|'info') }`.
-Tab ids can be built-in ones or registered tab ids.
+openConv({ kind, sid, cid } | { kind: 'dm', dmId } | { kind: 'group', gid }), openVoice(sid, cid),
+toast(text, 'success'|'error'|'info') }`. Tab ids can be built-in ones or registered tab ids.
+`openVoice` (integration pass) joins a voice channel and opens its call view exactly like clicking it in
+the sidebar (shows the server, never rings); it resolves once joined and rejects with the join error.
 
 ### Send pipeline and body extras (`src/lib/ext/send.js`)
 Every send (composer text, snippets, GIFs, polls, `ctx.send`) runs `sendHooks` in order before
@@ -523,8 +551,11 @@ The first send hook (`core.slash`, order -1e9) runs a registered command when th
 other hooks; attachments and `extra` are kept unless replaced), `{ handled: true }` or `{ cancel, reason }`.
 An unknown `/word` is sent as plain text. The composer opens an accessible list when the text starts
 with `/` (listbox + `aria-activedescendant`, arrows, Tab completes, Enter completes or runs a fully typed
-command, Esc closes) and shows the command's usage while its arguments are typed. The only built-in
-command is `/help` (local-only list of the commands available here).
+command, Esc closes) and shows the command's usage while its arguments are typed. The list holds every
+matching command, scrolls (the active row stays in view) and is grouped: "Built-in" (`group: 'builtin'`:
+`/help` and the bots' chat commands), "Features" (the default) and "Bots in this server" (`group: 'bot'`);
+within a group, names starting with the typed text come first, and a fully typed name starts selected.
+The only core command is `/help` (local-only list of the commands available here).
 
 ### Generic rules blocks
 | Path | Read | Write | Shape |
@@ -576,6 +607,28 @@ The full rules suite passes against the minified output (`RULES_PATH=<file> npm 
 Sizes: main before round 3 was 98,594 bytes with the old minifier and is 95,052 with this one; the
 `manageApps` flag adds 204 and the five generic blocks 2,901, so the foundation commit is 98,157 bytes
 (4,243 bytes left under the ceiling for all round 3 workstreams). Prefer the generic blocks over new paths.
+With seven workstreams merged (bots, add-ons, assistant, messaging, personal, community, shop) the rules were
+100,024 bytes; the integration pass's `bot|addon` report kinds bring them to 100,034 (calls not yet merged).
+
+### Integration pass notes
+- **Desktop alerts and Do Not Disturb.** `showNotification` (`src/lib/notify.js`) is the only way to show a
+  desktop notification and shows nothing while Do Not Disturb is on (`force: true` only for the explicit
+  "test notification" button). `desktopAlertsOn(settings)` combines the desktop setting, the browser
+  permission and DND for callers (message alerts, the bell, event and message reminders); sound players check
+  `alertsSilenced()` (the call ringtone checks DND itself). Bell entries, unread counts and in-app cards are
+  unaffected.
+- **Decrypted-name cache.** Hooks that read `peekPlain()` while rendering (`useChannels`, `useServerMeta`, the
+  favorites row) adopt a value their effect finds in the cache instead of skipping it: another component (the
+  notifier decrypts every server's channel names) can fill the cache between a render and its effect, and
+  skipping left a new server's channel names blank. `getServerKey`/`getPublicKey` only evict their own failed
+  read, never a key cached meanwhile.
+- **Account deletion** also removes my community shop items, my uncollected earnings (one entry at a time), and
+  in servers I leave the `sitems` I wrote (events, RSVPs, the rules-accepted marker), plus per-account browser
+  data whose key contains my uid. `notifLog/{uid}` is not deletable (rate-limit window) and was dropped from the
+  private-node batch, whose refusal had stopped deletion before the Auth account was removed.
+- **Consistency.** Settings' built-in shop tab is "Shop items" (it clashed with "Add-on apps"); the profile's
+  legacy status field is "Profile status" and says the custom status shows instead while set; server settings
+  tabs wrap; the `?` overlay lists the palette's Ctrl/⌘ Shift P, the assistant's Ctrl/⌘ Shift Y, `/` and Tab.
 
 ### Tests and ports
 `CODEHUB_PORT_BASE` picks a port block for `test:rules` and `test:e2e` (`scripts/test-ports.mjs`): the

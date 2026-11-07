@@ -26,7 +26,8 @@ Other features:
 
 - **Live preview and run console** for HTML/CSS/JS/Markdown in a sandboxed iframe. It runs locally and nothing is uploaded.
 - **Arcade**: publish a workspace as a **public** game that anyone signed in can play, like or report. Games are plaintext.
-- **Add-on shop**: daily coins, app themes, editor themes, editor add-ons, name colors and badges. Data only, plaintext.
+- **Add-on shop**: daily coins, app themes, editor themes, editor add-ons, name colors and badges. Any member can publish
+  themes, editor themes, badges and name colors, and collects the coins buyers pay. Data only, plaintext.
 - **App admins** (promo code), **global announcement banner**, and **reports** to app admins.
 - **Safety**:
   - blocking, enforced by the rules for DMs and friend requests;
@@ -51,8 +52,80 @@ Other features:
 
 ## Round 3 features
 
-Built on the round 3 extension points (ARCHITECTURE.md, "Round 3: extension points"). Each feature is
-documented in [`docs/features/`](docs/features/).
+31 features in eight workstreams, built on the round 3 extension points (ARCHITECTURE.md, "Round 3: extension
+points"). Each workstream doc in [`docs/features/`](docs/features/README.md) lists its data paths, encryption,
+security notes and limits.
+
+**Bots**
+
+1. **Slash commands**: `/shrug`, `/tableflip`, `/unflip`, `/me`, `/roll`, `/flip`, `/spoiler`, `/poll`, `/gif`. [bots](docs/features/bots.md)
+2. **Bot builder and public directory**: no-code bots with commands, keyword triggers and a welcome message. [bots](docs/features/bots.md)
+3. **Bots in servers**: members with *Manage apps* install bots; members' browsers run them. [bots](docs/features/bots.md)
+
+**Add-ons**
+
+4. **Add-on builder and public directory**: publish a small HTML/JS app (≤ 64 KB) with a live sandbox preview. [addons](docs/features/addons.md)
+5. **Personal add-ons and bridge**: run add-ons in a sandboxed chat panel with the permissions you grant. [addons](docs/features/addons.md)
+6. **Server add-ons**: managers install add-ons for a server; each member consents on first open. [addons](docs/features/addons.md)
+
+**Assistant** (Claude, with your own Anthropic API key)
+
+7. **Assistant setup**: Settings → Assistant: key, test, model, effort, token counter. [assistant](docs/features/assistant.md)
+8. **Assistant panel**: streaming chat beside the conversation, optionally given its last messages. [assistant](docs/features/assistant.md)
+9. **Catch me up**: key points, decisions, questions and mentions from unread or recent messages. [assistant](docs/features/assistant.md)
+10. **Message AI actions**: Explain code, Translate (shown only to you), Summarize thread. [assistant](docs/features/assistant.md)
+11. **Writing help and `/ask`**: rewrite or draft in the composer; `/ask` answers privately until you share it. [assistant](docs/features/assistant.md)
+
+**Calls**
+
+12. **Device settings and test**: mic, camera and speaker pickers, level meter, preview, switching mid-call. [calls](docs/features/calls.md)
+13. **Push-to-talk and speaking indicators**: hold a key to talk; a ring shows who is speaking. [calls](docs/features/calls.md)
+14. **Raise hand and call reactions**: shown on the sender's tile, sent peer to peer. [calls](docs/features/calls.md)
+15. **Spotlight, fullscreen and picture-in-picture**: click a tile to enlarge it; screen shares are spotlighted. [calls](docs/features/calls.md)
+
+- **Calls reliability fix** (not numbered): ICE restart on failed or stalled connections, stale-slot cleanup, per-peer status, a timeout message, several default STUN servers. [calls](docs/features/calls.md)
+
+**Messaging**
+
+16. **Voice messages**: up to 60 s, encrypted like image attachments. [messaging](docs/features/messaging.md)
+17. **Reminders**: "Remind me" on a message or `/remind`; fire while a Codehub tab is open. [messaging](docs/features/messaging.md)
+18. **Message links**: "Copy link" and "Jump to message" chips. [messaging](docs/features/messaging.md)
+19. **Run code snippets**: JavaScript and HTML/CSS blocks run in the sandbox, only when you click Run. [messaging](docs/features/messaging.md)
+20. **Chat export**: Markdown or JSON, decrypted locally into an unencrypted download. [messaging](docs/features/messaging.md)
+21. **Drafts**: unsent text per conversation, kept encrypted in this browser only. [messaging](docs/features/messaging.md)
+
+**Personal**
+
+22. **Custom status, Do Not Disturb and auto-idle**: emoji and text status; idle after 10 minutes. [personal](docs/features/personal.md)
+23. **Favorites and server folders**: starred conversations; named, colored folders in the server rail. [personal](docs/features/personal.md)
+24. **Private user notes** on profile cards, encrypted with your vault key. [personal](docs/features/personal.md)
+25. **Appearance settings**: density, font size, chat width, 12/24-hour times, reduced motion, focus rings. [personal](docs/features/personal.md)
+
+**Community**
+
+26. **Server events with RSVP** and a reminder 15 minutes before. [community](docs/features/community.md)
+27. **Server templates**: five built-in ones, or save a server's structure as your own. [community](docs/features/community.md)
+28. **Welcome screen and rules gate**: optionally, new members must accept the rules before posting. [community](docs/features/community.md)
+29. **Server discovery**: owners list a server publicly; anyone signed in can find and join it. [community](docs/features/community.md)
+30. **AutoMod**: blocked words, links, mentions and caps, checked in members' browsers. [community](docs/features/community.md)
+
+**Shop**
+
+31. **Community shop**: any member publishes items; creators collect the coins buyers pay. [shop](docs/features/shop.md)
+
+Privacy notes:
+
+- The assistant sends only what you choose to Anthropic, under your own API key, including decrypted messages from the
+  conversation you use it in. Nothing is sent unless you use an assistant action. The key is stored only in this
+  browser, never in the database, and can be locked with a passphrase.
+- Bots, add-ons and AutoMod run in members' browsers: messages are end-to-end encrypted, so there is no server that
+  could run them. A bot message is sent by the member who triggered it, and bots do nothing while nobody is online. A
+  modified client can bypass AutoMod. Add-ons run in the sandbox with only the permissions you grant; give
+  `readMessages` and `send` only to add-ons you trust.
+- Listing a server in discovery publishes an invite, key included: anyone signed in can join and read all of its
+  messages, older ones too. Unlisting revokes the invite but does not remove people who already joined.
+- Published bots, add-ons (including their code), discovery listings and community shop items are public plaintext,
+  readable by anyone signed in. Buying a paid community item shows its creator who you are.
 
 ## Chat and server extras
 
@@ -97,8 +170,9 @@ First run:
 
 ### App admin promo code (project owner, one time)
 
-App admins can do four things: manage the shop catalog, unpublish games, review reports and post the global
-announcement. A user becomes an admin by entering a secret code in **Settings → Codes & admin**. The code is never
+App admins manage the shop's official items and can take down, restore or delete community items; they can also
+unpublish games, remove bots, add-ons and discovery listings, review reports and post the global announcement. A
+user becomes an admin by entering a secret code in **Settings → Codes & admin**. The code is never
 part of the app or this repository. To set it:
 
 1. Open **Firebase console → Realtime Database → Data**.
@@ -110,7 +184,7 @@ Nobody can become an admin until the key exists and is at least 8 characters lon
 unreadable and unwritable for every client, so it can only be changed in the console. To revoke an admin, delete
 `admins/{uid}` and `adminBadges/{uid}` in the console. Rotating the code does not demote existing admins.
 
-After becoming an admin, open **Admin panel → Catalog → Seed default catalog** to fill the shop with the bundled items.
+After becoming an admin, open **Admin panel → Catalog → Seed defaults** to fill the shop with the bundled items.
 
 ### Test locally against emulators
 
@@ -265,9 +339,20 @@ with database access can read them.
   - Titles, descriptions, like counts and *who liked which game* are public too.
   - You must tick an explicit confirmation before publishing, and you can publish or update at most once a minute.
 - **Shop**:
-  - The catalog is readable by every signed-in user.
+  - The catalog is readable by every signed-in user, including who created each community item (`by`) and when.
   - Your coin balance and the items you own (`wallets`, `inventory`) are readable only by you.
+  - Your uncollected earnings (`earnings/{uid}`) are readable only by you. Each entry's key contains the buyer's uid,
+    so a creator sees who bought their items; the shop says so before you buy.
   - Equipped cosmetics (`equipped`) are public, so others see your name color and badge.
+- **Round 3 directories and status** (`pub/bots`, `pub/addons`, `pub/addonCode`, `pub/servers`, `upub`):
+  - Published bots (full definitions), add-ons (manifest and code) and server discovery listings are readable by
+    every signed-in user, with their publisher and last update time.
+  - A discovery listing contains a join link with the server key, so anyone signed in can join that server and read
+    its messages.
+  - Your custom status (emoji, text, expiry) and the Do Not Disturb flag are public. Invisible mode is never written
+    anywhere public.
+  - Other round 3 metadata visible to members or to the database (RSVPs, rules acceptance, installed bots and
+    add-ons) is listed in each [feature doc](docs/features/README.md).
 - **Announcements, admin badges and reports.**
   - A report holds only ids. It includes message text only if the reporter explicitly opts in.
   - Admins see opted-in text labelled as unverified.
@@ -300,17 +385,25 @@ Treat anything you type into a game as public.
 
 ### Shop items are data, not code
 
-A shop item is only one of these:
-- a set of `#rrggbb` color tokens;
-- the id of an editor theme or add-on that ships with the app;
+Any signed-in member can publish an item, and it is live immediately. A shop item is only one of these:
+- a set of `#rrggbb` color tokens for the app or the code editor (a first-party generator builds the editor theme);
+- the id of an editor theme or add-on that ships with the app (app admins only);
 - a badge glyph of 1 to 8 characters, rendered as text;
 - a name color.
 
-The rules reject every other field, and nothing from the database is ever executed. The economy is enforced
-entirely by the rules:
+The rules reject every other field, and nothing from the database is ever executed. Community items are also checked
+in the browser on create, edit and every render (no links or markup in names and descriptions, readable theme
+contrast); an item that fails is hidden and never applied. Creators edit, switch off or delete only their own items;
+app admins can take down, restore or delete any item. The economy is enforced entirely by the rules:
 - The first claim gives 100 coins. After that, +100 at most once every 20 hours, by server time.
 - A purchase is one atomic update. It debits exactly the item's current price, and an item can't be bought twice.
-- There is no real money, no refunds and no transfers.
+- Buying someone else's paid item also creates, in the same update, an earning for its creator
+  (`earnings/{creator}/{buyer}_{item}`). The creator collects it with one update that adds exactly that price to their
+  wallet and deletes the entry. Nothing mints coins: every collected coin was paid by a buyer.
+- One new item per minute per user, shared with game publishing.
+- There is no real money, no refunds and no direct transfers between users.
+
+Details: [docs/features/shop.md](docs/features/shop.md).
 
 ### App admins
 
@@ -364,7 +457,7 @@ Deny by default, then:
 - **Blocking.**
   - Someone you blocked can't send to your DM, react or pin there, re-add your DM index entry or send you a friend request.
   - They also can't add you to a group or codespace.
-- **Rate limits.** One game publish per minute, one report and one promo guess every 30 seconds, and one coin claim every 20 hours. A new message cannot be created
+- **Rate limits.** One game publish or new shop item per minute, one report and one promo guess every 30 seconds, and one coin claim every 20 hours. A new message cannot be created
   with reactions, pins or edit/delete flags. Reactions, typing, read markers, presence and collab
   cursors can be written only for your own uid.
 - Typing indicators are readable only by members of that channel or participants of that DM.
@@ -430,13 +523,18 @@ Deny by default, then:
   - Also removed:
     - groups and codespaces you own, plus your messages in other groups;
     - your public games and your likes;
-    - blocks, verifications, notification settings, snippets and equipped cosmetics.
+    - blocks, verifications, notification settings, snippets and equipped cosmetics;
+    - round 3 data: everything under `udata/{uid}` and `upub/{uid}` (status, favorites, folders, notes,
+      reminders, add-on installs, templates, …), the bots, add-ons and discovery listings you published,
+      your community shop items and uncollected earnings, the events, RSVPs and rules acceptance you
+      wrote in servers you leave, and this browser's per-account data (assistant key, drafts).
   - Collab edits, checkpoints you saved and reactions you left stay.
   - A DM you hid from your list before deleting is not found and stays.
   - **Never deletable by a client, by design:**
     - `wallets/{uid}` and `inventory/{uid}`. Otherwise deleting and re-creating would reset coins. They hold only a
       balance and item ids.
-    - `publishLog/{uid}`, `reportLog/{uid}` and `promoAttempts/{uid}` (timestamps and the last guess).
+    - `publishLog/{uid}`, `reportLog/{uid}`, `notifLog/{uid}`, `attLog/{uid}` and `promoAttempts/{uid}`
+      (rate-limit timestamps and the last guess).
     - `admins/{uid}` and reports you filed.
 
     The project owner can remove any of these in the console.
@@ -453,6 +551,7 @@ Deny by default, then:
 database.rules.json      Realtime Database security rules (deploy these)
 firebase.json            CLI config: database rules + optional hosting of dist/
 ARCHITECTURE.md          Data model, encryption contract, module ownership
+docs/features/           One doc per round 3 workstream (index: docs/features/README.md)
 src/lib/                 firebase, crypto, keystore, profiles, presence, servers, messages, markdown, collab/ (space, read),
                          groups, codespaces(+Templates), shop, addons/, games, sandbox, roles, moderation, admin,
                          reports, announcements, blocks, verify, linkguard, notify, checkpoints, zip, palette, snippets
@@ -468,6 +567,8 @@ src/components/admin/    Admin panel, reports, announcements
 src/components/safety/   Blocking, verification, safe links, notifications, mute
 src/components/productivity/  Checkpoints, zip, command palette, snippet library
 src/components/common/   Shared UserPicker
+src/features/<ws>/       Round 3 workstreams (bots, addons, assistant, calls, messaging, personal, community),
+                         each registered from its index.js through the src/lib/ext/ extension points
 ```
 
 Scripts: `npm run dev` (dev server), `npm run build` (production build to `dist/`),
