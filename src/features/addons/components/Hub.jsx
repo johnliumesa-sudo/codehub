@@ -32,13 +32,29 @@ export default function Hub({ initial, me }) {
 
   return (
     <Dialog title="Add-ons" onClose={closeHub} wide className="ad-hub">
-      <div className="ad-tabs" role="tablist" aria-label="Add-on sections">
+      <div
+        className="ad-tabs"
+        role="tablist"
+        aria-label="Add-on sections"
+        onKeyDown={(e) => {
+          const i = tabs.findIndex(([k]) => k === tab);
+          const next = e.key === 'ArrowRight' ? (i + 1) % tabs.length : e.key === 'ArrowLeft' ? (i - 1 + tabs.length) % tabs.length : -1;
+          if (next < 0) return;
+          e.preventDefault();
+          const list = e.currentTarget;
+          go(tabs[next][0]);
+          requestAnimationFrame(() => list.querySelectorAll('[role="tab"]')[next]?.focus());
+        }}
+      >
         {tabs.map(([k, label]) => (
           <button
             key={k}
             type="button"
             role="tab"
+            id={`ad-tab-${k}`}
             aria-selected={tab === k}
+            aria-controls="ad-hub-panel"
+            tabIndex={tab === k ? 0 : -1}
             className={`ad-tab${tab === k ? ' on' : ''}`}
             onClick={() => go(k)}
           >
@@ -46,7 +62,7 @@ export default function Hub({ initial, me }) {
           </button>
         ))}
       </div>
-      <div className="ad-hub-body" role="tabpanel" aria-label={tabs.find(([k]) => k === tab)?.[1]}>
+      <div className="ad-hub-body" id="ad-hub-panel" role="tabpanel" aria-labelledby={`ad-tab-${tab}`}>
         {view === 'browse' && <Directory onOpen={(x) => go('details', x)} installedIds={installedIds} />}
         {view === 'details' && id && <Details id={id} me={me} onBack={() => go('browse')} onEdit={(x) => go('build', x)} />}
         {view === 'mine' && <Mine me={me} onOpen={(x) => go('details', x)} onEdit={(x) => go('build', x)} onCreate={() => go('build')} />}
