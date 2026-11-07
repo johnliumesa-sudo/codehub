@@ -1,6 +1,7 @@
 import { Avatar, Icon, useToast } from './ui.jsx';
 import { CosmeticBadge, useNameColor } from '../shop/Cosmetics.jsx';
 import AdminBadge, { AdminShieldButton } from '../admin/AdminBadge.jsx';
+import { PremiumBadge, PremiumName } from '../../features/premium/components/PremiumBits.jsx';
 import { MyStatusLine, StatusButton, useMyDisplayPresence } from '../../features/personal/components/StatusMenu.jsx';
 
 export default function UserPanel({ me, onSettings, onAdmin }) {
@@ -14,8 +15,9 @@ export default function UserPanel({ me, onSettings, onAdmin }) {
         <Avatar profile={me} size={34} presence={presence} ring="var(--bg-0)" />
         <span className="ly-user-text">
           <span className="ly-user-name" style={nameColor ? { color: nameColor } : undefined}>
-            {me.name}
+            <PremiumName uid={me.uid}>{me.name}</PremiumName>
             <CosmeticBadge uid={me.uid} />
+            <PremiumBadge uid={me.uid} size={12} />
             <AdminBadge uid={me.uid} size={12} />
           </span>
           <span className="ly-user-status"><MyStatusLine me={me} display={presence} /></span>

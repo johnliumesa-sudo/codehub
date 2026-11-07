@@ -6,6 +6,7 @@ import { parseInviteLink } from '../../lib/servers.js';
 import CodeSnippet from './CodeSnippet.jsx';
 import { CosmeticBadge, useNameColor } from '../shop/Cosmetics.jsx';
 import AdminBadge from '../admin/AdminBadge.jsx';
+import { PremiumAvatar, PremiumName } from '../../features/premium/components/PremiumBits.jsx';
 import ReportButton from '../admin/ReportButton.jsx';
 import { MessageAttachments } from '../media/Attachments.jsx';
 import { GifMessage } from '../media/GifPicker.jsx';
@@ -137,13 +138,13 @@ function Message(props) {
           {grouped ? (
             <span className="msg-hover-time" title={fmtFull(m.ts)}>{fmtTime(m.ts, clock)}</span>
           ) : (
-            <Avatar profile={author} />
+            <PremiumAvatar uid={m.uid}><Avatar profile={author} /></PremiumAvatar>
           )}
         </div>
         <div className="msg-content">
           {!grouped && (
             <div className="msg-meta">
-              <span className="msg-author" style={{ color: nameColor || author?.color || 'var(--text)' }}>{author?.name || '…'}</span>
+              <span className="msg-author" style={{ color: nameColor || author?.color || 'var(--text)' }}><PremiumName uid={m.uid}>{author?.name || '…'}</PremiumName></span>
               <CosmeticBadge uid={m.uid} />
               <AdminBadge uid={m.uid} />
               <MessageExtBadges m={m} />

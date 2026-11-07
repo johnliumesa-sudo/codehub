@@ -8,6 +8,7 @@ import { Avatar, Icon } from '../layout/ui.jsx';
 import './groups.css';
 import { NoteMark } from '../../features/personal/components/UserNote.jsx';
 import { CustomStatusText } from '../../features/personal/components/StatusBits.jsx';
+import { PremiumName, PremiumNameBits } from '../../features/premium/components/PremiumBits.jsx';
 
 export default function GroupMembersPanel({ gid, me, onMessage, onManage }) {
   const group = useGroup(gid);
@@ -65,7 +66,8 @@ export default function GroupMembersPanel({ gid, me, onMessage, onManage }) {
                         <Avatar profile={p} size={32} presence={pr} />
                         <span className="ly-dm-text">
                           <span className="ly-member-name">
-                            {p?.name || '…'}
+                            <PremiumName uid={m.uid}>{p?.name || '…'}</PremiumName>
+                            <PremiumNameBits uid={m.uid} />
                             {m.role === 'owner' && <Icon name="crown" size={13} className="grp-owner-icon" title="Owner" />}
                             {!isMe && <NoteMark uid={m.uid} />}
                           </span>

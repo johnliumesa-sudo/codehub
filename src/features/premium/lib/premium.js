@@ -56,6 +56,7 @@ async function writeGuess(uid, value) {
   lastGuessAt = Date.now();
   try {
     await set(ref(db, `promoAttempts/${uid}`), { code: value, at: serverTimestamp() });
+    lastGuessAt = Date.now(); // the server's 30 s count starts when the write lands
     return null;
   } catch (e) {
     if (isDenied(e)) return { reason: 'cooldown', message: 'Too many attempts. Wait 30 s between attempts.' };
