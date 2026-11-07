@@ -6,6 +6,8 @@ import { usePresences } from '../../lib/presence.js';
 import { useProfiles } from '../../lib/profiles.js';
 import { Avatar, Icon } from '../layout/ui.jsx';
 import './groups.css';
+import { NoteMark } from '../../features/personal/components/UserNote.jsx';
+import { CustomStatusText } from '../../features/personal/components/StatusBits.jsx';
 
 export default function GroupMembersPanel({ gid, me, onMessage, onManage }) {
   const group = useGroup(gid);
@@ -65,8 +67,9 @@ export default function GroupMembersPanel({ gid, me, onMessage, onManage }) {
                           <span className="ly-member-name">
                             {p?.name || '…'}
                             {m.role === 'owner' && <Icon name="crown" size={13} className="grp-owner-icon" title="Owner" />}
+                            {!isMe && <NoteMark uid={m.uid} />}
                           </span>
-                          {(p?.status || isMe) && <span className="ly-dm-status">{isMe ? 'You' : p.status}</span>}
+                          {isMe ? <span className="ly-dm-status">You</span> : <CustomStatusText uid={m.uid} fallback={p?.status} />}
                         </span>
                         {!isMe && onMessage && (
                           <button className="grp-member-dm" onClick={() => onMessage(m.uid)} title={`Message ${p?.name || ''}`} aria-label={`Message ${p?.name || ''}`}>

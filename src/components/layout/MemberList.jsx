@@ -11,6 +11,8 @@ import AdminBadge from '../admin/AdminBadge.jsx';
 import ReportButton from '../admin/ReportButton.jsx';
 import BlockButton from '../safety/BlockButton.jsx';
 import { ProfileSections } from '../ext/WorkspaceExt.jsx';
+import { NoteMark } from '../../features/personal/components/UserNote.jsx';
+import { CustomStatusText } from '../../features/personal/components/StatusBits.jsx';
 
 const ROLE_ICON = { owner: 'crown', admin: 'shield' };
 
@@ -133,8 +135,9 @@ export default function MemberList({ members, loading, myUid, onMessage, sid, me
                             {ROLE_ICON[m.role] && <Icon name={ROLE_ICON[m.role]} size={13} className={`ly-role-icon ${m.role}`} title={m.role} />}
                             <AdminBadge uid={m.uid} />
                             <TimeoutMark until={timeouts[m.uid]} />
+                            {m.uid !== myUid && <NoteMark uid={m.uid} />}
                           </span>
-                          {p?.status && <span className="ly-dm-status">{p.status}</span>}
+                          <CustomStatusText uid={m.uid} fallback={p?.status} />
                         </span>
                       </button>
                     );
