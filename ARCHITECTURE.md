@@ -180,7 +180,7 @@ equipped/{uid}            { theme?, editorTheme?, badge?, nameColor?: itemId, ex
 udata/{uid}/shopSales/{buyerUid}_{itemId}  { item, price, at }       // collected-sales history (generic udata block)
 
 # Games (F4), PUBLIC PLAINTEXT
-games/{gameId}            { ownerId, title<=80, desc<=500, createdAt, updatedAt, likes:int>=0, size:int<=262144 }  // .indexOn createdAt, likes, ownerId
+games/{gameId}            { ownerId, title<=80, desc<=500, createdAt, updatedAt, likes:int>=0, size:int<=262144, lang? }  // .indexOn createdAt, likes, ownerId; lang: html|js|ts|py|lua
 gameCode/{gameId}         { html: string <= 262144 }   // fetched only on Play
 gameLikes/{gameId}/{uid}  true                          // count in games/{id}/likes moved ±1 atomically with the entry
 publishLog/{uid}          ts                            // write-only; one publish/update per 60 s (=== now)
@@ -337,7 +337,22 @@ Round 3 opened the catalog to every signed-in user and added creator earnings; d
   - rewrites esm.sh/Skypack/code.jquery.com URLs to jsDelivr, and reports external URLs with whether the CSP allows them.
   - Options `html`, `transform`, `moduleExts` let language runtimes compile other module types.
   - Size limits: preview ≤ 2 MB, game ≤ 262144 chars.
-- **Publish:** one update of `games/{id}`, `gameCode/{id}` and `publishLog/{me}`.
+- **Game languages** (`src/lib/gameLangs/`, used by the live preview and the publish modal, so the preview is what gets
+  published): `findEntries`/`entryKind` pick runnable entries (HTML pages, and JS/TS/TSX/JSX/Python/Lua files no other
+  file imports); `buildGameDoc(entry, files, { ts })` returns one self-contained document.
+  - `.js`/`.ts`/`.tsx`/`.jsx`: `jsShellHtml` (canvas `#game` + on-screen console) bundled by `bundle()` with the
+    `transform` option; TypeScript 6.0.3 `transpileModule` (`transpile.js`) is a lazy chunk (`loadTypeScript()`),
+    never in the start-up bundle.
+  - `.py`: Pyodide 314.0.7 from `https://cdn.jsdelivr.net/pyodide/v314.0.7/full/` (`python.js`): files written to
+    `/home/pyodide/game/`, entry run with `runpy`; `input()`/`time.sleep`/pygame-ce timing through JSPI
+    (`pyodide.ffi.run_sync`), a `sys.monitoring` JUMP watchdog that yields every 50 ms, a canvas turtle shim
+    (`pyTurtle.js`), tracebacks trimmed to the game's own frames.
+  - `.lua`: wasmoon 1.16.0 from jsDelivr (`lua.js`), files mounted for `require`, a 4 s busy-loop guard.
+  - Generated documents start with `<meta name="codehub-lang" content="…">` (`langOfDoc`); C, C++, Rust, Java and
+    Kotlin get `UNSUPPORTED_MESSAGE`. No CSP change: the play CSP already allows these CDN paths and wasm.
+- **Publish:** one update of `games/{id}` (with `lang` when known), `gameCode/{id}` and `publishLog/{me}`. Rules that
+  predate `lang` refuse it (`$other: false`): `publishGame`/`updateGame` then retry once without it, and the player
+  falls back to the code's language marker.
 - **Like:** one update of `gameLikes/{id}/{me}` and the like count ±1.
 - **Unpublish** (owner or app admin): one update nulls all three nodes.
 - **Navigation:** `nav.view === 'arcade'`.

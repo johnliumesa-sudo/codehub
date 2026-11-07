@@ -17,20 +17,22 @@ End-to-end encrypted (the server only stores ciphertext):
 - **Private group chats**: up to 25 people, owner-managed. A fresh group key is created whenever someone is removed or leaves.
 - **Code workspaces** inside servers, plus standalone **Codespaces** with owner/editor/viewer roles. Both are real-time
   CodeMirror + Yjs editors with a GitHub panel (browse, diff, commit, branch, pull request). Codespaces start from
-  **templates**: blank, web starter, canvas game, snake, markdown notes.
+  **templates**: blank, web starter, canvas game, snake, Python game, TypeScript game, markdown notes.
 - **Checkpoints**: named versions of a file you can restore. **Zip export and import** of a workspace.
 - **Personal snippet library**, encrypted with your vault key. Insert snippets into the editor or the chat composer.
 - **Server roles** with eight permissions, **timeouts**, and an **encrypted moderation audit log**.
 
 Other features:
 
-- **Live preview and run console** for HTML/CSS/JS (including ES modules and npm imports) and Markdown in a sandboxed
-  iframe. It runs locally and your files are never uploaded.
+- **Live preview and run console** for HTML/CSS/JS (including ES modules and npm imports), TypeScript/TSX/JSX, Python,
+  Lua and Markdown in a sandboxed iframe. It runs locally and your files are never uploaded.
 - **Arcade**: publish a workspace as a **public** game that anyone signed in can play, like or report. Games are plaintext.
+  - Write games in **HTML/JavaScript, TypeScript (also TSX/JSX), Python or Lua**. The preview and the published game
+    are built the same way, so what you preview is what gets published. Each game shows its language.
   - Games can use libraries from jsDelivr, cdnjs and unpkg, Google Fonts, ES modules, `localStorage` high scores
     (saved per game on your device), `alert`/`confirm`/`prompt`, full screen and gamepads.
   - Titles and games can be in any language.
-  - See [docs/features/games.md](docs/features/games.md).
+  - See "Games in other languages" below and [docs/features/games.md](docs/features/games.md).
 - **Add-on shop**: daily coins, app themes, editor themes, editor add-ons, name colors and badges. Any member can publish
   themes, editor themes, badges and name colors, and collects the coins buyers pay. Data only, plaintext.
 - **App admins** (promo code), **global announcement banner**, and **reports** to app admins.
@@ -369,6 +371,39 @@ with database access can read them.
   and the codespace template id.
 - **Private to their owner, but not encrypted**: blocks, verified-contact fingerprints and notification
   preferences. Trusted link domains and the key-change acknowledgement stay in your browser's storage.
+
+### Games in other languages
+
+Pick the entry file in the preview or the **Publish game** dialog. Every file that can run is listed with its
+language; files that another file imports (a module, a `.py` you `import`, a `.lua` you `require`) are not.
+
+| Entry | How it runs |
+|---|---|
+| `.html` | As before: scripts, styles, ES modules, npm imports and data files of the workspace are inlined. |
+| `.js`, `.mjs` | On a page with a full-size `<canvas id="game">` and an on-screen console. Plain scripts stay classic (top-level functions are global); files that `import`/`export` run as ES modules. |
+| `.ts`, `.tsx`, `.jsx` | The same page. Each module is compiled in your browser with TypeScript 6.0.3 (`transpileModule`: no type checking). `tsconfig.json` `jsx`, `jsxFactory`, `jsxImportSource` and `experimentalDecorators` are honoured. The compiler (about 1 MB gzipped) loads only when you preview or publish TypeScript/JSX. |
+| `.py` | Python 3.14 on Pyodide 314.0.7 from `cdn.jsdelivr.net/pyodide/`. `print` and errors go to an on-screen console, `input()` reads from a text box, and `import pygame` loads pygame-ce. Also `import turtle` (a canvas version) and `from js import document`. All `.py` files and text data files (`.json`, `.txt`, `.csv` …) are in the working directory, so `import helpers` and `open("level.txt")` work. |
+| `.lua` | Lua 5.4 on wasmoon 1.16.0 from jsDelivr. `print`, `input()`, `sleep(s)`, `frame()`, `keydown(key)`, `canvas`/`ctx` and `require` of workspace files. |
+
+Templates: **Python game** (Coin Rush, pygame-ce) and **TypeScript game** (Brick Breaker, typed modules).
+
+**Limits.**
+
+- **C, C++, Rust, Java and Kotlin can't run on Codehub.** Their compilers are far too large for a browser tab
+  (clang alone is about 100 MB). Write the game in JavaScript, TypeScript, Python or Lua, or compile it on your
+  computer to a single-file JavaScript/WebAssembly HTML page and publish that.
+- **Python's first load is big:** about 6 MB (pygame games about 7.5 MB), then the browser cache serves it.
+  Startup takes 2 to 3 seconds, longer on a slow connection.
+- Python's `input()`, `time.sleep()` and pygame loops need **WebAssembly JSPI**: current Chrome and Edge (137+) and
+  Firefox have it. In a browser without it, Python still runs, but those calls stop with a message saying so.
+  Safari on iOS hasn't been tested.
+- Python gets the standard library and the packages that ship with Pyodide (pygame-ce, numpy …). pip and PyPI
+  aren't reachable.
+- A Python loop gives the browser a frame at least every 50 ms, so it can't freeze Codehub; tight loops run 3 to 5
+  times slower because of it. A Lua loop that runs 4 seconds without `frame()`, `sleep()` or `input()` is stopped.
+- Workspaces hold text files only, so games draw their graphics in code (or use SVG). There are no image or sound
+  files.
+- Published games are at most 256 K characters, like HTML games.
 
 ### Games and live preview are sandboxed
 

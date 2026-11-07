@@ -8,8 +8,9 @@ Code: `src/lib/sandbox.js` (profiles, `buildSrcdoc`, bundler, preview documents)
 (play CSP, CDN allowlist and rewrites, the in-frame runtime), `src/lib/esmScan.js` (JavaScript import
 lexer), `src/lib/gameSaves.js` (saved game data), `src/lib/gameText.js` (titles, publish errors),
 `src/components/sandbox/SandboxFrame.jsx`, `src/components/games/*`,
-`src/features/messaging/{components/RunCode.jsx,lib/runnable.js}`.
-Rule bytes used: **0**. No new database paths.
+`src/features/messaging/{components/RunCode.jsx,lib/runnable.js}`, and for games in other languages
+`src/lib/gameLangs/*` (see "Games in other languages").
+Rule bytes used: **90** (the optional `games/{id}/lang`). No new database paths.
 
 ## What works now
 
@@ -202,6 +203,115 @@ document:
 
 Limits: a published game is ≤ **262,144 characters** after bundling (rules); a preview ≤ 2 MB (client).
 
+## Games in other languages
+
+`src/lib/gameLangs/` turns a workspace and an entry into one play document. The live preview
+(`LivePreviewPane`) and the publish modal (`PublishGameModal`) both call `buildGameDoc`, so the preview
+is exactly what gets published and what the Arcade plays. The play CSP is unchanged: it already allows
+`cdn.jsdelivr.net/npm/` and `/pyodide/`, `eval` and WebAssembly.
+
+| File | Role |
+|---|---|
+| `langs.js` | Languages (`html`, `js`, `ts`, `py`, `lua`), `entryKind`, `findEntries`, `autoGameEntry`, `needsTranspiler`, unsupported languages and their message. Pure. |
+| `index.js` | `buildGameDoc(entry, files, { ts, title })`, `buildGamePreview` (2 MB limit), `gameTitle`. |
+| `jsShell.js` | The JS/TS page (`<canvas id="game">`, console) and the `codehub-lang` marker (`langMarker`, `langOfDoc`). |
+| `transpile.js` | TypeScript 6.0.3 `transpileModule` per file; `loadTypeScript()` imports it as a lazy chunk. |
+| `python.js`, `pyTurtle.js` | The Pyodide page, the Python prelude and the turtle shim. |
+| `lua.js` | The wasmoon page and the Lua API. |
+
+### Entries
+
+- Runnable: `.html/.htm/.xhtml`, `.js/.mjs`, `.jsx`, `.ts/.mts`, `.tsx`, `.py`, `.lua` (not `.d.ts`, not under
+  `node_modules/` or dot folders).
+- A file is offered as an entry unless another file loads it: a page's `<script src>`, a relative
+  `import`/`export … from`/`import()` (with the `.js` → `.ts` convention), a Python `import`/`from … import`
+  of its module name (`lib/util.py` = `lib.util`; `__init__.py` never), a Lua `require("a.b")` (`a/b.lua`).
+  When every file of a language is imported (a cycle), its `main`/`index`/`game` file is offered.
+- Order: HTML pages, then TypeScript, JavaScript, Python, Lua; `main`/`index`/`game`/`app` first.
+- The preview's "Auto" entry for a module is the page that loads it or the main entry of its language.
+- `.c/.h/.cpp/.cc/.cxx/.hpp/.hh/.rs/.java/.kt/.kts`: never runnable. The publish modal names the languages
+  it found and shows `UNSUPPORTED_MESSAGE`; the preview shows it for such a file.
+
+### JavaScript and TypeScript
+
+- Without an HTML page, the entry runs on a generated page: `<canvas id="game" tabindex="0">` sized to the
+  frame (until the game sets its own size; then it is centred and scaled down to fit), and an on-screen
+  console that shows `console.*` output and uncaught errors (hidden until there is output, closable).
+  The canvas hides itself when the game never calls `getContext` on it (a DOM game).
+- Plain scripts load as a classic `<script>` (top-level functions stay global, like a `<script src>`);
+  files with `import`/`export`, `.mjs` and every TS/JSX file load as ES modules.
+- **TypeScript/TSX/JSX** compile per file with `ts.transpileModule` (ES2022, ESNext modules, `isolatedModules`):
+  - types are erased, not checked; enums, namespaces, parameter properties, TC39 and (with
+    `experimentalDecorators`) legacy decorators work;
+  - JSX uses the automatic React runtime (`react/jsx-runtime`, from jsDelivr) unless `tsconfig.json` (or
+    `jsconfig.json`, comments allowed) sets `jsx`, `jsxFactory`, `jsxFragmentFactory` or `jsxImportSource`;
+  - a syntax error becomes `file:line:col message`, shown in the preview banner and the publish modal, and
+    the module throws it;
+  - the compiler is about 3.6 MB (1 MB gzipped) and only downloads when a TypeScript/JSX entry (or a page
+    that loads a `.ts/.tsx/.jsx` script) is previewed or published. TypeScript 7 is the Go-native compiler
+    with no JavaScript API, so 6.0.x is the newest usable version.
+- Everything else is `bundle()`: workspace modules, npm imports pinned from `package.json`, data files.
+- If `react` and `react-dom` versions differ, jsDelivr can load two copies of React: pin both to the same
+  version in `package.json`.
+
+### Python
+
+- **Runtime:** Pyodide **314.0.7** (CPython 3.14.2) from `https://cdn.jsdelivr.net/pyodide/v314.0.7/full/`
+  (`pyodide.js`, then its wasm, standard library and lock file). About 6.1 MB on first load; pygame-ce
+  2.5.7 adds 1.5 MB. Ready in about 2.5 s with a warm CDN, 5 to 8 s when the CDN edge is cold.
+- **Files:** every `.py` and text data file (`txt json csv tsv md ini cfg toml yaml yml dat xml svg`) is
+  embedded as JSON and written to `/home/pyodide/game/`, the working directory; the entry's own folder is
+  put first on `sys.path` (like `python path/to/main.py`), and the entry runs with
+  `runpy.run_path(entry, run_name='__main__')`.
+- **Packages:** `loadPackagesFromImports` loads what the code imports from the Pyodide lock (pygame-ce,
+  numpy …). micropip/PyPI are not reachable (`connect-src` doesn't allow them); a `ModuleNotFoundError`
+  says so.
+- **Console:** stdout and stderr (red) on screen, mirrored line by line to `console.log`/`console.error`
+  (so the preview's console shows them too). A status line shows each loading step with the elapsed time.
+- **Pausing (JSPI):** `input()` shows a text box and suspends Python until Enter; `time.sleep()`,
+  `pygame.time.Clock.tick`, `delay`, `wait`, `display.flip/update` and `event.get` give the browser a frame.
+  These use `pyodide.ffi.run_sync` (needs `WebAssembly.Suspending`). Without it, `input()`/`sleep` raise a
+  `RuntimeError` that says the browser can't pause Python, and pygame games don't start (a loop would freeze
+  the tab).
+- **Watchdog:** a `sys.monitoring` JUMP callback (tool id 3) yields a frame when Python ran more than
+  50 ms without one, only where `can_run_sync()` is true (not inside JS event callbacks). Tight loops run
+  2.7 to 5.5 times slower.
+- **Graphics:** a `<canvas id="canvas">` stage appears when the code uses pygame, turtle or a canvas.
+  pygame draws on it (`pyodide.canvas.setCanvas2D`); `import turtle` gets a ~200-line canvas turtle
+  (`pyTurtle.js`, unless the workspace has its own `turtle.py`); `from js import document` works for DOM
+  and canvas games (`create_proxy` for callbacks).
+- **Errors:** tracebacks keep only the game's frames (runpy, Pyodide internals and Codehub's prelude are
+  dropped) with workspace-relative file names. The summary (`ValueError: … (helpers.py line 7)`) is also
+  reported to the Arcade's error panel and the preview console.
+- `from js import localStorage` reaches the play runtime's storage, so Python games keep high scores like
+  any other game.
+
+### Lua
+
+- wasmoon **1.16.0** (Lua 5.4): `https://cdn.jsdelivr.net/npm/wasmoon@1.16.0/+esm` and `dist/glue.wasm`,
+  about 145 KB, ready in 0.1 to 0.2 s.
+- Workspace `.lua` and text files are mounted (so `require("util")` works); the entry runs with `loadfile`.
+- API: `print`, `input(prompt)`, `sleep(seconds)`, `frame()` (next animation frame, returns dt), `keydown(key)`,
+  `now()`, `canvas`, `ctx` (2D context: `ctx:fillRect(…)`, `ctx.fillStyle = "…"`), `document`, `window`.
+- A `debug.sethook` count hook stops a loop that ran 4 s without `frame()`, `sleep()` or `input()`.
+
+### Language of a published game
+
+- The document starts with `<meta name="codehub-lang" content="js|ts|py|lua">` (none for HTML). The player
+  reads it with `langOfDoc` when the record has no `lang`.
+- `games/{id}/lang` (`html|js|ts|py|lua`, validated by a regex; optional) is written with the publish or
+  code update. Arcade cards and the player show it as a badge; Python games also show the first-load size.
+- **Older rules:** until the owner pastes rules with `lang`, `$other: false` refuses it. `publishGame` and
+  `updateGame` then retry the same update once without `lang`, and stop sending it for the rest of the
+  session. A refusal that has another cause fails again and is reported as before.
+
+### Templates
+
+- **Python game** (`python-game`): Coin Rush, pygame-ce, `main.py` + `things.py`, best score in
+  `localStorage`.
+- **TypeScript game** (`typescript-game`): Brick Breaker, `main.ts`, `game.ts`, `input.ts`, `types.ts`,
+  `tsconfig.json` (strict); type-checks cleanly.
+
 ## Arcade player
 
 - Keyboard focus goes to the game on load, after Restart and after full screen.
@@ -222,9 +332,12 @@ Limits: a published game is ≤ **262,144 characters** after bundling (rules); a
 ## Live preview
 
 - Runs with the play profile in preview mode (console bridge).
+- Game entries (any language) are built by `buildGameDoc`; the entry list shows each with its language.
+  "Loading the TypeScript compiler…" shows while the lazy chunk loads.
 - The first run waits until the other workspace files are decrypted, so a page never starts without
   its scripts.
-- A lone `.js` file that uses `import`/`export` (or any `.mjs`) runs as a module through the bundler.
+- A lone `.js` file runs on the game page (canvas and console); one that uses `import`/`export` (or any
+  `.mjs`) runs as a module through the bundler.
 - Blocked external URLs show in a banner and as console errors.
 
 ## Chat
@@ -251,6 +364,10 @@ Limits: a published game is ≤ **262,144 characters** after bundling (rules); a
   - jsDelivr's public per-file statistics are a slow, aggregate side channel.
   - Running a chat snippet or a game reveals your IP address to the CDNs it loads from.
 - Saved game data is the game's own data, kept unencrypted on your device and never uploaded.
+- Games in other languages add no capability: they are documents in the same play frame. Pyodide and
+  wasmoon come from the pinned jsDelivr paths the CSP already allowed. The generated pages embed workspace
+  text as JSON with `<` escaped (`jsonForScript`), so a file can't close the script element. The TypeScript
+  compiler runs in the Codehub page but only transforms text; it never executes the game.
 
 ## Why games broke (round 3 diagnosis)
 
@@ -281,4 +398,17 @@ always blamed the rate limit, and the Arcade cut emoji titles in half.
     that survives Restart and a reload;
   - a non-Latin title, focus and full screen, a p5.js preview, and a long HTML game pasted into chat.
   - CDN files are served by `page.route` from a cache (`CODEHUB_CDN_CACHE`, default
-    `<tmp>/codehub-cdn-cache`). It is filled from the network on first use.
+    `<tmp>/codehub-cdn-cache`). It is filled from the network on first use (Pyodide, pygame-ce and
+    wasmoon included: about 8 MB).
+  - Other languages: a multi-file TypeScript/TSX game (enum, namespace, `tsconfig.json` JSX factory) previewed,
+    published and played; a JavaScript-only game published under rules without `lang` (the retry, and the
+    player's marker fallback); a Python console game (print, `input()`, imports, traceback) published and
+    played; the Python game (pygame-ce) and TypeScript game templates; Lua (input, require, canvas, busy-loop
+    guard); the C/C++/Rust/Java message.
+  - Python's JSPI paths need Chrome 137+. With Playwright's bundled Chromium 130 the tests check the
+    "can't pause Python" behaviour; set `CODEHUB_E2E_CHROMIUM` to a newer Chromium/Chrome executable to run
+    `input()` and pygame for real.
+- `tests/unit/game-langs.test.mjs`: entry detection, TypeScript transpiling (and its errors), the JS/TS page,
+  Python and Lua documents, the marker, titles, and the two templates (they build; the TypeScript one
+  type-checks under `strict`).
+- `tests/rules/games-lang.test.mjs`: `games/{id}/lang` accepts the five ids and rejects anything else.
