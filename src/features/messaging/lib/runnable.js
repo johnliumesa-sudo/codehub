@@ -146,7 +146,7 @@ export function buildHtmlDocument({ html, css = [], js = [] }) {
     out = /<\/body>/i.test(out) ? out.replace(/<\/body>(?![\s\S]*<\/body>)/i, `${scripts}</body>`) : `${out}${scripts}`;
     return `${HEARTBEAT}${out}`;
   }
-  return `<html><head>${HEARTBEAT}<style>html{color-scheme:light dark}body{margin:8px;font:14px/1.5 system-ui,sans-serif}</style>${styles}</head><body>${page}${scripts}</body></html>`;
+  return `<html><head>${HEARTBEAT}<style>body{margin:8px;font:14px/1.5 system-ui,sans-serif}</style>${styles}</head><body>${page}${scripts}</body></html>`;
 }
 
 /** Classify one console line from the frame: { mark: 'hb'|'done'|'end'|'timeout' } or { line }. */
