@@ -79,7 +79,7 @@
 .mx-run-status.done, .mx-run-status.live { color: var(--ok-text, var(--ok)); }
 .mx-run-status.timeout, .mx-run-status.busy { color: var(--warn-text, var(--warn)); }
 .mx-run-spacer { flex: 1; }
-.mx-run-frame { display: block; width: 100%; height: 240px; border: 0; border-bottom: 1px solid var(--border); background: #fff; resize: vertical; }
+.mx-run-frame { display: block; width: 100%; height: 380px; border: 0; border-bottom: 1px solid var(--border); background: #fff; resize: vertical; }
 .mx-run-frame.hidden { display: none; }
 .mx-run-log { margin: 0; max-height: 220px; overflow: auto; padding: 6px 10px; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-body, var(--text)); }
 .mx-run-line.warn { color: var(--warn-text, var(--warn)); }
@@ -114,7 +114,7 @@
 
 @media (max-width: 640px) {
   .mx-due-stack { right: 8px; left: 8px; bottom: 96px; width: auto; }
-  .mx-run-frame { height: 200px; }
+  .mx-run-frame { height: 300px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .mx-rec-dot, .mx-due-card, .mx-rec-progress > span.indeterminate { animation: none; }

@@ -4,7 +4,9 @@
 //   ctx: the CollabView extras contract (space, key, me, files, activeFid, activePath, provider, …).
 // The active file re-renders 400 ms after the last edit (observing ctx.provider.ytext). Other
 // workspace files are decrypted once via loadWorkspaceFiles and reloaded with the refresh button.
-// Everything runs in SandboxFrame (opaque origin, CSP, no network). Nothing leaves the client.
+// Everything runs in SandboxFrame profile="play" (opaque origin; the only network is the public code
+// CDNs of the play CSP). The workspace itself never leaves the client. The first render waits until
+// the other workspace files are decrypted, so a page never runs without its scripts.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdown } from '../../lib/markdown.js';
 import { loadWorkspaceFiles } from '../../lib/collab/read.js';
@@ -167,13 +169,17 @@ export default function LivePreviewPane({ ctx, onClose, initialWidth }) {
   const entry = entrySel === 'auto' ? autoEntry(activePath, merged) : entrySel;
 
   const waitingForText = !!activePath && !!provider && liveText === null && !merged.some((f) => f.path === cleanPath(activePath));
+  // Until the first load of the other files finishes, only Markdown/SVG/plain files can render.
+  const firstLoad = !!space && !!key && (siblings.status === 'idle' || (siblings.status === 'loading' && !siblings.loadedAt));
   const result = useMemo(() => {
     if (!entry) return { html: '', missing: [], error: null };
+    if (firstLoad && (isHtmlPath(entry) || /^(?:m?js|cjs)$/.test(extOf(entry)))) return { html: '', missing: [], error: null };
     if (!merged.some((f) => f.path === entry)) {
       return { html: '', missing: [], error: siblings.status === 'loading' || waitingForText ? null : `Can't read ${entry}` };
     }
     return buildPreviewHtml(entry, merged, { renderMarkdown });
-  }, [entry, merged, siblings.status, waitingForText]);
+  }, [entry, merged, siblings.status, waitingForText, firstLoad]);
+  const blockedUrls = useMemo(() => (result.external || []).filter((x) => !x.allowed).map((x) => x.url), [result.external]);
 
   // ---- run / stop ----
   const [running, setRunning] = useState(true);
@@ -328,6 +334,12 @@ export default function LivePreviewPane({ ctx, onClose, initialWidth }) {
           Couldn’t load the other workspace files: {siblings.error}. Previewing the active file only.
         </div>
       )}
+      {blockedUrls.length > 0 && !result.error && (
+        <div className="sbx-banner warn" title={blockedUrls.join('\n')}>
+          The sandbox blocks {blockedUrls.slice(0, 2).join(', ')}
+          {blockedUrls.length > 2 ? ` +${blockedUrls.length - 2} more` : ''}. Load libraries from cdn.jsdelivr.net/npm, cdnjs or unpkg.
+        </div>
+      )}
       {result.missing?.length > 0 && !result.error && (
         <div className="sbx-banner" title={result.missing.join('\n')}>
           Not found in the workspace: {result.missing.slice(0, 3).join(', ')}
@@ -360,7 +372,7 @@ export default function LivePreviewPane({ ctx, onClose, initialWidth }) {
             <span className="spinner" />
           </div>
         ) : (
-          <SandboxFrame key={runNonce} html={result.html} mode="preview" onConsole={onConsole} title={`Preview of ${entryName || 'file'}`} />
+          <SandboxFrame key={runNonce} html={result.html} profile="play" mode="preview" onConsole={onConsole} title={`Preview of ${entryName || 'file'}`} />
         )}
       </div>
 
@@ -414,7 +426,7 @@ export default function LivePreviewPane({ ctx, onClose, initialWidth }) {
         )}
       </section>
       <footer className="sbx-foot muted">
-        <Icon name="lock" size={11} /> Sandboxed: no network, no access to your account or keys. Previews never leave this device.
+        <Icon name="lock" size={11} /> Sandboxed: no access to your account or keys; no network except public code CDNs. Your files never leave this device.
       </footer>
     </aside>
   );

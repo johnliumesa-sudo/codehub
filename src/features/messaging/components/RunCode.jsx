@@ -1,8 +1,9 @@
 // Run code snippets (messageExtras): a "Run" button under messages with JavaScript, HTML or HTML + CSS
 // code (fenced blocks or a shared snippet). Nothing runs until the reader clicks. The code runs in the
-// app's sandbox (SandboxFrame: sandbox="allow-scripts" only, CSP with connect-src 'none') with the
-// console bridge; output is shown as text with Stop / Clear / Run again. JavaScript runs in a worker
-// inside the frame and is stopped after 5 s; an HTML page is torn down when it is busy for 5 s.
+// app's sandbox (SandboxFrame profile="play": opaque origin, no network except the public code CDNs,
+// working localStorage and non-blocking alert/confirm/prompt) with the console bridge; output is shown
+// as text with Stop / Clear / Run again. JavaScript runs in a worker inside the frame and is stopped
+// after 5 s; an HTML page is torn down when it is busy for 5 s.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SandboxFrame from '../../../components/sandbox/SandboxFrame.jsx';
 import { MAX_CONSOLE_LINES } from '../../../lib/sandbox.js';
@@ -117,6 +118,7 @@ function RunPanel({ unit, onClose }) {
         <SandboxFrame
           key={run}
           html={html}
+          profile="play"
           mode="preview"
           onConsole={onConsole}
           title={`${unit.label} snippet (sandboxed)`}
