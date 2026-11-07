@@ -7,10 +7,11 @@ Tests: `tests/unit/messaging.test.mjs`, `tests/rules/messaging.test.mjs`, `tests
 
 Two pieces of glue are shared by several features:
 
-- **Chat bridge** (`lib/bridge.js`, `components/ChatBridge.jsx`): an invisible `composerButtons` render
-  entry that publishes the open chat's ChatContext, so workspace-level code (links, reminders, palette)
-  can call `jumpTo` / `openPanel` on it. It lives in the composer, so it is absent while a timeout or a
-  block hides the composer; a jump then opens the conversation without scrolling.
+- **Chat bridge** (`lib/bridge.js`, `components/ChatBridge.jsx` `ChatPublisher`): a `chatMounts` entry
+  (mounted with the ChatView, whether or not its composer is shown) that publishes the open chat's
+  ChatContext, so workspace-level code (links, reminders, palette) can call `jumpTo` / `openPanel` on it,
+  also while a timeout, a block or the rules gate hides or locks the composer. Drafts stay in an
+  invisible `composerButtons` entry (`messaging.drafts`), since they need the composer's text box.
 - **Opening a message** (`lib/jump.js` `openTarget`): checks access (reading the channel needs server
   membership; a DM id must contain my uid; groups need `userGroups/{me}/{gid}`), calls
   `WorkspaceContext.openConv`, waits for that chat's first page of messages and calls `jumpTo(mid)`,

@@ -142,8 +142,22 @@ function hideGateNotice(sid) {
  * composerButtons render entry for server channels: a "Server rules" button when the server has a
  * welcome screen, the gate notice while I can't post, and opening the events panel on request.
  */
-export function ChatBridge({ ctx }) {
+/** chatMounts entry: opens the events panel a palette action asked for (also while the composer is hidden). */
+export function ChatPanelRequests({ ctx }) {
   const ui = useUi();
+  const sid = ctx.conv.kind === 'channel' ? ctx.conv.sid : null;
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
+  useEffect(() => {
+    if (sid && ui.panel?.sid === sid) {
+      consumePanelRequest();
+      ctxRef.current.openPanel('community.events');
+    }
+  }, [ui.panel, sid]);
+  return null;
+}
+
+export function ChatBridge({ ctx }) {
   const sid = ctx.conv.kind === 'channel' ? ctx.conv.sid : null;
   const uid = ctx.me.uid;
   const w = useWelcome(sid);
@@ -158,13 +172,6 @@ export function ChatBridge({ ctx }) {
     showGateNotice(ctxRef.current, sid);
     return () => hideGateNotice(sid);
   }, [gated, sid]);
-
-  useEffect(() => {
-    if (sid && ui.panel?.sid === sid) {
-      consumePanelRequest();
-      ctxRef.current.openPanel('community.events');
-    }
-  }, [ui.panel, sid]);
 
   if (!sid || !(w.configured || w.req)) return null;
   return (

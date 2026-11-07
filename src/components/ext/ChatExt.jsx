@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRegistry } from '../../lib/ext/registry.js';
 import { useChatCtx } from '../../lib/ext/chatContext.js';
-import { ExtIcon, ExtMenu, ExtRender, passes, runSafe } from './ExtRender.jsx';
+import { ExtBoundary, ExtIcon, ExtMenu, ExtRender, passes, runSafe } from './ExtRender.jsx';
 import './ext.css';
 
 /** Messages are grouped under one header only while every messageBadges groupKey(m) agrees. */
@@ -155,6 +155,28 @@ export function ChatExtPanel({ id, onClose }) {
       </div>
     </aside>
   );
+}
+
+/**
+ * chatMounts: { id, Component } (gets `ctx` as a prop) or { id, render(ctx) }, mounted once per open
+ * ChatView inside its ChatContext, whether or not the composer is shown (timeout, block, missing key).
+ * For chat-level hooks with no UI of their own (e.g. publishing the open chat for message links).
+ */
+export function ChatMounts() {
+  const ctx = useChatCtx();
+  const entries = useRegistry('chatMounts');
+  if (!ctx) return null;
+  return entries.map((e) => {
+    if (typeof e.Component === 'function' || (e.Component && typeof e.Component === 'object')) {
+      const C = e.Component;
+      return (
+        <ExtBoundary key={e.id} label={e.id}>
+          <C ctx={ctx} />
+        </ExtBoundary>
+      );
+    }
+    return <ExtRender key={e.id} entry={e} args={[ctx]} />;
+  });
 }
 
 /** composerButtons: beside the composer's own buttons. */

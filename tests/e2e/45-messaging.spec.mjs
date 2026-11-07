@@ -2,7 +2,7 @@
 // one that comes due while the app is closed), voice messages between two browsers (fake microphone)
 // and running code snippets in the sandbox (output, the 5 s guard, an HTML + CSS page).
 import { readFileSync } from 'node:fs';
-import { test, expect, createServer, makeInvite, joinServer, send, adminGet } from './fixtures.mjs';
+import { test, expect, createServer, makeInvite, joinServer, send, adminGet, adminPut, uid } from './fixtures.mjs';
 
 test.use({
   launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] },
@@ -121,6 +121,34 @@ test('message links jump to the message; drafts persist per conversation; export
   expect(md).toContain('# Chat export: \\#general');
   expect(md).toContain('the target message');
   expect(md).toContain('not encrypted');
+});
+
+test('a message link still jumps while my composer is hidden (timed out)', async ({ users }) => {
+  const alice = await users('alice');
+  await createServer(alice, 'Quiet');
+  await createTextChannel(alice, 'random');
+  await openChannel(alice, 'general');
+  await send(alice, 'the timeout target');
+  for (let i = 1; i <= 3; i++) await send(alice, `later ${i}`);
+  await messageAction(alice, 'the timeout target', 'Copy link');
+  const link = await alice.evaluate(() => navigator.clipboard.readText());
+  const [, sid, , mid] = /#\/m\/ch\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(link);
+  const invite = await makeInvite(alice);
+
+  const bob = await users('bob');
+  await joinServer(bob, invite, 'Quiet');
+  await openChannel(bob, 'random');
+  // A moderator times Bob out: his composer is replaced by the timeout banner in every channel.
+  await adminPut(`servers/${sid}/timeouts/${await uid(bob)}`, Date.now() + 10 * 60_000);
+  await expect(composer(bob)).toHaveCount(0);
+
+  // Opening the link still navigates to #general and scrolls to the message: the bridge that takes the
+  // jump is mounted with the chat (chatMounts), not inside the hidden composer.
+  await bob.evaluate((h) => { location.hash = h; }, link.slice(link.indexOf('#')));
+  await expect(bob.locator('.chat-title-text')).toHaveText('general');
+  await expect(bob.locator(`.msg.highlighted[data-mid="${mid}"]`)).toBeVisible();
+  await expect(composer(bob)).toHaveCount(0);
+  await expect(bob.getByText(/couldn’t scroll/)).toHaveCount(0);
 });
 
 test('reminders: /remind and "Remind me" fire into the bell, a card and the panel; missed ones fire on next load', async ({ users }) => {

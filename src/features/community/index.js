@@ -10,7 +10,7 @@ import { readOnce } from './lib/live.js';
 import { openDiscover, openEventEditor, openWelcome, requestEventsPanel } from './lib/bus.js';
 import CommunityHost from './components/CommunityHost.jsx';
 import { EventMessageCard, EventsPanel, EventsSidebar, isEventRef } from './components/EventsViews.jsx';
-import { ChatBridge, WelcomeSettings, showGateNotice } from './components/Welcome.jsx';
+import { ChatBridge, ChatPanelRequests, WelcomeSettings, showGateNotice } from './components/Welcome.jsx';
 import { AutomodGate, AutomodSettings } from './components/Automod.jsx';
 import { SaveTemplateTab, TemplatePicker } from './components/Templates.jsx';
 import { DiscoverRedirect, DiscoverySettings } from './components/Discovery.jsx';
@@ -56,6 +56,7 @@ register('messageExtras', {
 
 // ---------- welcome screen & rules gate (feature 28) ----------
 register('composerButtons', { id: 'community.bridge', render: (ctx) => (inChannel(ctx) ? h(ChatBridge, { ctx }) : null) });
+register('chatMounts', { id: 'community.panels', render: (ctx) => (inChannel(ctx) ? h(ChatPanelRequests, { ctx }) : null) });
 register('sendHooks', {
   id: 'community.gate',
   order: -1e8, // right after slash commands: local-only commands still work, posts don't

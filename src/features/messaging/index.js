@@ -8,7 +8,7 @@ import { buildMessageLink, convRef } from './lib/links.js';
 import { parseWhen, formatDue } from './lib/when.js';
 import { excerptOf } from './lib/reminderModel.js';
 import { createReminder } from './lib/reminders.js';
-import ChatBridge, { convTitle } from './components/ChatBridge.jsx';
+import ChatBridge, { ChatPublisher, convTitle } from './components/ChatBridge.jsx';
 import { VoiceButton } from './components/Voice.jsx';
 import { RemindDialogHost, openRemindDialog } from './components/RemindDialog.jsx';
 import { ReminderScheduler, RemindersPanel } from './components/Reminders.jsx';
@@ -24,8 +24,9 @@ export const PANEL_EXPORT = 'messaging.export';
 
 const sent = (m) => !!m && !m.deleted && !m.error && !m.pending && !m.sending && typeof m.ts === 'number' && !!m.body;
 
-// ---------- composer: chat bridge + drafts (invisible), voice messages ----------
-register('composerButtons', { id: 'messaging.bridge', order: -1000, render: (ctx) => h(ChatBridge, { ctx }) });
+// ---------- chat bridge (always mounted with the chat), composer: drafts (invisible), voice ----------
+register('chatMounts', { id: 'messaging.bridge', Component: ChatPublisher });
+register('composerButtons', { id: 'messaging.drafts', order: -1000, render: (ctx) => h(ChatBridge, { ctx }) });
 register('composerButtons', { id: 'messaging.voice', render: (ctx) => h(VoiceButton, { ctx }) });
 
 // ---------- message actions ----------

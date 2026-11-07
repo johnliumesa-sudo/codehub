@@ -48,7 +48,7 @@ import ForwardModal from '../chatx/ForwardModal.jsx';
 import { deleteAttachments } from '../../lib/media/attachments.js';
 import { ChatContext } from '../../lib/ext/chatContext.js';
 import { draftToBody, runSendHooks } from '../../lib/ext/send.js';
-import { ChatExtPanel, ChatHeaderExtButtons, EphemeralStack } from '../ext/ChatExt.jsx';
+import { ChatExtPanel, ChatHeaderExtButtons, ChatMounts, EphemeralStack } from '../ext/ChatExt.jsx';
 
 // Uploaded images of a message that never got stored would otherwise be left behind.
 const dropUploads = (conv, body) => {
@@ -748,6 +748,7 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
         </ConfirmModal>
       )}
       {toast && <div key={toast.id} className={`chat-toast ${toast.kind}`}>{toast.text}</div>}
+      <ChatMounts />
     </div>
     </ChatContext.Provider>
   );

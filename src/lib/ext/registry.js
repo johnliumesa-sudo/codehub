@@ -28,6 +28,7 @@ export const REGISTRIES = Object.freeze([
   'profileSections',
   'sidebarSections',
   'appMounts',
+  'chatMounts',
   'serverCreateOptions',
 ]);
 

@@ -1,8 +1,10 @@
-// Mounted inside the composer (composerButtons render entry), so it lives exactly as long as the open
-// chat's composer. Two jobs:
-//  1. publish the ChatContext for workspace-level code (bridge.js: message links, reminders, palette);
-//  2. drafts: restore this conversation's unsent text on open and keep it saved while typing
-//     (localStorage only, sealed; cleared once the composer is empty again, e.g. after sending).
+// The open chat, seen from the rest of the app. Two pieces:
+//  1. ChatPublisher (a chatMounts entry: mounted for as long as the ChatView is open, also while its
+//     composer is hidden by a timeout, a block or a missing key) publishes the ChatContext for
+//     workspace-level code (bridge.js: message links, reminders, palette), so a link can always jump;
+//  2. ChatBridge (a composerButtons render entry, so it lives exactly as long as the composer): drafts.
+//     Restores this conversation's unsent text on open and keeps it saved while typing (localStorage
+//     only, sealed; cleared once the composer is empty again, e.g. after sending).
 import { useEffect, useRef } from 'react';
 import { publishChat, retractChat } from '../lib/bridge.js';
 import { drafts } from '../lib/drafts.js';
@@ -18,17 +20,22 @@ export function convTitle(conv) {
   return name || 'a group';
 }
 
-export default function ChatBridge({ ctx }) {
-  const anchor = useRef(null);
-  const ctxRef = useRef(ctx);
-  ctxRef.current = ctx;
+/** chatMounts entry: keeps bridge.js pointing at this chat's current ChatContext while it is open. */
+export function ChatPublisher({ ctx }) {
   const published = useRef(null);
-
   useEffect(() => {
     published.current = ctx;
     publishChat(ctx);
   }, [ctx]);
   useEffect(() => () => retractChat(published.current), []);
+  return null;
+}
+
+/** composerButtons entry: this conversation's draft (draws nothing visible). */
+export default function ChatBridge({ ctx }) {
+  const anchor = useRef(null);
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
 
   const uid = ctx?.me?.uid || null;
   const key = convKey(ctx?.conv);
