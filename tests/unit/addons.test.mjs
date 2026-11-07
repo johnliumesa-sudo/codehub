@@ -1,26 +1,33 @@
 // Add-ons: manifests and permissions, chunked storage, SHA-256 pins, the bridge host (permissions,
-// validation, rate limits, storage quota) and the in-frame SDK talking to the host over a real
-// MessageChannel, plus checks on the shipped example add-ons.
+// validation, rate limits, storage quota), the runtime (frame document pinned by CSP hashes, the
+// worker SDK talking to the real bridge host from a vm context without string code generation),
+// the shipped examples running in that worker, and the rules that stop removed add-ons from running.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import {
-  ADDON_PERMS, LIMITS, compareVersions, consentKey, filterManifests, formatBytes, isAddonId, normalizePerms, parseCodeRecord,
-  parseConsent, parseInstall, parseInstalls, parseManifest, permDiff, permsCover, permsToString, utf8Length, validateDraft,
+  ADDON_PERMS, LIMITS, compareVersions, consentKey, filterManifests, formatBytes, isAddonId, isCurrentRuntime, normalizePerms,
+  parseCodeRecord, parseConsent, parseInstall, parseInstalls, parseManifest, permDiff, permsCover, permsToString, runBlock,
+  updateBlock, utf8Length, validateDraft,
 } from '../../src/features/addons/lib/manifest.js';
 import { CHUNK, MAX_CHUNKS, packChunks, splitChunks, unpackChunks } from '../../src/features/addons/lib/chunks.js';
 import { sha256Hex, shaMatches } from '../../src/features/addons/lib/hash.js';
 import {
-  addonDocument, addonSdk, applyStorageOp, createBridgeHost, createRateLimiter, isHello, readTheme, storageSize,
+  SEND_ARM_MS, applyStorageOp, createBridgeHost, createRateLimiter, initPayload, isHello, messageStats, readTheme, storageSize,
   toAddonContext, toAddonMessages,
 } from '../../src/features/addons/lib/bridge.js';
+import {
+  MAX_UI_HTML, RUNTIME_VERSION, addonCsp, cleanPurifySource, frameDocument, hostScript, runtimeAssets, workerSdk, workerSource,
+} from '../../src/features/addons/lib/runtime.js';
 import { ADDON_REPORT_KIND, addonIdFromTarget, addonReportTarget, reportedAddonId } from '../../src/features/addons/lib/report.js';
 
 const SHA = 'a'.repeat(64);
 const manifestRaw = (extra = {}) => ({ name: 'Timer', desc: 'A timer', icon: '⏱', version: '1.2.3', perms: 'storage', sha: SHA, size: 120, by: 'u1', ts: 5, ...extra });
 
 test('permissions: normalize, stringify, diff, cover', () => {
-  assert.deepEqual(ADDON_PERMS, ['readMessages', 'composer', 'send', 'storage']);
+  assert.deepEqual(ADDON_PERMS, ['context', 'readMessages', 'composer', 'send', 'storage']);
+  assert.deepEqual(normalizePerms('storage,context'), ['context', 'storage']);
   assert.deepEqual(normalizePerms('storage, readMessages,bogus,storage'), ['readMessages', 'storage']);
   assert.deepEqual(normalizePerms(['send', 'composer']), ['composer', 'send']);
   assert.deepEqual(normalizePerms(null), []);
@@ -62,14 +69,24 @@ test('validateDraft: required fields, limits, version bump on update', () => {
   // 64 KB is measured in UTF-8 bytes
   assert.equal(validateDraft({ name: 'n', icon: 'x', version: '1.0.0', code: 'a'.repeat(65536) }).ok, true);
   assert.match(validateDraft({ name: 'n', icon: 'x', version: '1.0.0', code: 'é'.repeat(32769) }).errors.code, /65536/);
+  // add-on code is worker JavaScript, not an HTML page (the old runtime)
+  for (const page of ['<!doctype html><p>x</p>', '  <html><body></body></html>', '<script>codehub.ready()</script>', '<!-- c -->']) {
+    assert.match(validateDraft({ name: 'n', icon: 'x', version: '1.0.0', code: page }).errors.code, /JavaScript/, page);
+  }
+  assert.equal(validateDraft({ name: 'n', icon: 'x', version: '1.0.0', code: "codehub.ui.render('<p>hi</p>')" }).ok, true);
   // updates must raise the version
   assert.match(validateDraft({ name: 'n', icon: 'x', version: '1.0.0', code: 'c' }, { previousVersion: '1.0.0' }).errors.version, /above 1\.0\.0/);
   assert.equal(validateDraft({ name: 'n', icon: 'x', version: '1.0.1', code: 'c' }, { previousVersion: '1.0.0' }).ok, true);
 });
 
 test('parseManifest / parseCodeRecord refuse anything malformed (database data is untrusted)', () => {
-  const m = parseManifest('a1', manifestRaw({ seed: 'pomodoro' }));
-  assert.deepEqual(m, { id: 'a1', name: 'Timer', desc: 'A timer', icon: '⏱', version: '1.2.3', perms: ['storage'], sha: SHA, size: 120, by: 'u1', ts: 5, seed: 'pomodoro' });
+  const m = parseManifest('a1', manifestRaw({ seed: 'pomodoro', rt: 2 }));
+  assert.deepEqual(m, { id: 'a1', name: 'Timer', desc: 'A timer', icon: '⏱', version: '1.2.3', perms: ['storage'], sha: SHA, size: 120, by: 'u1', ts: 5, seed: 'pomodoro', rt: 2 });
+  assert.equal(parseManifest('a1', manifestRaw()).rt, 1, 'no runtime field: written for the old document runtime');
+  assert.equal(parseManifest('a1', manifestRaw({ rt: 'two' })).rt, 1);
+  assert.equal(isCurrentRuntime(parseManifest('a1', manifestRaw({ rt: RUNTIME_VERSION }))), true);
+  assert.equal(isCurrentRuntime(parseManifest('a1', manifestRaw())), false);
+  assert.equal(parseManifest('a1', manifestRaw({ perms: 'context,readMessages' })).perms.join(), 'context,readMessages');
   assert.equal(parseManifest('a1', manifestRaw({ perms: '' })).perms.length, 0);
   assert.equal(parseManifest('a1', manifestRaw({ desc: undefined })).desc, '');
   for (const bad of [
@@ -95,8 +112,11 @@ test('parseManifest / parseCodeRecord refuse anything malformed (database data i
 });
 
 test('install and consent records', () => {
-  const inst = parseInstall('a1', { sha: SHA, perms: 'send,storage', at: 3, v: '1.0.0', name: 'Timer', icon: '⏱', auto: true, by: 'u2' });
-  assert.deepEqual(inst, { id: 'a1', sha: SHA, perms: ['send', 'storage'], at: 3, v: '1.0.0', name: 'Timer', icon: '⏱', auto: true, by: 'u2' });
+  const inst = parseInstall('a1', { sha: SHA, perms: 'send,storage', at: 3, v: '1.0.0', name: 'Timer', icon: '⏱', auto: true, by: 'u2', publisher: 'u1', rt: 2 });
+  assert.deepEqual(inst, { id: 'a1', sha: SHA, perms: ['send', 'storage'], at: 3, v: '1.0.0', name: 'Timer', icon: '⏱', auto: true, by: 'u2', publisher: 'u1', rt: 2 });
+  const legacy = parseInstall('a1', { sha: SHA, name: 'Old' });
+  assert.equal(legacy.publisher, '');
+  assert.equal(legacy.rt, 1);
   assert.equal(parseInstall('a1', { perms: 'send' }), null, 'a pin without a sha is useless');
   const fallback = parseInstall('a2', { sha: SHA, name: '', icon: 'x'.repeat(20), v: 'nope', auto: 'yes' });
   assert.equal(fallback.name, 'Add-on');
@@ -191,7 +211,9 @@ test('bridge host: permissions, argument checks, dispatch', async () => {
   assert.equal(await bridge.handle(null), null);
   assert.equal(await bridge.handle({ id: 0, method: 'ready' }), null);
   assert.deepEqual(await bridge.handle({ id: 1, method: 'ready' }), { re: 1, ok: true, result: true });
-  assert.deepEqual((await bridge.handle({ id: 2, method: 'getContext' })).result.name, 'general');
+  assert.equal((await bridge.handle({ id: 2, method: 'getContext' })).error.code, 'PERMISSION_DENIED', 'names need the context permission');
+  assert.equal((await host(['context']).bridge.handle({ id: 2, method: 'getContext' })).result.name, 'general');
+  assert.equal((await bridge.handle({ id: 2, method: 'getTheme' })).result.mode, 'dark', 'the theme needs no permission');
   assert.equal((await bridge.handle({ id: 3, method: 'eval', args: ['x'] })).error.code, 'UNKNOWN_METHOD');
   assert.equal((await bridge.handle({ id: 4, method: 'toString' })).error.code, 'UNKNOWN_METHOD');
 
@@ -239,7 +261,7 @@ test('bridge host: send rules and rate limits', async () => {
 
   const { bridge: flood } = host([]);
   const results = [];
-  for (let i = 1; i <= 40; i++) results.push(await flood.handle({ id: i, method: 'getContext' }));
+  for (let i = 1; i <= 40; i++) results.push(await flood.handle({ id: i, method: 'getTheme' }));
   assert.equal(results.filter((r) => r.ok).length, 30, 'burst of 30');
   assert.equal(results[39].error.code, 'RATE_LIMITED');
 });
@@ -290,100 +312,295 @@ test('theme tokens: only plain colors pass', () => {
   assert.equal(readTheme(() => '', 'weird').mode, 'dark');
 });
 
-test('frame document: SDK first, then the add-on; hello check', () => {
-  const doc = addonDocument('<p>mine</p>', 'abcdef0123456789abcdef0123456789');
-  assert.ok(doc.startsWith('<script>('));
-  assert.ok(doc.indexOf('abcdef0123456789abcdef0123456789') < doc.indexOf('<p>mine</p>'));
-  assert.doesNotMatch(doc.slice(0, doc.indexOf('</script>')), /<\/script/i);
+
+test('hello check', () => {
   assert.equal(isHello({ __addon: 'abcdef0123456789', hello: 1 }, 'abcdef0123456789'), true);
   assert.equal(isHello({ __addon: 'other', hello: 1 }, 'abcdef0123456789'), false);
   assert.equal(isHello({ __addon: 'short', hello: 1 }, 'short'), false);
   assert.equal(isHello(null, 'abcdef0123456789'), false);
-  // The SDK is serialized with toString: it must not depend on module scope.
-  const fn = new Function(`return (${addonSdk.toString()})`)();
-  assert.equal(typeof fn, 'function');
 });
 
-/** A fake frame window around the real SDK; the "parent" receives the hello with its port. */
-function frameWithSdk(opts) {
-  const style = {};
-  const attrs = {};
-  const hellos = [];
-  const win = {
-    MessageChannel,
-    console: { log() {}, info() {}, warn() {}, error() {} },
-    addEventListener() {},
-    document: { documentElement: { style: { setProperty: (k, v) => { style[k] = v; } }, setAttribute: (k, v) => { attrs[k] = v; } } },
-    parent: { postMessage: (data, origin, ports) => hellos.push({ data, origin, ports }) },
-  };
-  addonSdk(win, 'f'.repeat(32), opts);
-  return { win, hellos, style, attrs };
+// ---------- runtime: the frame document holds only our scripts, pinned by hash ----------
+
+const PURIFY = readFileSync(new URL('../../node_modules/dompurify/dist/purify.min.js', import.meta.url), 'utf8');
+const sha256b64 = async (text) => Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))).toString('base64');
+
+test('frame document: only DOMPurify and the host script, both pinned by sha256 in a strict CSP', async () => {
+  const assets = await runtimeAssets(PURIFY);
+  const doc = frameDocument(assets, 'ab'.repeat(16));
+  const scripts = [...doc.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  assert.equal(scripts.length, 2, 'exactly two inline scripts');
+  assert.deepEqual(scripts, [assets.purify, assets.host]);
+  for (const body of scripts) assert.ok(assets.csp.includes(`'sha256-${await sha256b64(body)}'`), 'each script is allowed by its hash');
+  const scriptSrc = assets.csp.match(/script-src ([^;]*)/)[1];
+  assert.doesNotMatch(scriptSrc, /unsafe-inline|unsafe-eval|blob:|data:|\*/, 'no other script can run in the frame');
+  for (const d of ["worker-src blob:", "connect-src 'none'", "default-src 'none'", "form-action 'none'", "base-uri 'none'", "frame-src 'none'"]) {
+    assert.ok(assets.csp.includes(d), d);
+  }
+  assert.ok(doc.includes(`<meta http-equiv="Content-Security-Policy" content="${assets.csp}">`));
+  assert.ok(doc.includes(`<meta name="codehub-addon" content="${'ab'.repeat(16)}">`));
+  assert.match(frameDocument(assets, '"><script>alert(1)</script>'), /<meta name="codehub-addon" content="[0-9a-f]*"><style>/, 'the token keeps hex only');
+  assert.match(assets.host, /^[\x00-\x7f]*$/, 'host script is ASCII (hash-stable)');
+  assert.doesNotMatch(assets.purify, /sourceMappingURL/);
+  assert.equal(typeof new Function(`return (${hostScript.toString()})`)(), 'function', 'host script has no module dependencies');
+  assert.throws(() => cleanPurifySource('x</script><script>evil()'), /cannot be inlined/);
+  assert.equal(addonCsp(['A', 'B']).match(/script-src ([^;]*)/)[1], "'sha256-A' 'sha256-B'");
+});
+
+test('worker source: SDK first, then the add-on in its own scope; line offset', () => {
+  const code = 'var first = 1;\ncodehub.ui.render("<p>x</p>");';
+  const { src, offset } = workerSource(code);
+  assert.ok(src.startsWith('(function workerSdk('));
+  const lines = src.split('\n');
+  assert.equal(lines[offset], 'var first = 1;', 'line offset + 1 is the add-on’s first line');
+  assert.ok(lines[offset - 1].endsWith('(function(){'));
+  assert.ok(src.endsWith('\n}).call(self);'));
+  assert.equal(typeof new Function(`return (${workerSdk.toString()})`)(), 'function', 'SDK has no module dependencies');
+  assert.equal(workerSource(code, { console: true }).src.includes('{"console":true}'), true);
+});
+
+// ---------- the worker SDK against the real bridge host, in a vm context like a CSP-bound worker ----------
+
+const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, ms = 3000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = fn();
+    if (v) return v;
+    if (Date.now() > end) throw new Error('timed out');
+    await tick(5);
+  }
 }
 
-test('SDK ↔ host over a MessageChannel: hello, init, calls, errors, events', async () => {
-  const { win, hellos, style, attrs } = frameWithSdk({ console: false });
-  assert.equal(hellos.length, 1);
-  assert.equal(isHello(hellos[0].data, 'f'.repeat(32)), true);
-  assert.equal(hellos[0].origin, '*');
-  const port = hellos[0].ports[0];
-  const api = win.codehub;
-  assert.ok(Object.isFrozen(api));
-  assert.throws(() => { win.codehub = null; }, TypeError, 'window.codehub cannot be replaced');
-
-  const { bridge, calls } = host(['readMessages']);
-  port.onmessage = async (e) => {
-    const reply = await bridge.handle(e.data);
-    if (reply) port.postMessage(reply);
+/** Runs workerSource(code) in a vm context with string code generation off (as the frame CSP does). */
+function runAddon(code, { perms = [], context = { kind: 'channel', name: 'general', me: { name: 'Ada' }, scope: 'personal' }, handlers = {}, preview = false } = {}) {
+  const renders = [];
+  const logs = [];
+  const calls = [];
+  const listeners = [];
+  const intervals = new Set();
+  const store = { map: {} };
+  const theme = { mode: 'dark', tokens: { accent: '#5b8cff' } };
+  const bridge = createBridgeHost({
+    perms,
+    handlers: {
+      ready: () => true,
+      context: () => context,
+      theme: () => theme,
+      messages: (n) => toAddonMessages([], {}, n),
+      insertText: () => true,
+      sendMessage: () => true,
+      storage: (op, key, value) => {
+        const r = applyStorageOp(store.map, op, key, value);
+        store.map = r.map;
+        return r.result;
+      },
+      ...handlers,
+    },
+  });
+  const deliver = (d) => {
+    const data = structuredClone(d);
+    for (const fn of listeners) fn({ data });
   };
-  const theme = { mode: 'light', tokens: { 'bg-0': '#ffffff', accent: '#2f62e0' } };
-  port.postMessage({ event: 'init', data: { perms: ['readMessages'], theme, context: { kind: 'dm', name: 'Ada', me: { name: 'Linus' } }, scope: 'personal' } });
+  const sandbox = {
+    postMessage: (m) => {
+      const d = structuredClone(m);
+      if (typeof d.render === 'string') renders.push(d.render);
+      else if (typeof d.log === 'string') logs.push(d);
+      else if (typeof d.id === 'number') {
+        calls.push(d);
+        bridge.handle(d).then((reply) => reply && deliver(reply));
+      }
+    },
+    addEventListener: (type, fn) => {
+      if (type === 'message') listeners.push(fn);
+    },
+    setTimeout: (fn, ms) => setTimeout(fn, ms).unref(),
+    clearTimeout,
+    setInterval: (fn, ms) => {
+      const t = setInterval(fn, ms).unref();
+      intervals.add(t);
+      return t;
+    },
+    clearInterval,
+    console: { log() {}, info() {}, warn() {}, error() {} },
+  };
+  const ctx = vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
+  vm.runInContext('var self = globalThis;', ctx);
+  vm.runInContext(workerSource(code, { console: preview }).src, ctx, { filename: 'addon-worker.js' });
+  deliver({ event: 'init', data: initPayload({ perms, theme, context }) });
+  return {
+    ctx, renders, logs, calls, store, deliver,
+    last: () => renders[renders.length - 1] || '',
+    click: (id) => deliver({ event: 'ui', data: { type: 'click', id } }),
+    stop: () => intervals.forEach((t) => clearInterval(t)),
+  };
+}
 
-  const ready = await api.ready();
-  assert.deepEqual(ready.perms, ['readMessages']);
-  assert.equal(ready.context.name, 'Ada');
-  assert.equal(style['--ch-accent'], '#2f62e0', 'theme tokens become --ch-* variables');
-  assert.equal(attrs['data-theme'], 'light');
-  assert.deepEqual(await api.getMessages(5), [{ id: 'm1', author: 'Ada', text: 'hi', ts: 1 }]);
-  assert.deepEqual(calls.pop(), ['messages', 5]);
-  await assert.rejects(api.sendMessage('hi'), (e) => e.code === 'PERMISSION_DENIED');
-  await assert.rejects(api.storage.set('k', () => 1), (e) => e.code === 'INVALID_ARGUMENT', 'functions cannot be cloned');
-
-  const seen = [];
-  const off = api.on('theme', (t) => seen.push(t.mode));
-  port.postMessage({ event: 'theme', data: { mode: 'dark', tokens: { accent: '#5b8cff' } } });
-  await new Promise((r) => setTimeout(r, 20));
-  assert.deepEqual(seen, ['dark']);
-  assert.equal(api.theme.mode, 'dark');
-  assert.equal(style['--ch-accent'], '#5b8cff');
-  off();
-  port.postMessage({ event: 'theme', data: { mode: 'light', tokens: {} } });
-  await new Promise((r) => setTimeout(r, 20));
-  assert.deepEqual(seen, ['dark'], 'off() unsubscribes');
-  port.close();
+test('SDK: string code generation is off in the worker (the frame CSP has no unsafe-eval)', () => {
+  const a = runAddon('codehub.ui.render("<p>x</p>");');
+  assert.throws(() => vm.runInContext('eval("1")', a.ctx), (e) => e.name === 'EvalError');
+  assert.throws(() => vm.runInContext('new Function("return 1")', a.ctx), (e) => e.name === 'EvalError');
+  assert.equal(vm.runInContext('Object.isFrozen(codehub) && Object.getOwnPropertyDescriptor(self, "codehub").writable === false', a.ctx), true);
 });
 
-test('SDK console forwarding (builder preview only)', async () => {
-  const { win, hellos } = frameWithSdk({ console: true });
-  const port = hellos[0].ports[0];
-  const got = [];
-  port.onmessage = (e) => got.push(e.data);
-  win.console.log('hello', { a: 1 });
-  win.console.error(new Error('boom'));
-  await new Promise((r) => setTimeout(r, 20));
-  assert.deepEqual(got, [{ log: 'log', args: ['hello', '{"a":1}'] }, { log: 'error', args: ['Error: boom'] }]);
-  port.close();
+test('SDK: ready, the context permission, calls through the host, errors with codes', async () => {
+  const code = `
+    var out = [];
+    codehub.ready().then(function (i) {
+      out.push('ctx:' + JSON.stringify(i.context) + ' perms:' + i.perms.join(',') + ' scope:' + i.scope + ' theme:' + i.theme.mode);
+      return codehub.getContext().then(function (c) { out.push('getContext:' + c.name); }, function (e) { out.push('getContext:' + e.code); });
+    }).then(function () {
+      return codehub.sendMessage('hi').then(function () { out.push('send:ok'); }, function (e) { out.push('send:' + e.code); });
+    }).then(function () {
+      return codehub.storage.set('k', { a: 1 }).then(function () { return codehub.storage.get('k'); }).then(function (v) { out.push('storage:' + JSON.stringify(v)); }, function (e) { out.push('storage:' + e.code); });
+    }).then(function () { codehub.ui.render('<p>' + codehub.ui.escape(out.join(' | ')) + '</p>'); });
+  `;
+  const without = runAddon(code, { perms: ['storage'] });
+  await until(() => without.renders.length);
+  assert.equal(without.last(), '<p>ctx:null perms:storage scope:personal theme:dark | getContext:PERMISSION_DENIED | send:PERMISSION_DENIED | storage:{&quot;a&quot;:1}</p>');
+  const withCtx = runAddon(code, { perms: ['context', 'send'] });
+  await until(() => withCtx.renders.length);
+  assert.match(withCtx.last(), /ctx:\{&quot;kind&quot;:&quot;channel&quot;,&quot;name&quot;:&quot;general&quot;.* \| getContext:general \| send:ok \| storage:PERMISSION_DENIED/);
 });
 
-test('shipped examples: under 64 KB, self-contained, use the bridge safely', () => {
-  for (const [file, perm] of [['pomodoro.html', 'storage'], ['wordcloud.html', 'readMessages']]) {
-    const code = readFileSync(new URL(`../../src/features/addons/examples/${file}`, import.meta.url), 'utf8');
+test('SDK: ui.render checks its input; ui.on gets events and off() stops them; escape', async () => {
+  const a = runAddon(`
+    var seen = [];
+    var off = codehub.ui.on(function (e) { seen.push(e.type + ':' + e.id + ':' + (e.value === undefined ? '' : JSON.stringify(e.value))); codehub.ui.render('<p>' + codehub.ui.escape(seen.join(',')) + '</p>'); if (seen.length === 2) off(); });
+    var bad = [];
+    try { codehub.ui.render(42); } catch (e) { bad.push(e.name); }
+    try { codehub.ui.render('x'.repeat(${MAX_UI_HTML + 1})); } catch (e) { bad.push(e.name); }
+    codehub.ui.render('<p>' + bad.join(',') + ' ' + codehub.ui.escape('<b>"&\\'') + '</p>');
+  `);
+  assert.equal(a.last(), '<p>TypeError,RangeError &lt;b&gt;&quot;&amp;&#39;</p>');
+  a.click('go');
+  a.deliver({ event: 'ui', data: { type: 'submit', id: 'f', value: { q: 'v' } } });
+  a.click('ignored');
+  assert.equal(a.last(), '<p>click:go:,submit:f:{&quot;q&quot;:&quot;v&quot;}</p>');
+  assert.equal(a.renders.length, 3);
+});
+
+test('SDK: top-level declarations in add-on code cannot replace what the SDK uses', async () => {
+  const a = runAddon(`
+    function postMessage() { throw new Error('mine'); }
+    var addEventListener = null;
+    codehub.ready().then(function (i) { codehub.ui.render('<p>still works: ' + i.perms.join(',') + '</p>'); });
+  `, { perms: ['storage'] });
+  await until(() => a.renders.length);
+  assert.equal(a.last(), '<p>still works: storage</p>');
+});
+
+test('SDK: console forwarding only in the builder preview', () => {
+  const p = runAddon('console.log("hello", { a: 1 }); console.error(new Error("boom"));', { preview: true });
+  assert.deepEqual(p.logs, [{ log: 'log', args: ['hello', '{"a":1}'] }, { log: 'error', args: ['Error: boom'] }]);
+  const q = runAddon('console.log("hello");');
+  assert.deepEqual(q.logs, []);
+});
+
+test('init payload: the conversation context only with the context permission', () => {
+  const context = { kind: 'dm', name: 'Ada', me: { name: 'Linus' }, scope: 'personal' };
+  assert.deepEqual(initPayload({ perms: ['storage'], theme: null, context }), { perms: ['storage'], theme: null, context: null, scope: 'personal' });
+  assert.deepEqual(initPayload({ perms: ['context'], theme: { mode: 'dark' }, context }).context, context);
+});
+
+// ---------- the shipped examples, running in the worker runtime ----------
+
+const example = (file) => readFileSync(new URL(`../../src/features/addons/examples/${file}`, import.meta.url), 'utf8');
+
+test('shipped examples: worker JavaScript under 64 KB, no network, no HTML page', () => {
+  for (const [file, perm] of [['pomodoro.js', 'storage'], ['wordcloud.js', 'readMessages']]) {
+    const code = example(file);
     assert.ok(utf8Length(code) < LIMITS.codeBytes, `${file} fits`);
-    assert.match(code, /codehub\.ready\(\)/);
+    assert.match(code, /codehub\s*\.ready\(\)/);
+    assert.match(code, /codehub\.ui\.render\(/);
+    assert.doesNotMatch(code, /\b(fetch|XMLHttpRequest|WebSocket|EventSource|importScripts|document|window)\b/, `${file} uses only the worker API`);
     assert.doesNotMatch(code, /\b(src|href)\s*=\s*["']?(https?:)?\/\//i, `${file} loads nothing from the network`);
-    assert.doesNotMatch(code, /innerHTML|insertAdjacentHTML|document\.write/, `${file} renders text safely`);
     assert.ok(code.includes(perm === 'storage' ? 'codehub.storage' : 'codehub.getMessages'));
+    assert.equal(validateDraft({ name: 'n', icon: 'x', version: '2.0.0', code }).ok, true, `${file} passes the builder checks`);
   }
   const index = readFileSync(new URL('../../src/features/addons/examples/index.js', import.meta.url), 'utf8');
   assert.match(index, /perms: \['storage'\]/);
   assert.match(index, /perms: \['readMessages'\]/);
+  assert.match(index, /pomodoro\.js\?raw/);
+});
+
+test('Pomodoro example works in the worker runtime: modes, storage, restore', async () => {
+  const a = runAddon(example('pomodoro.js'), { perms: ['storage'] });
+  try {
+    await until(() => a.last().includes('Sessions completed: 0'));
+    assert.match(a.last(), /id="time"[^>]*>25:00</);
+    assert.match(a.last(), /data-id="mode:focus" aria-pressed="true"/);
+    a.click('mode:short');
+    await until(() => a.last().includes('Short break selected.'));
+    assert.match(a.last(), /id="time"[^>]*>05:00</);
+    assert.match(a.last(), /data-id="mode:short" aria-pressed="true"/);
+    await until(() => a.store.map.state);
+    assert.equal(a.store.map.state.mode, 'short');
+    a.click('toggle');
+    await until(() => a.last().includes('Short break started.'));
+    assert.match(a.last(), />Pause</);
+  } finally {
+    a.stop();
+  }
+  // A new run restores the saved state (it keeps counting while closed).
+  const b = runAddon(example('pomodoro.js'), { perms: ['storage'] });
+  try {
+    b.store.map = { state: { mode: 'long', endsAt: 0, left: 600, done: 2 } };
+    await until(() => b.last().includes('Sessions completed: 2'));
+    assert.match(b.last(), /id="time"[^>]*>10:00</);
+    assert.match(b.last(), /data-id="mode:long" aria-pressed="true"/);
+  } finally {
+    b.stop();
+  }
+  // Without storage it still runs and says so.
+  const c = runAddon(example('pomodoro.js'), { perms: [] });
+  try {
+    await until(() => c.last().includes('Storage permission not granted'));
+  } finally {
+    c.stop();
+  }
+});
+
+test('word cloud example works in the worker runtime: counts words, escapes text, needs readMessages', async () => {
+  const msgs = [
+    { mid: 'm1', uid: 'u1', ts: 1, body: { text: 'deploy deploy pipeline <img src=x onerror=alert(1)>' } },
+    { mid: 'm2', uid: 'u2', ts: 2, body: { text: 'the deploy is green, see https://example.com/x' } },
+  ];
+  const a = runAddon(example('wordcloud.js'), { perms: ['readMessages'], handlers: { messages: (n) => toAddonMessages(msgs, {}, n) } });
+  await until(() => a.last().includes('From the last 2 messages.'));
+  const html = a.last();
+  assert.match(html, /data-key="w-deploy"[^>]*>deploy<span class="sr">, used 3 times<\/span>/);
+  assert.match(html, />pipeline<span class="sr">, used 1 time</);
+  assert.doesNotMatch(html, /<img|example\.com/, 'message text is never markup');
+  a.click('refresh');
+  await until(() => a.calls.filter((c) => c.method === 'getMessages').length === 2);
+  const denied = runAddon(example('wordcloud.js'), { perms: [] });
+  await until(() => denied.last().includes('needs the “Read messages” permission'));
+});
+
+// ---------- removed, re-published or outdated add-ons don't run ----------
+
+test('runBlock: removed listings, another publisher and old-runtime copies never run', () => {
+  const m = parseManifest('a1', manifestRaw({ by: 'pub1', rt: RUNTIME_VERSION }));
+  const inst = parseInstall('a1', { sha: SHA, name: 'Timer', publisher: 'pub1', rt: RUNTIME_VERSION });
+  assert.equal(runBlock(inst, m), null);
+  assert.equal(runBlock(inst, null), 'removed', 'unpublished or removed by an app admin');
+  assert.equal(runBlock(inst, parseManifest('a1', manifestRaw({ by: 'mallory', rt: RUNTIME_VERSION }))), 'publisher', 're-created under the same id by someone else');
+  assert.equal(runBlock(parseInstall('a1', { sha: SHA, name: 'Old' }), m), 'runtime', 'installs from before runtime 2');
+  assert.equal(runBlock(parseInstall('a1', { sha: SHA, rt: RUNTIME_VERSION }), m), 'publisher', 'no recorded publisher');
+  // An updated listing still from the old runtime, or from another account, can't be accepted.
+  assert.equal(updateBlock(inst, parseManifest('a1', manifestRaw({ by: 'pub1' }))), 'runtime');
+  assert.equal(updateBlock(inst, parseManifest('a1', manifestRaw({ by: 'mallory', rt: RUNTIME_VERSION }))), 'publisher');
+  assert.equal(updateBlock(parseInstall('a1', { sha: SHA }), m), null, 'legacy installs can take the update');
+  assert.equal(updateBlock(inst, null), 'removed');
+});
+
+test('send confirmation: full-text stats and the arming delay', () => {
+  assert.deepEqual(messageStats('ok'), { lines: 1, chars: 2 });
+  assert.deepEqual(messageStats('a\n\n\n\n\nhidden at the bottom'), { lines: 6, chars: 26 });
+  assert.deepEqual(messageStats('a\r\nb\rc'), { lines: 3, chars: 6 });
+  assert.equal(messageStats('😀😀').chars, 2, 'characters, not UTF-16 units');
+  assert.deepEqual(messageStats(''), { lines: 0, chars: 0 });
+  assert.equal(SEND_ARM_MS, 1000);
 });

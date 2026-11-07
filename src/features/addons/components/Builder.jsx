@@ -1,9 +1,10 @@
-// Add-on builder: manifest fields, permissions, a CodeMirror editor for the single HTML/JS document
-// (<= 64 KB) and a live sandbox preview with a mock bridge. Publishing writes the manifest and the
-// code in one update (pub/addons/{id} + pub/addonCode/{id}).
+// Add-on builder: manifest fields, permissions, a CodeMirror editor for the add-on's JavaScript
+// (<= 64 KB; it runs in a worker and draws with codehub.ui.render) and a live sandbox preview with a
+// mock bridge. Publishing writes the manifest and the code in one update (pub/addons/{id} +
+// pub/addonCode/{id}).
 import { Suspense, cloneElement, lazy, useEffect, useMemo, useState } from 'react';
 import { EXAMPLES } from '../examples/index.js';
-import { LIMITS, formatBytes, normalizePerms, utf8Length, validateDraft } from '../lib/manifest.js';
+import { LIMITS, formatBytes, isCurrentRuntime, normalizePerms, utf8Length, validateDraft } from '../lib/manifest.js';
 import { loadAddon, publishAddon, unpublishAddon, usePublishedBy } from '../lib/store.js';
 import PreviewPane from './PreviewPane.jsx';
 import { PermRequestPicker, errText } from './bits.jsx';
@@ -11,38 +12,41 @@ import { ConfirmButton } from '../../../components/layout/ui.jsx';
 
 const CodeEditor = lazy(() => import('./CodeEditor.jsx'));
 
-export const BLANK_TEMPLATE = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<style>
-  body { margin: 0; padding: 16px; font: 14px/1.5 system-ui, sans-serif;
-         background: var(--ch-bg-1); color: var(--ch-text); }
-  button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--ch-border);
-           background: var(--ch-accent); color: #fff; font: inherit; cursor: pointer; }
-</style>
-</head>
-<body>
-  <h1 style="font-size:16px;margin:0 0 8px">Hello!</h1>
-  <p id="where">Connecting…</p>
-  <button id="hi" type="button">Say hi in the composer</button>
-<script>
-  // window.codehub is the bridge to Codehub. Ask only for the permissions you use.
-  codehub.ready().then(({ context }) => {
-    document.getElementById('where').textContent =
-      'Hi ' + context.me.name + ', you are in ' + (context.name || 'a conversation') + '.';
-  });
-  document.getElementById('hi').addEventListener('click', () => {
-    codehub.insertText('Hi everyone 👋').catch((e) => {
-      document.getElementById('where').textContent = e.message;
+export const BLANK_TEMPLATE = `// Your add-on runs in a worker: no DOM and no network. Draw with codehub.ui.render(html)
+// (sanitized: no scripts, links or embedded pages) and handle elements that have
+// data-on="click|input|change|submit" and data-id="…" with codehub.ui.on(handler).
+var where = 'Connecting…';
+
+function draw() {
+  codehub.ui.render(
+    '<style>' +
+      'button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--ch-border);' +
+      ' background: var(--ch-accent); color: #fff; font: inherit; cursor: pointer; }' +
+    '</style>' +
+    '<h1 style="font-size:16px;margin:0 0 8px">Hello!</h1>' +
+    '<p>' + codehub.ui.escape(where) + '</p>' +
+    '<button type="button" data-on="click" data-id="hi">Say hi in the composer</button>'
+  );
+}
+
+codehub.ui.on(function (e) {
+  if (e.type === 'click' && e.id === 'hi') {
+    codehub.insertText('Hi everyone 👋').catch(function (err) {
+      where = err.message;
+      draw();
     });
-  });
-</script>
-</body>
-</html>
+  }
+});
+
+codehub.ready().then(function (info) {
+  // info.context is null unless the add-on has the "See where it’s open" permission.
+  where = info.context ? 'Hi ' + info.context.me.name + ', you are in ' + (info.context.name || 'a conversation') + '.' : 'Ready.';
+  draw();
+});
+draw();
 `;
 
-const EMPTY = { name: '', icon: '🧩', version: '1.0.0', desc: '', perms: ['composer'], code: BLANK_TEMPLATE };
+const EMPTY = { name: '', icon: '🧩', version: '1.0.0', desc: '', perms: ['context', 'composer'], code: BLANK_TEMPLATE };
 
 /** Props: me, editId?, onDone(id), onCancel() */
 export default function Builder({ me, editId, onDone, onCancel }) {
@@ -147,7 +151,7 @@ export default function Builder({ me, editId, onDone, onCancel }) {
         )}
         <PermRequestPicker value={draft.perms} onChange={set('perms')} />
         <div className="ad-b-codehead">
-          <span className="ad-field-label">Code (one HTML document with inline JS and CSS)</span>
+          <span className="ad-field-label">Code (JavaScript, runs in a worker)</span>
           {!editId && (
             <label className="ad-start">
               <span className="ad-visually-hidden">Start from</span>
@@ -175,11 +179,21 @@ export default function Builder({ me, editId, onDone, onCancel }) {
           </Suspense>
         </div>
         {errors.code && <p className="error-text" role="alert">{errors.code}</p>}
+        {orig && !isCurrentRuntime(orig.manifest) && (
+          <div className="ad-warn" role="note">
+            This add-on was written for the old add-on runtime (an HTML page with its own scripts), which no longer runs. Rewrite it
+            as worker JavaScript that draws with <code className="ad-code-inline">codehub.ui.render(html)</code> and publish it as a
+            new version; people who installed it are asked to review the update.
+          </div>
+        )}
         <p className="ad-hint muted">
-          Your code runs in a sandboxed frame without network access (no fetch, no external scripts or images; inline
-          everything). Use <code className="ad-code-inline">window.codehub</code> to talk to Codehub and the
-          <code className="ad-code-inline">--ch-*</code> CSS variables (e.g. <code className="ad-code-inline">var(--ch-bg-2)</code>) to match the
-          user’s theme. Everything you publish is public.
+          Your code runs in a Web Worker inside a sandbox: no network (no fetch, WebSocket or imports; inline everything), no
+          DOM and no way to open pages. Draw with <code className="ad-code-inline">codehub.ui.render(html)</code>; the HTML is
+          sanitized (no scripts, links, forms that submit or embedded pages). Elements with
+          <code className="ad-code-inline">data-on="click"</code> (or input, change, submit) and a
+          <code className="ad-code-inline">data-id</code> send events to <code className="ad-code-inline">codehub.ui.on(handler)</code>.
+          Use the <code className="ad-code-inline">--ch-*</code> CSS variables (e.g. <code className="ad-code-inline">var(--ch-bg-2)</code>)
+          to match the user’s theme. Everything you publish is public.
         </p>
       </div>
       <div className="ad-b-preview">

@@ -1,11 +1,11 @@
-// Plain (non-collaborative) CodeMirror 6 editor for add-on code: HTML with embedded JS/CSS, the
-// same base setup and theme as the collab editor. Loaded lazily (its own chunk).
+// Plain (non-collaborative) CodeMirror 6 editor for add-on code (JavaScript that runs in a worker),
+// the same base setup and theme as the collab editor. Loaded lazily (its own chunk).
 import { useEffect, useRef } from 'react';
 import { EditorView, basicSetup } from 'codemirror';
 import { EditorState } from '@codemirror/state';
 import { keymap } from '@codemirror/view';
 import { indentWithTab } from '@codemirror/commands';
-import { html } from '@codemirror/lang-html';
+import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 
 const chrome = EditorView.theme(
@@ -33,7 +33,7 @@ export default function CodeEditor({ value, onChange, label = 'Add-on code', rea
         extensions: [
           basicSetup,
           keymap.of([indentWithTab]),
-          html(),
+          javascript(),
           oneDark,
           chrome,
           EditorState.readOnly.of(readOnly),

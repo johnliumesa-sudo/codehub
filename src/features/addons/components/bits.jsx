@@ -1,7 +1,7 @@
 // Small shared pieces of the add-on UI. Every string from the database renders as React text.
 import { useProfile } from '../../../lib/profiles.js';
 import { useAdminBadge } from '../../../lib/admin.js';
-import { ADDON_PERMS, PERM_INFO, normalizePerms } from '../lib/manifest.js';
+import { ADDON_PERMS, PERM_INFO, normalizePerms, runBlock } from '../lib/manifest.js';
 
 export function AddonIcon({ icon, size = 'md' }) {
   return (
@@ -74,6 +74,24 @@ export function PermRequestPicker({ value, onChange }) {
       ))}
     </fieldset>
   );
+}
+
+const BLOCK_LABEL = {
+  removed: 'removed from the directory',
+  publisher: 'publisher changed',
+  runtime: 'needs update for the new add-on runtime',
+};
+
+/** Chip for an installed add-on that won't run (see runBlock), or nothing while it may. */
+export function BlockChip({ install, manifest, loading = false }) {
+  if (loading) return null;
+  const reason = runBlock(install, manifest);
+  return reason ? <span className="ad-chip warn">{BLOCK_LABEL[reason]}</span> : null;
+}
+
+/** Chip for a listing written for the old runtime (it can't be installed until updated). */
+export function OldRuntimeChip() {
+  return <span className="ad-chip warn">{BLOCK_LABEL.runtime}</span>;
 }
 
 export function PermChips({ perms }) {

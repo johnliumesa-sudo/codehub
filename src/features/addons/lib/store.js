@@ -1,13 +1,13 @@
 // Add-on data in the generic rules blocks (Firebase side). Paths:
 //   pub/addons/{id}                       manifest (public, plaintext)        see manifest.js
 //   pub/addonCode/{id}                    { code, sha, by, ts } (public)
-//   udata/{me}/addons/{id}                personal install { sha, perms, at, v, name, icon, auto? }
+//   udata/{me}/addons/{id}                personal install { sha, perms, at, v, name, icon, publisher, rt, auto? }
 //   udata/{me}/addonPin/{id}              pinned code copy { sha, n, c0.. } (what I approved)
 //   udata/{me}/addonStore/{key}           add-on storage, sealed with my vault key { iv, n, c0.. }
 //                                         key = {id} (personal) or {sid}~{id} (server add-on)
 //                                         AAD `addonstore:{uid}/{key}`
 //   udata/{me}/addonConsent/{sid}~{id}    my consent to a server add-on { perms, sha, auto?, at }
-//   sconf/{sid}/addons/{id}               server install { sha, perms, by, at, v, name, icon }
+//   sconf/{sid}/addons/{id}               server install { sha, perms, by, at, v, name, icon, publisher, rt }
 //   sconf/{sid}/addonPin/{id}             the server's pinned code copy { sha, n, c0.. }
 import { useMemo } from 'react';
 import { get, push, ref, serverTimestamp, update } from 'firebase/database';
@@ -18,7 +18,8 @@ import {
 import { packChunks, unpackChunks } from './chunks.js';
 import { sha256Hex } from './hash.js';
 import {
-  consentKey, parseCodeRecord, parseConsent, parseInstalls, parseManifest, permsToString, utf8Length,
+  RUNTIME_VERSION, consentKey, isCurrentRuntime, parseCodeRecord, parseConsent, parseInstalls, parseManifest, permsToString,
+  utf8Length,
 } from './manifest.js';
 
 export const FEAT = Object.freeze({ installs: 'addons', pins: 'addonPin', store: 'addonStore', consent: 'addonConsent' });
@@ -40,6 +41,7 @@ export async function publishAddon(id, value, { seed } = {}) {
     version: value.version,
     sha,
     size: utf8Length(value.code),
+    rt: RUNTIME_VERSION,
     by: uid,
     ts: serverTimestamp(),
   };
@@ -103,8 +105,13 @@ export function useManifest(id) {
 
 // ---------- pinned code ----------
 
+// The pinned publisher and runtime let the runner refuse a copy whose listing was removed or taken
+// over by another account, or that was written for an older runtime (see runBlock in manifest.js).
 function installRecord(manifest, sha, perms, extra = {}) {
-  const rec = { sha, at: Date.now(), v: manifest.version, name: manifest.name, icon: manifest.icon, ...extra };
+  if (!isCurrentRuntime(manifest)) fail('This add-on needs an update for the new add-on runtime before it can be installed.');
+  const rec = {
+    sha, at: Date.now(), v: manifest.version, name: manifest.name, icon: manifest.icon, publisher: manifest.by, rt: manifest.rt, ...extra,
+  };
   const p = permsToString(perms);
   if (p) rec.perms = p;
   return rec;

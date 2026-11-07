@@ -5,12 +5,12 @@ import { useServerMeta } from '../../../components/layout/hooks.js';
 import { ConfirmButton } from '../../../components/layout/ui.jsx';
 import { useUdata } from '../../../lib/ext/store.js';
 import { openHub } from '../lib/hub.js';
-import { formatBytes, parseConsent } from '../lib/manifest.js';
+import { formatBytes, isCurrentRuntime, parseConsent } from '../lib/manifest.js';
 import {
   FEAT, clearStorage, revokeConsent, setConsentAutoSend, setPersonalAutoSend, uninstallPersonal, useManifest, usePersonalInstalls, useStoredData,
 } from '../lib/store.js';
 import { UpdateDialog } from './InstallFlow.jsx';
-import { AddonIcon, PermChips, errText } from './bits.jsx';
+import { AddonIcon, BlockChip, PermChips, errText } from './bits.jsx';
 import '../addons.css';
 
 export default function UserAddonsTab({ ctx }) {
@@ -34,8 +34,9 @@ export default function UserAddonsTab({ ctx }) {
   return (
     <div className="ad-settings">
       <p className="muted">
-        Add-on apps are small programs other Codehub users publish. They run in a sandbox in your browser (no network
-        access) and can only do what you allow. Cosmetic items from the shop are under “Add-ons”.
+        Add-on apps are small programs other Codehub users publish. Their code runs in a sandboxed worker in your browser,
+        with no network access and no way to open other pages, and can only do what you allow. Codehub stops running an
+        add-on that is removed from the directory. Cosmetic items from the shop are under “Shop items”.
       </p>
       <div className="ad-actions left">
         <button type="button" className="btn primary sm" onClick={() => open({ view: 'browse' })}>Browse the directory</button>
@@ -81,9 +82,9 @@ export default function UserAddonsTab({ ctx }) {
 }
 
 function InstalledRow({ inst, onError }) {
-  const { manifest } = useManifest(inst.id);
+  const { manifest, loading } = useManifest(inst.id);
   const [review, setReview] = useState(false);
-  const hasUpdate = manifest && manifest.sha !== inst.sha;
+  const hasUpdate = isCurrentRuntime(manifest) && manifest.sha !== inst.sha && (!inst.publisher || manifest.by === inst.publisher);
   return (
     <li className="ad-row wrap">
       <AddonIcon icon={inst.icon} />
@@ -91,7 +92,7 @@ function InstalledRow({ inst, onError }) {
         <span className="ad-row-name">
           {inst.name} {inst.v && <span className="muted">v{inst.v}</span>}
           {hasUpdate && <span className="ad-chip warn">update: v{manifest.version}</span>}
-          {!manifest && <span className="ad-chip quiet">no longer in the directory</span>}
+          <BlockChip install={inst} manifest={manifest} loading={loading} />
         </span>
         <span className="ad-row-chips"><PermChips perms={inst.perms} /></span>
         {inst.perms.includes('send') && (

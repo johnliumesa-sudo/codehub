@@ -1,28 +1,91 @@
-// Runs an installed add-on (personal or server) inside a chat panel: loads the pinned copy, checks
-// its SHA-256, asks a member for consent to a server add-on's permissions on first open, and serves
-// the bridge calls against the current conversation (ChatContext).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { applyStorageOp, BridgeError, toAddonContext, toAddonMessages } from '../lib/bridge.js';
-import { permsCover } from '../lib/manifest.js';
+// Runs an installed add-on (personal or server) inside a chat panel: checks that its directory listing
+// still exists, comes from the publisher whose code was approved and targets the current runtime,
+// loads the pinned copy and checks its SHA-256, asks a member for consent to a server add-on's
+// permissions on first open, and serves the bridge calls against the current conversation
+// (ChatContext).
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { applyStorageOp, BridgeError, messageStats, SEND_ARM_MS, toAddonContext, toAddonMessages } from '../lib/bridge.js';
+import { isCurrentRuntime, permsCover, runBlock } from '../lib/manifest.js';
 import {
   loadPinnedCode, loadStorage, personalPinPath, saveConsent, saveStorage, serverPinPath, setConsentAutoSend,
-  setPersonalAutoSend, storageKeyFor, useConsent, useManifest,
+  setPersonalAutoSend, storageKeyFor, uninstallPersonal, useConsent, useManifest,
 } from '../lib/store.js';
 import { openHub } from '../lib/hub.js';
 import AddonFrame from './AddonFrame.jsx';
 import Dialog from './Dialog.jsx';
+import { UpdateDialog } from './InstallFlow.jsx';
 import { AddonIcon, PermList, errText } from './bits.jsx';
 
 /**
  * Props: { scope: 'personal'|'server', sid?, install (parseInstall result), ctx (ChatContext), onBack? }
  */
 export default function AddonRunner({ scope, sid, install, ctx, onBack }) {
+  // Live listing: when its publisher or an app admin removes it, the frame goes away at once.
+  const { manifest, loading: manifestLoading } = useManifest(install.id);
   const { consent, loading: consentLoading } = useConsent(scope === 'server' ? sid : null, install.id);
   const needsConsent = scope === 'server' && !consentLoading && !(consent && permsCover(consent.perms, install.perms));
 
-  if (scope === 'server' && consentLoading) return <div className="ad-center"><div className="spinner" aria-label="Loading" /></div>;
+  if (manifestLoading || (scope === 'server' && consentLoading)) return <div className="ad-center"><div className="spinner" aria-label="Loading" /></div>;
+  const blocked = runBlock(install, manifest);
+  if (blocked) return <Blocked reason={blocked} scope={scope} sid={sid} install={install} manifest={manifest} ctx={ctx} onBack={onBack} />;
   if (needsConsent) return <ConsentCard sid={sid} install={install} consent={consent} onBack={onBack} />;
-  return <Runner scope={scope} sid={sid} install={install} ctx={ctx} onBack={onBack} auto={scope === 'server' ? !!consent?.auto : install.auto} />;
+  return <Runner scope={scope} sid={sid} install={install} manifest={manifest} ctx={ctx} onBack={onBack} auto={scope === 'server' ? !!consent?.auto : install.auto} />;
+}
+
+/** Why an installed add-on doesn't run, and what can be done about it. */
+function Blocked({ reason, scope, sid, install, manifest, ctx, onBack }) {
+  const [review, setReview] = useState(false);
+  const [err, setErr] = useState('');
+  const server = scope === 'server';
+  const canUpdate = reason === 'runtime' && manifest && isCurrentRuntime(manifest) && manifest.sha !== install.sha;
+  const canManage = !server || !!ctx?.perms?.manageApps;
+  let title;
+  let text;
+  if (reason === 'removed') {
+    title = 'Removed from the directory';
+    text = `${install.name} is no longer published: its publisher or a Codehub app admin removed it, so Codehub doesn’t run it any more.`;
+  } else if (reason === 'publisher') {
+    title = 'Publisher changed';
+    text = `${install.name} is now listed by a different account than the one whose version ${server ? 'this server' : 'you'} approved, so Codehub won’t run it. Uninstall it, and install it again only if you trust the new publisher.`;
+  } else {
+    title = 'Needs update for the new add-on runtime';
+    text = `${install.name} was written for the old add-on runtime, which let add-on code run inside a web page. Add-ons now run in a stricter sandbox, and this one needs an update from its publisher before it can run again.`;
+  }
+  return (
+    <section className="ad-blocked" aria-labelledby={`ad-blocked-${install.id}`}>
+      <div className="ad-run-title">
+        <AddonIcon icon={install.icon} />
+        <div>
+          <h4 id={`ad-blocked-${install.id}`}>{install.name}</h4>
+          <span className="ad-chip warn">{title}</span>
+        </div>
+      </div>
+      <p role="status">{text}</p>
+      {reason === 'runtime' && (
+        <p className="muted">
+          {canUpdate
+            ? server
+              ? canManage
+                ? 'An update is available. Review it to run the new version here.'
+                : 'An update is available; a server manager needs to review it in Server settings → Add-ons.'
+              : 'An update is available. Review it to run the new version.'
+            : 'Its publisher hasn’t published an update yet.'}
+        </p>
+      )}
+      {reason !== 'runtime' && server && !canManage && <p className="muted">A server manager can remove it in Server settings → Add-ons.</p>}
+      {err && <p className="error-text" role="alert">{err}</p>}
+      <div className="ad-actions left">
+        {onBack && <button type="button" className="btn ghost sm" onClick={onBack}>Back</button>}
+        {canUpdate && canManage && <button type="button" className="btn primary sm" onClick={() => setReview(true)}>Review update</button>}
+        {!server && reason !== 'runtime' && (
+          <button type="button" className="btn danger sm" onClick={() => uninstallPersonal(install.id).catch((e) => setErr(errText(e)))}>
+            Uninstall {install.name}
+          </button>
+        )}
+      </div>
+      {review && <UpdateDialog install={install} target={server ? { scope: 'server', sid } : { scope: 'personal' }} onClose={() => setReview(false)} />}
+    </section>
+  );
 }
 
 function ConsentCard({ sid, install, consent, onBack }) {
@@ -73,14 +136,14 @@ function ConsentCard({ sid, install, consent, onBack }) {
   );
 }
 
-function Runner({ scope, sid, install, ctx, onBack, auto }) {
+function Runner({ scope, sid, install, manifest, ctx, onBack, auto }) {
   const [code, setCode] = useState(null);
   const [loadErr, setLoadErr] = useState('');
   const [runKey, setRunKey] = useState(0);
   const [confirm, setConfirm] = useState(null); // { text, resolve }
   const confirmRef = useRef(null);
+  const confirmSeq = useRef(0);
   const [allowAuto, setAllowAuto] = useState(false);
-  const { manifest } = useManifest(scope === 'personal' ? install.id : null);
 
   useEffect(() => {
     let off = false;
@@ -135,7 +198,8 @@ function Runner({ scope, sid, install, ctx, onBack, auto }) {
       if (!autoSend) {
         if (confirmRef.current) throw new BridgeError('BUSY', 'Another message is waiting for your confirmation.');
         const ok = await new Promise((resolve) => {
-          confirmRef.current = { text, resolve };
+          confirmSeq.current += 1;
+          confirmRef.current = { text, resolve, seq: confirmSeq.current };
           setAllowAuto(false);
           setConfirm(confirmRef.current);
         });
@@ -192,7 +256,7 @@ function Runner({ scope, sid, install, ctx, onBack, auto }) {
     c.resolve(ok);
   };
 
-  const update = scope === 'personal' && manifest && manifest.sha !== install.sha ? manifest : null;
+  const update = scope === 'personal' && isCurrentRuntime(manifest) && manifest.sha !== install.sha ? manifest : null;
 
   return (
     <section className="ad-run" aria-label={`${install.name} add-on`}>
@@ -235,21 +299,57 @@ function Runner({ scope, sid, install, ctx, onBack, auto }) {
         )}
       </div>
       {confirm && (
-        <Dialog title={`Send a message for ${install.name}?`} onClose={() => answer(false)} role="alertdialog" initialFocus=".ad-send-no">
-          <p>
-            <strong>{install.name}</strong> wants to post this as you in <strong>{ctx.conv.kind === 'channel' ? `#${ctx.conv.name}` : ctx.conv.name || 'this conversation'}</strong>:
-          </p>
-          <blockquote className="ad-quote">{confirm.text}</blockquote>
-          <label className="ad-check">
-            <input type="checkbox" checked={allowAuto} onChange={(e) => setAllowAuto(e.target.checked)} />
-            <span>Allow {install.name} to send without asking</span>
-          </label>
-          <div className="ad-actions">
-            <button type="button" className="btn ghost ad-send-no" onClick={() => answer(false)}>Don’t send</button>
-            <button type="button" className="btn primary" onClick={() => answer(true)}>Send</button>
-          </div>
-        </Dialog>
+        <SendConfirm
+          key={confirm.seq}
+          name={install.name}
+          where={ctx.conv.kind === 'channel' ? `#${ctx.conv.name}` : ctx.conv.name || 'this conversation'}
+          text={confirm.text}
+          allowAuto={allowAuto}
+          onAllowAuto={setAllowAuto}
+          onAnswer={answer}
+        />
       )}
     </section>
+  );
+}
+
+/**
+ * The confirmation shown before an add-on posts as the user: the full text (scrollable, focusable,
+ * with its line and character count), "Don't send" focused, and Send enabled only after SEND_ARM_MS.
+ */
+function SendConfirm({ name, where, text, allowAuto, onAllowAuto, onAnswer }) {
+  const [armed, setArmed] = useState(false);
+  const [overflow, setOverflow] = useState(false);
+  const quoteRef = useRef(null);
+  const { lines, chars } = messageStats(text);
+  useEffect(() => {
+    const t = setTimeout(() => setArmed(true), SEND_ARM_MS);
+    return () => clearTimeout(t);
+  }, []);
+  useLayoutEffect(() => {
+    const el = quoteRef.current;
+    if (el) setOverflow(el.scrollHeight > el.clientHeight + 1);
+  }, [text]);
+  return (
+    <Dialog title={`Send a message for ${name}?`} onClose={() => onAnswer(false)} role="alertdialog" initialFocus=".ad-send-no">
+      <p>
+        <strong>{name}</strong> wants to post this as you in <strong>{where}</strong>:
+      </p>
+      <pre ref={quoteRef} className="ad-quote" tabIndex={0} role="region" aria-label={`Full message text, ${lines} ${lines === 1 ? 'line' : 'lines'}`}>
+        {text}
+      </pre>
+      <p className="ad-hint muted ad-send-stats">
+        {lines} {lines === 1 ? 'line' : 'lines'} · {chars} {chars === 1 ? 'character' : 'characters'}
+        {overflow ? ' · scroll to read all of it before you send' : ''}
+      </p>
+      <label className="ad-check">
+        <input type="checkbox" checked={allowAuto} onChange={(e) => onAllowAuto(e.target.checked)} />
+        <span>Allow {name} to send without asking</span>
+      </label>
+      <div className="ad-actions">
+        <button type="button" className="btn ghost ad-send-no" onClick={() => onAnswer(false)}>Don’t send</button>
+        <button type="button" className="btn primary" disabled={!armed} onClick={() => onAnswer(true)}>Send</button>
+      </div>
+    </Dialog>
   );
 }
