@@ -2,7 +2,10 @@
 // the publish log are readable by every signed-in user. Nothing here is end-to-end encrypted.
 //
 // DB:
-//   games/{gameId}           { ownerId, title<=80, desc<=500, createdAt, updatedAt, likes, size }
+//   games/{gameId}           { ownerId, title<=80, desc<=500, createdAt, updatedAt, likes, size, lang? }
+//                            lang: 'html' | 'js' | 'ts' | 'py' | 'lua' (optional; the code also starts with
+//                            a <meta name="codehub-lang"> marker, see lib/gameLangs). Rules published before
+//                            `lang` existed refuse it: publish/update then retry once without it.
 //   gameCode/{gameId}        { html <= 262144 chars }      (fetched only when someone presses Play)
 //   gameLikes/{gameId}/{uid} true
 //   publishLog/{uid}         ts   (rules: one publish/update per 60 s; write-only)
@@ -25,6 +28,7 @@ import { db } from './firebase.js';
 import { MAX_GAME_CHARS } from './sandbox.js';
 import { deliverNotif } from './notifSend.js';
 import { clearGameSaves } from './gameSaves.js';
+import { isLangId } from './gameLangs/langs.js';
 
 import { DESC_MAX, PUBLISH_COOLDOWN_MS, TITLE_MAX, isDenied, publishRefusal } from './gameText.js';
 
@@ -59,29 +63,54 @@ function publishError(err) {
   return publishRefusal(err, { lastAt: lastPublishAt });
 }
 
+// Set once the server's rules refused `lang` and accepted the same write without it (rules older
+// than this app version). Later publishes in this tab leave it out.
+let rulesRefuseLang = false;
+
+/**
+ * Write `patch`, which may carry the optional `lang` field; `withoutLang()` returns the same write
+ * without it (or null when there is none). When the rules refuse the write, try once more without
+ * `lang` (older published rules have `$other: false` on games/{id}); other refusals are thrown.
+ */
+async function writeWithLang(patch, withoutLang) {
+  const plain = withoutLang();
+  if (!plain) return update(ref(db), patch);
+  if (rulesRefuseLang) return update(ref(db), plain);
+  try {
+    return await update(ref(db), patch);
+  } catch (err) {
+    if (!isDenied(err)) throw err;
+    await update(ref(db), plain); // throws the refusal again when it wasn't about `lang`
+    rulesRefuseLang = true;
+    return undefined;
+  }
+}
+
 /**
  * Publish a new public game. Returns the new gameId.
  * ONE update: games/{id} (likes 0) + gameCode/{id} + publishLog/{me}.
  */
-export async function publishGame({ uid, title, desc, html }) {
+export async function publishGame({ uid, title, desc, html, lang }) {
   if (!uid) throw new Error('Not signed in');
   const meta = cleanMeta({ title, desc });
   const code = checkHtml(html);
   const gameId = push(ref(db, 'games')).key;
+  const patch = {
+    [`games/${gameId}`]: {
+      ownerId: uid,
+      title: meta.title,
+      desc: meta.desc,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      likes: 0,
+      size: code.length,
+    },
+    [`gameCode/${gameId}`]: { html: code },
+    [`publishLog/${uid}`]: serverTimestamp(),
+  };
+  const withLang = isLangId(lang) ? { ...patch, [`games/${gameId}`]: { ...patch[`games/${gameId}`], lang } } : null;
   try {
-    await update(ref(db), {
-      [`games/${gameId}`]: {
-        ownerId: uid,
-        title: meta.title,
-        desc: meta.desc,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        likes: 0,
-        size: code.length,
-      },
-      [`gameCode/${gameId}`]: { html: code },
-      [`publishLog/${uid}`]: serverTimestamp(),
-    });
+    await writeWithLang(withLang || patch, () => (withLang ? patch : null));
   } catch (err) {
     throw publishError(err);
   }
@@ -93,7 +122,7 @@ export async function publishGame({ uid, title, desc, html }) {
  * Update a game I own: title/desc, and the code when `html` is given. ONE update that leaves
  * ownerId, createdAt and likes untouched and stamps updatedAt + publishLog/{me}.
  */
-export async function updateGame({ uid, gameId, title, desc, html }) {
+export async function updateGame({ uid, gameId, title, desc, html, lang }) {
   if (!uid) throw new Error('Not signed in');
   if (!gameId) throw new Error('No game selected');
   const meta = cleanMeta({ title, desc });
@@ -108,8 +137,10 @@ export async function updateGame({ uid, gameId, title, desc, html }) {
     patch[`games/${gameId}/size`] = code.length;
     patch[`gameCode/${gameId}/html`] = code;
   }
+  const langKey = `games/${gameId}/lang`;
+  const withLang = html !== undefined && html !== null && isLangId(lang) ? { ...patch, [langKey]: lang } : null;
   try {
-    await update(ref(db), patch);
+    await writeWithLang(withLang || patch, () => (withLang ? patch : null));
   } catch (err) {
     throw publishError(err);
   }
@@ -208,6 +239,7 @@ function toGame(id, v) {
     updatedAt: Number(v.updatedAt) || 0,
     likes: Number(v.likes) || 0,
     size: Number(v.size) || 0,
+    lang: isLangId(v.lang) ? v.lang : null,
   };
 }
 
