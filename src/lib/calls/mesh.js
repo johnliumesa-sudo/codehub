@@ -22,7 +22,7 @@ import {
   AWAY_GRACE_MS, HB_MS, HB_STALE_MS, bindRemote, classifySignal, newPeerHealth, noteRebuilt, slotLiveness, stepPeerHealth,
 } from './health.js';
 import { REACTIONS, REACTION_MS, createRateLimiter, encodeEvent, fixRaiseTime, parseCallEvent } from './events.js';
-import { getCameraTrack, getMic, getScreenTrack, stopStream, watchSpeaking } from './media.js';
+import { getCameraTrack, getMic, getScreenTrack, stopStream, watchRemoteSpeaking, watchSpeaking } from './media.js';
 import { loadPrefs, savePrefs, subscribePrefs } from './prefs.js';
 
 const WATCHDOG_MS = 1_000;
@@ -413,26 +413,39 @@ export class CallSession {
     pc.oniceconnectionstatechange = pc.onconnectionstatechange = () => {
       if (p.pc === pc) this.checkPeer(p);
     };
-    pc.ontrack = ({ track }) => {
+    pc.ontrack = ({ track, receiver }) => {
       if (p.pc !== pc) return;
       p.stream.addTrack(track);
       if (track.kind === 'audio') {
+        // Their ring follows the levels this browser measures for the audio it receives (no Web Audio).
+        // One watcher per connection, on its current receiver; teardownPc stops it.
         p.stopSpeaking?.();
-        p.stopSpeaking = watchSpeaking(new MediaStream([track]), (on) => this.setSpeaking(p.uid, on));
+        p.speakTrack = track;
+        p.stopSpeaking = watchRemoteSpeaking(receiver || { track }, (on) => {
+          if (p.pc === pc && !p.closed) this.setSpeaking(p.uid, on);
+        });
       }
       track.onended = () => {
         p.stream.removeTrack(track);
+        if (p.speakTrack === track) this.stopPeerSpeaking(p);
         this.emit();
       };
       this.emit();
     };
   }
 
+  /** Stop watching whether `p` speaks and clear their ring. */
+  stopPeerSpeaking(p) {
+    p.stopSpeaking?.();
+    p.stopSpeaking = null;
+    p.speakTrack = null;
+    this.speaking.delete(p.uid);
+  }
+
   /** Detach and close the current connection of `p`. */
   teardownPc(p) {
     const { pc, dc } = p;
-    p.stopSpeaking?.();
-    p.stopSpeaking = null;
+    this.stopPeerSpeaking(p);
     if (dc) {
       dc.onopen = dc.onmessage = null;
       try {

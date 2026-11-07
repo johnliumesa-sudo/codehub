@@ -113,8 +113,16 @@ mic; releasing happens on key up, window blur and when the tab is hidden. The ca
 hold `" / "Talking". The mute button still mutes completely.
 
 Speaking rings (green ring on the tile and avatar, highlighted row in the people list and voice
-channel list) come from Web Audio analysis of my own outgoing track and each remote audio track in this
-browser; nothing about speaking is sent over the network.
+channel list) are computed in this browser; nothing about speaking is sent over the network. My own
+ring comes from Web Audio analysis of my outgoing track. A remote peer's ring comes from the levels the
+browser already measures for the audio it receives on that connection (`media.js`
+`watchRemoteSpeaking`, no Web Audio): the RTP audio level of the newest packet
+(`RTCRtpReceiver.getSynchronizationSources()`, read every 40 ms so short sounds are not skipped), else
+the receiver's `inbound-rtp` stats (RMS since the last poll from `totalAudioEnergy` /
+`totalSamplesDuration`, or `audioLevel`), else Web Audio analysis of the track. All use the same
+threshold (RMS 0.035 of full scale) and keep the ring on for 350 ms after the last loud sample. The
+watcher is tied to the connection's receiver: a rebuilt connection starts a new one, and ending the
+track, closing the peer or leaving stops it.
 
 ## 14. Raise hand & call reactions
 

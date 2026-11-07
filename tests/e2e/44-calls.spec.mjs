@@ -70,6 +70,30 @@ const senderTrackId = (page) => page.evaluate(() => {
   return pc?.getSenders().find((s) => s.track?.kind === 'audio')?.track.id ?? null;
 });
 
+/**
+ * Microphones in `page` return a steady tone, with a fresh track for every capture. The fake device only
+ * beeps (20 ms every 500 ms): level analysis of that is hit-or-miss, and with the 350 ms hold a speaking
+ * ring blinks at 2 Hz, so a check that samples it once a second can keep landing between blinks.
+ */
+async function toneMic(page) {
+  await page.evaluate(() => {
+    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    window.__tones = [];
+    navigator.mediaDevices.getUserMedia = async (c) => {
+      if (!c?.audio || c.video) return gum(c);
+      const ac = new AudioContext();
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      g.gain.value = 0.3;
+      const d = ac.createMediaStreamDestination();
+      o.connect(g).connect(d);
+      o.start();
+      window.__tones.push(ac);
+      return d.stream;
+    };
+  });
+}
+
 async function pair(users) {
   const alice = await users('alice');
   const bob = await users('bob');
@@ -279,24 +303,8 @@ test('voice & video settings: devices, mic meter, camera preview, processing, pu
   const dlg = alice.getByRole('dialog', { name: 'Settings' });
   const mic = dlg.getByLabel('Microphone', { exact: true });
   await expect.poll(async () => (await mic.locator('option').allTextContents()).length, { timeout: 15_000 }).toBeGreaterThan(1);
-  // The level meter gets a known signal: microphones return a steady tone (the fake device's beep is
-  // unreliable for local analysis), with a fresh track for every capture.
-  await alice.evaluate(() => {
-    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    window.__tones = [];
-    navigator.mediaDevices.getUserMedia = async (c) => {
-      if (!c?.audio || c.video) return gum(c);
-      const ac = new AudioContext();
-      const o = ac.createOscillator();
-      const g = ac.createGain();
-      g.gain.value = 0.3;
-      const d = ac.createMediaStreamDestination();
-      o.connect(g).connect(d);
-      o.start();
-      window.__tones.push(ac);
-      return d.stream;
-    };
-  });
+  // The level meter gets a known signal.
+  await toneMic(alice);
   await dlg.getByLabel('Noise suppression').uncheck();
   await dlg.getByLabel('Echo cancellation').uncheck();
   await dlg.getByLabel('Automatic gain control').uncheck();
@@ -354,15 +362,19 @@ test('voice & video settings: devices, mic meter, camera preview, processing, pu
 test('push-to-talk: the mic is only sent while the key or button is held; speaking rings follow the audio', async ({ users }) => {
   const { alice, bob, a } = await dmCall(users, 'audio', async ({ alice: page }) => {
     await page.evaluate(async () => (await import('/src/lib/calls/prefs.js')).savePrefs({ ptt: true }));
+    await toneMic(page); // Alice talks steadily while the key is held
   });
   await waitUp([alice, bob]);
   await expect(alice.locator('.call-ptt-tag')).toContainText('Push-to-talk: hold');
   expect(await micEnabled(alice)).toBe(false);
+  // Remote rings need no Web Audio: they follow the receiver's audio levels even with Bob's audio
+  // context suspended.
+  await bob.evaluate(async () => (await import('/src/lib/calls/media.js')).audioContext()?.suspend());
   await alice.locator('.call-head').click();
   await alice.keyboard.down('Backquote');
   await expect.poll(() => micEnabled(alice)).toBe(true);
   await expect(alice.locator('.call-ptt-tag')).toHaveText('Talking');
-  // Bob's browser hears Alice: her tile gets the speaking ring (local audio analysis, nothing sent).
+  // Bob's browser hears Alice: her tile gets the speaking ring (levels measured locally, nothing sent).
   await expect(tile(bob, a)).toHaveClass(/speaking/, { timeout: 15_000 });
   await alice.keyboard.up('Backquote');
   await expect.poll(() => micEnabled(alice)).toBe(false);

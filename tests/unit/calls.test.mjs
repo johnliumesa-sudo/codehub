@@ -1,6 +1,7 @@
 // Calls (round 3): call health (slot liveness, ICE servers, the per-peer recovery state machine,
-// connection generations), in-call event validation and rate limits, and voice & video prefs.
-import { test } from 'node:test';
+// connection generations), in-call event validation and rate limits, voice & video prefs, and speaking
+// detection from receiver audio levels.
+import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BACKOFF_MS, CONNECT_TIMEOUT_MS, DISCONNECT_GRACE_MS, FIRST_CONNECT_PATIENCE_MS, HB_STALE_MS, MAX_ICE_RESTARTS, POLITE_DELAY_MS,
@@ -10,6 +11,7 @@ import { REACTIONS, createRateLimiter, encodeEvent, fixRaiseTime, orderHands, pa
 import {
   DEFAULT_PREFS, PREFS_KEY, _resetPrefsCache, audioConstraints, isValidPttKey, keyLabel, loadPrefs, normalizePrefs, savePrefs, subscribePrefs,
 } from '../../src/lib/calls/prefs.js';
+import { SPEAK_HOLD_MS, SPEAK_THRESHOLD, speakingGate, ssrcLevel, statsLevel, watchRemoteSpeaking } from '../../src/lib/calls/media.js';
 
 // ---------- slots ----------
 
@@ -291,4 +293,123 @@ test('prefs: saved locally, merged, and broadcast to subscribers', () => {
     delete globalThis.localStorage;
     _resetPrefsCache();
   }
+});
+
+// ---------- speaking detection ----------
+
+test('speaking gate: on above the threshold, off once nothing loud came for the hold time', () => {
+  const seen = [];
+  const gate = speakingGate((on) => seen.push(on));
+  gate(SPEAK_THRESHOLD, 0); // not above
+  assert.deepEqual(seen, []);
+  gate(0.2, 100);
+  gate(0.01, 100 + SPEAK_HOLD_MS - 1);
+  assert.deepEqual(seen, [true]);
+  gate(0.01, 100 + SPEAK_HOLD_MS);
+  assert.deepEqual(seen, [true, false]);
+  gate(0.01, 5_000);
+  assert.deepEqual(seen, [true, false]);
+});
+
+const ssrc = (entries) => ({ getSynchronizationSources: () => entries });
+
+test('ssrcLevel: newest packet level, 0 before audio or once packets stop, null without levels', () => {
+  const mem = {};
+  assert.equal(ssrcLevel(ssrc([]), mem, 0), 0);
+  const older = { source: 1, timestamp: 900, rtpTimestamp: 10, audioLevel: 0.9 };
+  assert.equal(ssrcLevel(ssrc([older, { source: 2, timestamp: 1000, rtpTimestamp: 5, audioLevel: 0.2 }]), mem, 1000), 0.2);
+  // The same entry 400 ms later still counts; at 500 ms without a new packet it is stale.
+  const same = ssrc([{ source: 2, timestamp: 1000, rtpTimestamp: 5, audioLevel: 0.2 }]);
+  assert.equal(ssrcLevel(same, mem, 1400), 0.2);
+  assert.equal(ssrcLevel(same, mem, 1500), 0);
+  assert.equal(ssrcLevel(ssrc([{ source: 2, timestamp: 1510, rtpTimestamp: 6, audioLevel: 0.3 }]), mem, 1510), 0.3);
+  assert.equal(ssrcLevel(ssrc([{ source: 2, timestamp: 1600, rtpTimestamp: 7 }]), mem, 1600), null);
+});
+
+const report = (...entries) => new Map(entries.map((e, i) => [String(i), e]));
+
+test('statsLevel: RMS since the last poll from audio energy, else audioLevel; null without either', () => {
+  const mem = {};
+  assert.equal(statsLevel(report({ type: 'outbound-rtp', kind: 'audio' }), mem), 0);
+  const inbound = (e, d, extra = {}) => report({ type: 'inbound-rtp', kind: 'video', totalSamplesDuration: 99 }, { type: 'inbound-rtp', kind: 'audio', totalAudioEnergy: e, totalSamplesDuration: d, ...extra });
+  assert.equal(statsLevel(inbound(1, 10, { audioLevel: 0.4 }), mem), 0.4); // first sample: no interval yet
+  assert.ok(Math.abs(statsLevel(inbound(1.004, 10.1), mem) - 0.2) < 1e-9); // 0.2^2 * 0.1 s more => RMS 0.2
+  assert.equal(statsLevel(inbound(1.004, 10.1), mem), 0); // nothing new
+  assert.equal(statsLevel(report({ type: 'inbound-rtp', kind: 'audio', audioLevel: 0.05 }), {}), 0.05);
+  assert.equal(statsLevel(report({ type: 'inbound-rtp', kind: 'audio' }), {}), null);
+});
+
+/** Run `fn(clock)` with mocked intervals and Date; `advance(ms)` moves time in 5 ms steps. */
+async function withClock(fn) {
+  mock.timers.enable({ apis: ['setInterval', 'Date'], now: 0 });
+  const advance = async (ms) => {
+    for (let i = 0; i < ms; i += 5) {
+      mock.timers.tick(5);
+      await new Promise((r) => setImmediate(r));
+    }
+  };
+  try {
+    await fn(advance);
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+test('remote speaking: a 40 ms sound in the receiver levels is caught, held, and released', async () => {
+  await withClock(async (advance) => {
+    let reads = 0;
+    // A packet every 20 ms; loud only between 1000 and 1040 ms.
+    const receiver = {
+      getSynchronizationSources() {
+        reads += 1;
+        const t = Math.floor(Date.now() / 20) * 20;
+        return t ? [{ source: 7, timestamp: t, rtpTimestamp: t * 48, audioLevel: t >= 1000 && t < 1040 ? 0.5 : 0.001 }] : [];
+      },
+      getStats: () => { throw new Error('not used while levels are available'); },
+    };
+    const seen = [];
+    const stop = watchRemoteSpeaking(receiver, (on) => seen.push([on, Date.now()]), { now: () => Date.now() });
+    await advance(990);
+    assert.deepEqual(seen, []);
+    await advance(100);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0][0], true);
+    await advance(1_000);
+    assert.equal(seen.length, 2);
+    assert.equal(seen[1][0], false);
+    assert.ok(seen[1][1] - seen[0][1] >= SPEAK_HOLD_MS && seen[1][1] - seen[0][1] <= SPEAK_HOLD_MS + 80);
+    stop();
+    const n = reads;
+    await advance(500);
+    assert.equal(reads, n); // stopped: no more reads
+  });
+});
+
+test('remote speaking: falls back to stats when packets carry no level, then to nothing it cannot read', async () => {
+  await withClock(async (advance) => {
+    let stats = 0;
+    let energy = 0;
+    const receiver = {
+      getSynchronizationSources: () => [{ source: 1, timestamp: Date.now(), rtpTimestamp: Date.now() }],
+      getStats: async () => {
+        stats += 1;
+        energy += 0.2 * 0.2 * 0.14; // RMS 0.2 over each 140 ms
+        return report({ type: 'inbound-rtp', kind: 'audio', totalAudioEnergy: energy, totalSamplesDuration: stats * 0.14 });
+      },
+    };
+    const seen = [];
+    const stop = watchRemoteSpeaking(receiver, (on) => seen.push(on), { now: () => Date.now() });
+    await advance(1_000);
+    assert.ok(stats >= 4 && stats <= 7, `stats polled every 140 ms (${stats})`);
+    assert.deepEqual(seen, [true]);
+    stop();
+    const n = stats;
+    await advance(500);
+    assert.equal(stats, n);
+    assert.deepEqual(seen, [true]);
+    // No levels anywhere and no Web Audio here: stays quiet instead of throwing.
+    const quiet = watchRemoteSpeaking({ getStats: async () => report({ type: 'inbound-rtp', kind: 'audio' }) }, () => assert.fail('no level'));
+    await advance(500);
+    quiet();
+  });
 });
