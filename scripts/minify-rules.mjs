@@ -14,6 +14,11 @@
 //   4. === -> == and !== -> != outside strings and regex literals. RTDB rules never coerce types:
 //      both spellings are the same operator (tests/rules/ext.test.mjs probes this on the emulator
 //      for every mix of strings, numbers, booleans and null).
+//   5. in a .validate that is a plain && chain (no || or ?: outside parentheses), drop an
+//      `X.isString()` term that is directly followed by an `X.val().length` or `X.val().matches(`
+//      term (X = newData or data, optionally with one .child('literal')). On a number, boolean,
+//      object or null, .length / .matches() is a type error, and an error fails the .validate just
+//      like the dropped false term did (tests/rules/premium.test.mjs probes every type).
 // Check the output with: RULES_PATH=<file> npm run test:rules
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -135,6 +140,49 @@ export function looseEq(expr) {
   return out;
 }
 
+const GUARD = /^((?:newData|data)(?:\.child\('[A-Za-z0-9_\/-]+'\))?)\.isString\(\)$/;
+
+/**
+ * Drop redundant isString() guards from a squeezed .validate expression (rewrite 5 above). Only
+ * when the whole expression is one && chain at depth 0, so a type error and the dropped `false` both
+ * fail the whole rule.
+ */
+export function dropStringGuards(expr) {
+  const terms = [];
+  let cur = '';
+  let depth = 0;
+  let plain = true;
+  let prevAmp = false;
+  scan(expr, (kind, text) => {
+    if (kind !== 'ch') {
+      cur += text;
+      prevAmp = false;
+      return;
+    }
+    if (text === '(') depth += 1;
+    else if (text === ')') depth -= 1;
+    if (depth === 0 && (text === '?' || text === '|')) plain = false;
+    if (depth === 0 && text === '&' && prevAmp) {
+      terms.push(cur.slice(0, -1));
+      cur = '';
+      prevAmp = false;
+      return;
+    }
+    prevAmp = depth === 0 && text === '&';
+    cur += text;
+  });
+  terms.push(cur);
+  if (!plain || terms.length < 2) return expr;
+  const out = [];
+  for (let i = 0; i < terms.length; i++) {
+    const g = GUARD.exec(terms[i]);
+    const next = terms[i + 1];
+    if (g && next && (next.startsWith(`${g[1]}.val().length`) || next.startsWith(`${g[1]}.val().matches(`))) continue;
+    out.push(terms[i]);
+  }
+  return out.join('&&');
+}
+
 /** $name tokens of an expression (outside strings and regex literals). */
 export function exprVars(expr) {
   const out = [];
@@ -198,17 +246,18 @@ export function wildcardMap(rules) {
   return map;
 }
 
-function walk(node, map, loose) {
-  if (Array.isArray(node)) return node.map((v) => walk(v, map, loose));
+function walk(node, map, loose, guards) {
+  if (Array.isArray(node)) return node.map((v) => walk(v, map, loose, guards));
   if (node && typeof node === 'object') {
     const out = {};
     for (const [k, v] of Object.entries(node)) {
       const key = map.has(k) ? map.get(k) : k;
       if (typeof v === 'string' && RULE_KEYS.has(k)) {
         const e = mergeChildren(renameVars(squeeze(v), map));
-        out[key] = loose ? looseEq(e) : e;
+        const g = guards && k === '.validate' ? dropStringGuards(e) : e;
+        out[key] = loose ? looseEq(g) : g;
       } else {
-        out[key] = walk(v, map, loose);
+        out[key] = walk(v, map, loose, guards);
       }
     }
     return out;
@@ -218,10 +267,11 @@ function walk(node, map, loose) {
 
 /**
  * Minified rules JSON text for a parsed rules object.
- * `rename: false` keeps the $wildcard names; `loose: false` keeps === / !==.
+ * `rename: false` keeps the $wildcard names; `loose: false` keeps === / !==; `guards: false` keeps
+ * every isString() guard.
  */
-export function minifyRules(rules, { rename = true, loose = true } = {}) {
-  return JSON.stringify(walk(rules, rename ? wildcardMap(rules) : new Map(), loose));
+export function minifyRules(rules, { rename = true, loose = true, guards = true } = {}) {
+  return JSON.stringify(walk(rules, rename ? wildcardMap(rules) : new Map(), loose, guards));
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

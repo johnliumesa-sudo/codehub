@@ -26,6 +26,8 @@ import ItemPreview from './ItemPreview.jsx';
 import MyItems from './MyItems.jsx';
 import Earnings from './Earnings.jsx';
 import { Coin, Price, WalletBar } from './Wallet.jsx';
+import { usePremium } from '../../features/premium/lib/status.js';
+import { DiamondIcon } from '../../features/premium/components/PremiumBits.jsx';
 import './shop.css';
 
 const errText = (e) => String(e?.message || e).replace(/^Error:\s*/, '');
@@ -50,10 +52,11 @@ export function sortItems(list, sort) {
 
 const nameOf = (profiles, uid) => profiles[uid]?.name || 'a member';
 
-function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy, creatorName, onCreator, isAdmin, onModerate }) {
+function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy, creatorName, onCreator, isAdmin, onModerate, premium }) {
   const isExt = item.kind === 'editorExt';
   const mine = !!item.by && item.by === me?.uid;
   const short = item.price > 0 && (!wallet || wallet.balance < item.price);
+  const membersOnly = !!item.premium && !premium;
 
   let action;
   if (!item.supported) {
@@ -66,6 +69,8 @@ function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy, c
     );
   } else if (!item.active) {
     action = <span className="shop-tag muted">{item.heldByAdmin ? 'Taken down' : 'Retired'}</span>;
+  } else if (membersOnly) {
+    action = <span className="shop-tag muted" title="Redeem a premium code in Settings → Premium">Premium only</span>;
   } else if (item.price === 0) {
     action = (
       <button className="btn primary sm" disabled={busy} onClick={() => onBuy(item)}>
@@ -107,6 +112,7 @@ function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy, c
           ) : (
             <span className="shop-tag official">Official</span>
           )}
+          {item.premium && <span className="shop-tag shop-tag-premium" title="Only premium members can buy this item"><DiamondIcon size={11} /> Premium</span>}
         </div>
         <div className="shop-card-foot">
           <span className="shop-card-kind">
@@ -114,7 +120,7 @@ function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy, c
             <ReportButton kind="shopItem" target={item.id} iconOnly label="Report item" className="btn ghost sm shop-report-btn" />
           </span>
           <div className="shop-card-actions">
-            {!owned && short && item.supported && item.active && (
+            {!owned && short && item.supported && item.active && !membersOnly && (
               <span className="shop-need">{wallet ? `Need ${(item.price - wallet.balance).toLocaleString()} more` : 'Claim coins first'}</span>
             )}
             {action}
@@ -151,6 +157,7 @@ export default function ShopView({ me, onClose, onMenu }) {
   const isAdmin = useIsAppAdmin();
   const { items, byId, loading, error } = useCatalog();
   const { wallet } = useWallet(uid);
+  const { active: premium } = usePremium(uid);
   const { inventory } = useInventory(uid);
   const { equipped } = useEquipped(uid);
   const { entries: earnings, total: earned } = useEarnings(uid);
@@ -372,6 +379,7 @@ export default function ShopView({ me, onClose, onMenu }) {
                         onCreator={pickCreator}
                         isAdmin={isAdmin}
                         onModerate={onModerate}
+                        premium={premium}
                       />
                     ))}
                   </div>

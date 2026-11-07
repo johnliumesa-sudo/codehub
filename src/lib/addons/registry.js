@@ -328,6 +328,7 @@ export function normalizeItem(id, raw) {
     price,
     data,
     active: raw.active === true,
+    premium: raw.premium === true,
     by,
     official: !by,
     createdAt: isInt(raw.createdAt) && raw.createdAt > 0 ? raw.createdAt : 0,
@@ -371,7 +372,9 @@ export function sanitizeItemInput(input, { creator = false } = {}) {
   const colors = colorProblem(kind, data);
   if (colors) throw new Error(colors);
   if (kind === 'editorExt' && !isKnownEditorExt(data.builtinId)) throw new Error('Unknown editor add-on');
-  return { name, desc, kind, price, data, active: input?.active !== false };
+  const out = { name, desc, kind, price, data, active: input?.active !== false };
+  if (input?.premium === true) out.premium = true; // premium-only item (rules: only active members buy it)
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------

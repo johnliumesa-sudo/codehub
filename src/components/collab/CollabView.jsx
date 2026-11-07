@@ -25,7 +25,7 @@ import FileTree from './FileTree.jsx';
 import GitHubPanel from './GitHubPanel.jsx';
 import { CommitModal, DiffModal } from './GitModals.jsx';
 import { AvatarStack, Icon } from './ui.jsx';
-import CollabExtras from './CollabExtras.jsx';
+import CollabExtras, { CollabMounts, CollabTools } from './CollabExtras.jsx';
 import LivePreviewPane from '../sandbox/LivePreviewPane.jsx';
 import ExportImportMenu from '../productivity/ExportImportMenu.jsx';
 import TemplateFilesButton from '../codespaces/TemplateFilesButton.jsx';
@@ -497,6 +497,7 @@ export default function CollabView({ space: spaceProp, sid, cid, me, serverName,
                 </button>
                 {!filesLoading && <TemplateFilesButton ctx={ctx} onOpenFile={setActiveFid} />}
                 {!filesLoading && <ExportImportMenu ctx={ctx} />}
+                {!filesLoading && <CollabTools ctx={ctx} place="welcome" />}
                 <button className="btn" onClick={() => setSideTab('github')}>
                   <Icon name="github" size={14} /> {link ? 'Open from GitHub' : 'Link GitHub repo'}
                 </button>
@@ -505,6 +506,7 @@ export default function CollabView({ space: spaceProp, sid, cid, me, serverName,
           </div>
         )}
       </section>
+      <CollabMounts ctx={ctx} />
 
       {modal === 'diff' && activeFile && link && (
         <DiffModal link={link} file={activeFile} getText={getText} token={token} onClose={() => setModal(null)} />
