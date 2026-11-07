@@ -1,6 +1,10 @@
 /* Agent panel beside the collab editor. Design tokens only, so dark and light themes both work. */
 
 .ag-btn { position: relative; white-space: nowrap; }
+.ag-btn-icon { font-size: 14px; }
+/* While the panel is open the editor column is narrower: the toolbar actions turn into icons and scroll. */
+.cx-root:has(> .ag-panel) .cx-actions { flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.cx-root:has(> .ag-panel) .cx-actions .btn.ghost { padding: 4px 6px; font-size: 0; gap: 0; }
 .ag-busy-dot {
   display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%;
   background: var(--accent); animation: ag-pulse 1.2s ease-in-out infinite;

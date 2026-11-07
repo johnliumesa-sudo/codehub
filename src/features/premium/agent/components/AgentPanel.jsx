@@ -42,7 +42,7 @@ export function AgentButton({ ctx, place }) {
       onClick={() => toggleOpen(sk)}
       title="Claude works on this workspace's files (Premium)"
     >
-      <span aria-hidden="true">🤖</span> Agent{isBusy(s) && <span className="ag-busy-dot" aria-label="running" />}
+      <span className="ag-btn-icon" aria-hidden="true">🤖</span> Agent{isBusy(s) && <span className="ag-busy-dot" aria-label="running" />}
     </button>
   );
 }
@@ -245,7 +245,8 @@ function AgentPanel({ ctx, ctxRef, sk, s }) {
 
   const close = () => setOpen(sk, false);
   const onKeyDown = (e) => {
-    if (e.key === 'Escape' && !e.defaultPrevented) {
+    // A dialog on top (settings, checkpoints) handles its own Escape.
+    if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('[aria-modal="true"]')) {
       e.preventDefault();
       close();
     }
