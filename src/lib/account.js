@@ -148,6 +148,17 @@ export async function deleteAccount(onStep) {
     }
   }
 
+  // Round 3 public catalog entries I published (bots, add-ons and their code, server listings).
+  onStep?.('Removing what you published…');
+  for (const kind of ['bots', 'addons', 'addonCode', 'servers']) {
+    try {
+      const mine = await get(query(ref(db, `pub/${kind}`), orderByChild('by'), equalTo(uid)));
+      await removePaths(Object.keys(mine.val() || {}).map((id) => `pub/${kind}/${id}`));
+    } catch {
+      /* best effort: nothing published, or already gone */
+    }
+  }
+
   onStep?.('Removing your keys and settings…');
   // userDms, userServers and friends were cleared entry by entry above (the rules only allow that).
   // wallets/{uid}, inventory/{uid}, publishLog/{uid}, promoAttempts/{uid}, reportLog/{uid},
@@ -167,6 +178,8 @@ export async function deleteAccount(onStep) {
     `notifLog/${uid}`,
     `avatars/${uid}`,
     `bookmarks/${uid}`,
+    `udata/${uid}`,
+    `upub/${uid}`,
   ]);
   try {
     localStorage.removeItem('codehub.trustedDomains');

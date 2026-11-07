@@ -297,7 +297,7 @@
     },
     "roles": {
      "$rid": {
-      ".write": "((root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin') || ((root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').isString() && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).exists()) && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageRoles').val() === true)) && ((root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin') || ((!data.exists() || ((root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').isString() && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).exists()) && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('position').val() > data.child('position').val())) && (!newData.exists() || ((root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').isString() && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).exists()) && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('position').val() > newData.child('position').val())))) && (!newData.exists() || (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin') || ((root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').isString() && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).exists()) && (newData.child('perms').child('manageChannels').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageChannels').val() === true) && (newData.child('perms').child('manageInvites').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageInvites').val() === true) && (newData.child('perms').child('kick').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('kick').val() === true) && (newData.child('perms').child('ban').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('ban').val() === true) && (newData.child('perms').child('manageMessages').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageMessages').val() === true) && (newData.child('perms').child('manageRoles').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageRoles').val() === true) && (newData.child('perms').child('timeout').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('timeout').val() === true) && (newData.child('perms').child('viewAudit').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('viewAudit').val() === true) && (newData.child('perms').child('manageEmotes').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageEmotes').val() === true)))",
+      ".write": "((root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin') || ((root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').isString() && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).exists()) && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageRoles').val() === true)) && ((root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin') || ((!data.exists() || ((root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').isString() && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).exists()) && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('position').val() > data.child('position').val())) && (!newData.exists() || ((root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').isString() && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).exists()) && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('position').val() > newData.child('position').val())))) && (!newData.exists() || (root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val() === 'admin') || ((root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').isString() && root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).exists()) && (newData.child('perms').child('manageChannels').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageChannels').val() === true) && (newData.child('perms').child('manageInvites').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageInvites').val() === true) && (newData.child('perms').child('kick').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('kick').val() === true) && (newData.child('perms').child('ban').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('ban').val() === true) && (newData.child('perms').child('manageMessages').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageMessages').val() === true) && (newData.child('perms').child('manageRoles').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageRoles').val() === true) && (newData.child('perms').child('timeout').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('timeout').val() === true) && (newData.child('perms').child('viewAudit').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('viewAudit').val() === true) && (newData.child('perms').child('manageEmotes').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageEmotes').val() === true) && (newData.child('perms').child('manageApps').val() !== true || root.child('servers').child($sid).child('roles').child(root.child('servers').child($sid).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageApps').val() === true)))",
       ".validate": "newData.hasChildren(['nameEnc', 'color', 'position', 'perms', 'createdAt'])",
       "nameEnc": {
        ".validate": "newData.hasChildren(['iv', 'ct'])",
@@ -319,7 +319,7 @@
       },
       "perms": {
        "$p": {
-        ".validate": "$p.matches(/^(manageChannels|manageInvites|kick|ban|manageMessages|manageRoles|timeout|viewAudit|manageEmotes)$/) && newData.isBoolean()"
+        ".validate": "$p.matches(/^(manageChannels|manageInvites|kick|ban|manageMessages|manageRoles|timeout|viewAudit|manageEmotes|manageApps)$/) && newData.isBoolean()"
        }
       },
       "createdAt": {
@@ -2000,6 +2000,84 @@
      },
      "$other": {
       ".validate": false
+     }
+    }
+   }
+  },
+  "udata": {
+   "$uid": {
+    ".read": "$uid === auth.uid",
+    ".write": "$uid === auth.uid",
+    "$feat": {
+     ".validate": "$feat.matches(/^[a-z][a-zA-Z0-9]{0,23}$/) && newData.hasChildren()",
+     "$key": {
+      ".validate": "$key.length <= 128 && (!newData.isString() || newData.val().length <= 20000)",
+      "$f": {
+       ".validate": "$f.length <= 64 && !newData.hasChildren() && (!newData.isString() || newData.val().length <= 20000)"
+      }
+     }
+    }
+   }
+  },
+  "upub": {
+   "$uid": {
+    ".read": "auth != null",
+    ".write": "$uid === auth.uid",
+    "$feat": {
+     ".validate": "$feat.matches(/^[a-z][a-zA-Z0-9]{0,23}$/) && newData.hasChildren()",
+     "$key": {
+      ".validate": "$key.length <= 128 && (!newData.isString() || newData.val().length <= 2000)",
+      "$f": {
+       ".validate": "$f.length <= 64 && !newData.hasChildren() && (!newData.isString() || newData.val().length <= 2000)"
+      }
+     }
+    }
+   }
+  },
+  "sconf": {
+   "$sid": {
+    ".read": "root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+    ".write": "!newData.exists() && !newData.parent().parent().child('servers/' + $sid).exists()",
+    "$feat": {
+     ".write": "root.child('servers').child($sid).child('members').child(auth.uid).child('role').val().matches(/^(owner|admin)$/) || root.child('servers/' + $sid + '/roles/' + root.child('servers/' + $sid + '/members/' + auth.uid + '/roleId').val() + '/perms/manageApps').val() === true",
+     ".validate": "$feat.matches(/^[a-z][a-zA-Z0-9]{0,23}$/) && newData.hasChildren()",
+     "$key": {
+      ".validate": "$key.length <= 128 && (!newData.isString() || newData.val().length <= 20000)",
+      "$f": {
+       ".validate": "$f.length <= 64 && !newData.hasChildren() && (!newData.isString() || newData.val().length <= 20000)"
+      }
+     }
+    }
+   }
+  },
+  "sitems": {
+   "$sid": {
+    ".read": "root.child('servers').child($sid).child('members').child(auth.uid).exists()",
+    ".write": "!newData.exists() && !newData.parent().parent().child('servers/' + $sid).exists()",
+    "$feat": {
+     ".validate": "$feat.matches(/^[a-z][a-zA-Z0-9]{0,23}$/)",
+     "$id": {
+      ".write": "(!newData.exists() && (data.child('by').val() === auth.uid || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val().matches(/^(owner|admin)$/) || root.child('servers/' + $sid + '/roles/' + root.child('servers/' + $sid + '/members/' + auth.uid + '/roleId').val() + '/perms/manageMessages').val() === true)) || (newData.child('by').val() === auth.uid && (!data.exists() || data.child('by').val() === auth.uid) && root.child('servers').child($sid).child('members').child(auth.uid).exists() && !(root.child('servers').child($sid).child('timeouts').child(auth.uid).isNumber() && root.child('servers').child($sid).child('timeouts').child(auth.uid).val() > now))",
+      ".validate": "$id.length <= 128",
+      "$f": {
+       ".validate": "$f.length <= 64 && !newData.hasChildren() && (!newData.isString() || newData.val().length <= 20000)"
+      }
+     }
+    }
+   }
+  },
+  "pub": {
+   ".read": "auth != null",
+   "$kind": {
+    ".indexOn": [
+     "by",
+     "ts"
+    ],
+    "$id": {
+     ".write": "$kind.matches(/^(bots|addons|addonCode|servers)$/) && ((!newData.exists() && (data.child('by').val() === auth.uid || root.child('admins').child(auth.uid).exists())) || (newData.child('by').val() === auth.uid && (!data.exists() || data.child('by').val() === auth.uid) && ($kind !== 'servers' || root.child('servers').child($id).child('meta').child('ownerId').val() === auth.uid)))",
+     ".validate": "newData.child('ts').val() === now",
+     "$f": {
+      ".validate": "$f.length <= 64 && !newData.hasChildren() && (!newData.isString() || newData.val().length <= 20000 || ($f === 'code' && newData.val().length <= 65536))"
      }
     }
    }

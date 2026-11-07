@@ -14,7 +14,7 @@ import { decryptText, encryptText } from './crypto.js';
 import * as keystore from './keystore.js';
 import { deliverNotif } from './notifSend.js';
 
-export const PERMS = ['manageChannels', 'manageInvites', 'kick', 'ban', 'manageMessages', 'manageRoles', 'timeout', 'viewAudit', 'manageEmotes'];
+export const PERMS = ['manageChannels', 'manageInvites', 'kick', 'ban', 'manageMessages', 'manageRoles', 'timeout', 'viewAudit', 'manageEmotes', 'manageApps'];
 
 export const PERM_LABELS = {
   manageChannels: 'Manage channels',
@@ -26,6 +26,7 @@ export const PERM_LABELS = {
   manageRoles: 'Manage roles',
   timeout: 'Time out members',
   viewAudit: 'View audit log',
+  manageApps: 'Manage apps',
 };
 
 export const PERM_HINTS = {
@@ -38,6 +39,7 @@ export const PERM_HINTS = {
   manageRoles: 'Create and edit roles below your own, and assign them.',
   timeout: 'Stop members ranked below you from chatting for a while.',
   viewAudit: 'Read the encrypted moderation audit log.',
+  manageApps: 'Install bots and add-ons, and edit server features such as AutoMod, the welcome screen and discovery.',
 };
 
 export const RANK = { owner: 1000, admin: 900 };
