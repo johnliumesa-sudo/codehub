@@ -208,6 +208,7 @@
 .composer-send:disabled { background: var(--bg-hover); color: var(--text-faint); cursor: default; }
 .composer-count { align-self: center; font-size: 11px; color: var(--text-faint); padding: 0 4px; }
 .composer-count.over { color: var(--danger); font-weight: 600; }
+.composer-count.snippet { color: var(--accent); font-weight: 600; white-space: nowrap; }
 .composer-hint { font-size: 11px; color: var(--text-faint); padding: 4px 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer-hint kbd { font-family: var(--font); font-size: 10.5px; padding: 0 4px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--bg-1); }
 .composer-hint code { font-family: var(--mono); font-size: 10.5px; }

@@ -159,3 +159,42 @@ export function readConsole(entry) {
   const level = ['log', 'info', 'warn', 'error', 'clear'].includes(entry?.level) ? entry.level : 'log';
   return { line: { level, text: args.map((a) => String(a)).join(' ') } };
 }
+
+const FENCE_LANG_FILE = { html: 'index.html', htm: 'index.html', xhtml: 'index.html', css: 'style.css', js: 'main.js', javascript: 'main.js' };
+
+/**
+ * A message too long for message text (it has to fit MAX_TEXT) that is really code: the code snippet
+ * to send instead, or null. Snippets hold up to ~45 KB and keep "Run" working.
+ *  - one fenced block, or several in one language: the code (joined by a blank line);
+ *  - HTML with CSS / JS blocks: one HTML page, CSS in <head>, JS at the end of <body>;
+ *  - no fences, but the whole text is an HTML document: that document.
+ * Text outside the fences becomes the caption (null when it is longer than `maxCaption`).
+ * Returns { caption, code: { lang, content, filename? } } with `lang` as written on the fence.
+ */
+export function snippetFromLongText(text, { maxCaption = 1000 } = {}) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  const blocks = fencedBlocks(t).filter((b) => b.code.trim());
+  if (!blocks.length) {
+    return /^(?:<!doctype html|<html[\s>])/i.test(t) ? { caption: '', code: { lang: 'html', content: t, filename: 'index.html' } } : null;
+  }
+  FENCE_RE.lastIndex = 0;
+  const caption = t.replace(FENCE_RE, (m, lead) => lead).replace(/\n{3,}/g, '\n\n').trim();
+  if (caption.length > maxCaption) return null;
+  const langs = blocks.map((b) => String(b.lang || '').toLowerCase());
+  const kinds = blocks.map((b) => runLang(b.lang));
+  if (kinds.includes('html') && kinds.every(Boolean)) {
+    const page = buildHtmlDocument({
+      html: blocks.filter((b, i) => kinds[i] === 'html').map((b) => b.code).join('\n'),
+      css: blocks.filter((b, i) => kinds[i] === 'css').map((b) => b.code),
+      js: blocks.filter((b, i) => kinds[i] === 'js').map((b) => b.code),
+    }).replace(HEARTBEAT, '');
+    return { caption, code: { lang: 'html', content: page, filename: 'index.html' } };
+  }
+  if (langs.every((l) => l === langs[0])) {
+    const lang = langs[0] || 'plaintext';
+    const filename = FENCE_LANG_FILE[lang];
+    return { caption, code: { lang, content: blocks.map((b) => b.code).join('\n\n'), ...(filename ? { filename } : {}) } };
+  }
+  return null;
+}
