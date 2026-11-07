@@ -1,0 +1,231 @@
+/* Personal features: status, favorites, server folders, notes, appearance. Tokens only (dark + light). */
+
+/* ---------- presence dots ---------- */
+.ly-presence.dnd { background: var(--danger); }
+.ly-presence.dnd::after { content: ''; position: absolute; left: 20%; right: 20%; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: var(--ring, var(--bg-1)); }
+.ly-presence.invisible { background: var(--ring, var(--bg-1)); box-shadow: inset 0 0 0 2.5px var(--text-faint); }
+.ly-member.dnd .ly-member-name { color: inherit; }
+
+.pf-dot { position: relative; display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--text-faint); vertical-align: middle; }
+.pf-dot.online { background: var(--ok); }
+.pf-dot.idle { background: var(--warn); }
+.pf-dot.dnd { background: var(--danger); }
+.pf-dot.dnd::after { content: ''; position: absolute; left: 2px; right: 2px; top: 4px; height: 2px; border-radius: 1px; background: var(--bg-1); }
+.pf-dot.invisible, .pf-dot.offline { background: transparent; box-shadow: inset 0 0 0 2.5px var(--text-faint); }
+
+/* ---------- custom status text ---------- */
+.pf-cstatus { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.pf-cstatus-emoji { flex: none; line-height: 1; }
+.pf-cstatus-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ly-dm-status.pf-cstatus { display: flex; }
+.pf-muted-sm { font-size: 12px; color: var(--text-faint); }
+
+.pf-mention-status { display: inline-flex; align-items: center; gap: 5px; min-width: 0; margin-left: 6px; font-size: 11.5px; color: var(--text-faint); overflow: hidden; }
+.pf-mention-status .pf-dot { width: 8px; height: 8px; }
+.pf-mention-status .pf-dot.dnd::after { top: 3px; left: 1.5px; right: 1.5px; height: 2px; }
+.pf-mention-dnd { color: var(--danger-text, var(--danger)); white-space: nowrap; }
+.pf-mention-cs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+
+.pf-profile-status { display: grid; gap: 6px; justify-items: start; margin: 6px 0 8px; }
+.pf-profile-cs { margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13.5px; color: var(--text); overflow-wrap: anywhere; }
+
+/* ---------- status button + menu ---------- */
+.pf-status-btn { display: grid; place-items: center; }
+.pf-status-btn .pf-dot { width: 12px; height: 12px; }
+.pf-status-btn .pf-dot.dnd::after { top: 5px; }
+.pf-menu { position: fixed; z-index: 150; min-width: 240px; max-width: min(320px, calc(100vw - 16px)); padding: 6px; background: var(--surface-pop); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 16px 40px rgba(0, 0, 0, .45); }
+.pf-menu-sep { height: 1px; margin: 5px 4px; background: var(--border); }
+.pf-menu-item { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 7px 9px; border: 0; border-radius: 7px; background: none; color: var(--text); text-align: left; cursor: pointer; font-size: 13.5px; }
+.pf-menu-item:hover, .pf-menu-item:focus-visible { background: var(--bg-hover); outline: none; }
+.pf-menu-item.on { background: var(--accent-soft); }
+.pf-menu-item.danger { color: var(--danger); }
+.pf-menu-icon { flex: none; width: 18px; display: grid; place-items: center; min-height: 18px; font-size: 14px; }
+.pf-menu-text { display: grid; gap: 1px; min-width: 0; }
+.pf-menu-label { font-weight: 550; overflow: hidden; text-overflow: ellipsis; }
+.pf-menu-hint { font-size: 11.5px; color: var(--text-faint); line-height: 1.3; }
+
+/* ---------- dialogs ---------- */
+.pf-dialog { display: flex; flex-direction: column; gap: 12px; }
+.pf-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pf-dialog-head h2 { margin: 0; font-size: 18px; }
+.pf-form { display: grid; gap: 12px; }
+.pf-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.pf-status-row { display: flex; align-items: center; gap: 8px; }
+.pf-emoji-btn { flex: none; width: 42px; height: 40px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-3); font-size: 20px; cursor: pointer; }
+.pf-emoji-btn:hover { border-color: var(--line-strong); }
+.pf-status-input { flex: 1; min-width: 0; }
+.pf-count { font-size: 11.5px; color: var(--text-faint); text-align: right; margin-top: -6px; }
+.pf-count.over { color: var(--warn-text, var(--warn)); }
+.pf-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.pf-preset { border: 1px solid var(--border); border-radius: 999px; background: var(--bg-1); color: var(--text-dim); padding: 4px 10px; font-size: 12.5px; cursor: pointer; }
+.pf-preset:hover { color: var(--text); border-color: var(--line-strong); }
+.pf-note-text { margin: 0; font-size: 12px; color: var(--text-faint); }
+.pf-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pf-spacer { flex: 1; }
+.danger-text { color: var(--danger); }
+
+/* ---------- private notes ---------- */
+.pf-note { display: grid; gap: 4px; width: 100%; margin: 6px 0 10px; text-align: left; }
+.pf-note-label { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); }
+.pf-note-label .pf-muted-sm { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.pf-note-input { width: 100%; box-sizing: border-box; resize: none; min-height: 34px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: var(--bg-1); color: var(--text); font: inherit; font-size: 13px; line-height: 18px; }
+.pf-note-input:hover { border-color: var(--border); }
+.pf-note-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.pf-note-state { min-height: 14px; font-size: 11px; color: var(--text-faint); }
+.pf-note-state.err { color: var(--danger); }
+.pf-note-mark { display: inline-grid; place-items: center; flex: none; color: var(--text-faint); }
+
+/* ---------- favorites ---------- */
+.pf-favs .ly-section-head { padding-right: 8px; }
+.pf-count-badge { font-size: 11px; color: var(--text-faint); }
+.pf-fav-list { list-style: none; margin: 0; padding: 0; }
+.pf-fav { cursor: default; }
+.pf-fav.gone .pf-fav-main { opacity: .55; cursor: default; }
+.pf-fav.drop-target { box-shadow: inset 0 2px 0 var(--accent); }
+.pf-fav-main { gap: 8px; padding-top: 5px; padding-bottom: 5px; }
+.pf-fav-icon { flex: none; width: 22px; display: grid; place-items: center; }
+.pf-fav .ly-dm-name { font-size: 14px; }
+.pf-fav-actions { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 1px; padding: 2px; border-radius: 6px; background: var(--bg-hover); opacity: 0; }
+.pf-fav:hover .pf-fav-actions, .pf-fav:focus-within .pf-fav-actions { opacity: 1; }
+.pf-icon-btn { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 5px; background: none; color: var(--text-dim); cursor: pointer; padding: 0; }
+.pf-icon-btn:hover:not(:disabled) { background: var(--tint-hover); color: var(--text); }
+.pf-icon-btn:disabled { opacity: .35; cursor: default; }
+.pf-up { transform: rotate(180deg); }
+
+.pf-star { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 5px; background: none; color: var(--text-faint); cursor: pointer; padding: 0; opacity: 0; }
+.ly-chan:hover .pf-star, .ly-chan .pf-star.on, .pf-star:focus-visible { opacity: 1; }
+.pf-star:hover { color: var(--text); background: var(--tint-hover); }
+.pf-star.on, .pf-star-on { color: var(--warn); }
+/* DM rows: next to the close button, on hover / keyboard focus only (the meta column hides then). */
+.ly-dm .pf-star { position: absolute; right: 30px; }
+.ly-dm:hover .pf-star, .ly-dm:focus-within .pf-star { opacity: 1; }
+.ly-dm:focus-within .ly-dm-meta { visibility: hidden; }
+
+/* ---------- server folders (rail) ---------- */
+.ly-rail-item[hidden] { display: none !important; }
+.pf-folder { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px; flex: none; }
+.pf-folder.open { padding-bottom: 6px; }
+.pf-folder.open::before { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 56px; transform: translateX(-50%); border-radius: 18px; background: color-mix(in srgb, var(--folder) 18%, transparent); pointer-events: none; }
+.pf-folder-head .ly-rail-btn { color: var(--folder); background: color-mix(in srgb, var(--folder) 22%, var(--bg-2)); }
+.pf-folder.open .pf-folder-head .ly-rail-btn { background: transparent; }
+.pf-folder-head:hover .ly-rail-btn { color: #fff; }
+.pf-mini-grid { display: grid; grid-template-columns: repeat(2, 18px); grid-auto-rows: 18px; gap: 3px; }
+.pf-mini-grid .md-sicon { border-radius: 6px; font-size: 8px !important; }
+.ly-rail-item[data-drop="on"] .ly-rail-btn { box-shadow: 0 0 0 3px var(--accent); }
+.ly-rail-item[draggable="true"] .ly-rail-btn { -webkit-user-drag: element; }
+.pf-drop-out { width: 52px; flex: none; display: grid; place-items: center; gap: 2px; padding: 8px 2px; border: 2px dashed var(--line-strong); border-radius: 14px; color: var(--text-dim); font-size: 10.5px; text-align: center; }
+.pf-drop-out[data-drop="on"] { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+.pf-swatch { display: inline-block; flex: none; width: 12px; height: 12px; border-radius: 4px; }
+
+.pf-field { display: grid; gap: 6px; }
+.pf-field-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+.pf-fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; min-width: 0; }
+.pf-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.pf-swatch-btn { width: 28px; height: 28px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; padding: 0; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .2); }
+.pf-swatch-btn.on { border-color: var(--text); }
+.pf-swatch-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pf-check-list { display: grid; gap: 2px; max-height: 240px; overflow-y: auto; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-1); }
+.pf-check-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; min-width: 0; }
+.pf-check-row:hover { background: var(--bg-hover); }
+.pf-check-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.pf-folder-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.pf-folder-li { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; background: var(--bg-1); }
+
+/* ---------- appearance settings ---------- */
+.pf-appearance { display: grid; gap: 16px; margin-top: 16px; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-1); }
+.pf-appearance h3 { margin: 0; font-size: 14px; }
+.pf-lead { margin: -10px 0 0; font-size: 13px; }
+.pf-seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.pf-seg-btn { display: block; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-2); color: var(--text); text-align: left; cursor: pointer; }
+.pf-seg-btn:hover { border-color: var(--line-strong); }
+.pf-seg-btn.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.pf-seg-btn:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.pf-seg-text { display: grid; gap: 2px; font-size: 13px; }
+.pf-range-row { display: flex; align-items: center; gap: 10px; }
+.pf-range-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.pf-big-a { font-size: 18px; color: var(--text-faint); }
+.pf-range-out { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+.pf-font-sample { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); color: var(--text-body, var(--text)); font-size: calc(14.5px * var(--ap-font-scale, 1)); }
+.pf-font-sample code { font-family: var(--mono); font-size: .86em; }
+.pf-select { max-width: 280px; }
+.pf-check { grid-template-columns: auto 1fr; align-items: center; column-gap: 10px; row-gap: 2px; }
+.pf-check input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+.pf-check label { font-size: 14px; cursor: pointer; }
+.pf-check .pf-muted-sm { grid-column: 2; }
+
+/* =================== appearance effects (classes on <html>) =================== */
+
+/* Compact density */
+html.ap-compact .msg { margin-top: 6px; padding-top: 1px; padding-bottom: 1px; }
+html.ap-compact .msg.grouped { margin-top: 0; padding-top: 0; padding-bottom: 0; }
+html.ap-compact .msg-row { gap: 10px; }
+html.ap-compact .msg-gutter { width: 28px; }
+html.ap-compact .msg-gutter > .avatar, html.ap-compact .msg-gutter > .md-avatar { width: 28px !important; height: 28px !important; font-size: 11px !important; }
+html.ap-compact .msg-gutter .md-avatar-img, html.ap-compact .msg-gutter .md-avatar-fallback { width: 28px !important; height: 28px !important; }
+html.ap-compact .msg-hover-time { line-height: 20px; font-size: 9.5px; }
+html.ap-compact .md p { margin-bottom: 1px; }
+html.ap-compact .msg-reply-ref { margin-left: 22px; }
+html.ap-compact .ly-chan-main { padding-top: 4px; padding-bottom: 4px; }
+html.ap-compact .ly-dm-main, html.ap-compact .ly-member { padding-top: 3px; padding-bottom: 3px; }
+html.ap-compact .ly-section { margin-bottom: 8px; }
+
+/* Font size (90-130 %) */
+html.ap-font body { font-size: calc(14px * var(--ap-font-scale, 1)); }
+html.ap-font .md { font-size: calc(14.5px * var(--ap-font-scale, 1)); }
+html.ap-font .md.jumbo { font-size: calc(44px * var(--ap-font-scale, 1)); }
+html.ap-font .md h1 { font-size: calc(20px * var(--ap-font-scale, 1)); }
+html.ap-font .md h2 { font-size: calc(18px * var(--ap-font-scale, 1)); }
+html.ap-font .md h3 { font-size: calc(16px * var(--ap-font-scale, 1)); }
+html.ap-font .md h4, html.ap-font .md h5, html.ap-font .md h6 { font-size: calc(14.5px * var(--ap-font-scale, 1)); }
+html.ap-font .md table { font-size: calc(13.5px * var(--ap-font-scale, 1)); }
+html.ap-font .md :not(pre) > code { font-size: calc(12.5px * var(--ap-font-scale, 1)); }
+html.ap-font .md-code code, html.ap-font .snippet code, html.ap-font .snippet-gutter { font-size: calc(12.8px * var(--ap-font-scale, 1)); }
+html.ap-font .msg-author { font-size: calc(14.5px * var(--ap-font-scale, 1)); }
+html.ap-font .msg-time { font-size: calc(11.5px * var(--ap-font-scale, 1)); }
+html.ap-font .msg-hover-time, html.ap-font .msg-edited { font-size: calc(10.5px * var(--ap-font-scale, 1)); }
+html.ap-font .msg-reply-ref { font-size: calc(12.5px * var(--ap-font-scale, 1)); }
+html.ap-font .msg-deleted { font-size: calc(13.5px * var(--ap-font-scale, 1)); }
+html.ap-font .composer-input { font-size: calc(14.5px * var(--ap-font-scale, 1)); }
+html.ap-font .ly-chan-name, html.ap-font .ly-dm-name, html.ap-font .ly-member-name { font-size: calc(14.5px * var(--ap-font-scale, 1)); }
+html.ap-font .ly-dm-status { font-size: calc(12px * var(--ap-font-scale, 1)); }
+html.ap-font .ly-user-name { font-size: calc(13.5px * var(--ap-font-scale, 1)); }
+html.ap-font .ly-user-status { font-size: calc(11.5px * var(--ap-font-scale, 1)); }
+
+/* Chat width */
+html[data-ap-width="wide"] { --ap-chat-max: 1100px; }
+html[data-ap-width="medium"] { --ap-chat-max: 880px; }
+html[data-ap-width="narrow"] { --ap-chat-max: 720px; }
+html[data-ap-width] .chat-scroll-inner, html[data-ap-width] .chat-composer-wrap { width: 100%; max-width: var(--ap-chat-max); margin-left: auto; margin-right: auto; box-sizing: border-box; }
+
+/* Reduced motion (the setting, or the device asks for it) */
+html.ap-reduce-motion *, html.ap-reduce-motion *::before, html.ap-reduce-motion *::after {
+  animation-duration: .01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+
+/* High-contrast focus rings */
+:root { --ap-ring: #ffd23f; --ap-ring-halo: #000; }
+:root[data-theme="light"] { --ap-ring: #0b2fd6; --ap-ring-halo: #fff; }
+html.ap-focus-rings :focus-visible {
+  outline: 3px solid var(--ap-ring) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 2px var(--ap-ring-halo) !important;
+}
+
+@media (max-width: 560px) {
+  .pf-seg { grid-template-columns: 1fr; }
+  .pf-menu { min-width: 0; }
+}
+
+/* Touch screens have no hover: keep the row controls visible. */
+@media (hover: none) {
+  .pf-fav-actions { position: static; transform: none; opacity: 1; background: none; margin-right: 2px; }
+  .pf-star, .ly-dm .pf-star { opacity: 1; }
+  .ly-dm .pf-star { position: static; }
+}
+
+/* Profile cards grow with the status and note sections: keep them inside the viewport. */
+.ly-profile-card { max-height: calc(100vh - 24px); overflow-y: auto; }
