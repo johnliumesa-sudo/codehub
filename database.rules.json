@@ -1522,7 +1522,7 @@
      ".validate": "newData.isString()"
     },
     "kind": {
-     ".validate": "newData.isString() && newData.val().matches(/^(game|user|shopItem|message)$/)"
+     ".validate": "newData.isString() && newData.val().matches(/^(game|user|shopItem|message|bot|addon)$/)"
     },
     "target": {
      ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 256"

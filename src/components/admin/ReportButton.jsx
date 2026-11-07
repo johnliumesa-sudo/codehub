@@ -156,7 +156,7 @@ function ReportModal({ kind, target, excerpt, onClose }) {
 
 /**
  * Report something to app admins.
- * Props: kind 'game'|'user'|'shopItem'|'message', target (id string, ≤ 256),
+ * Props: kind 'game'|'user'|'shopItem'|'message'|'bot'|'addon', target (id string, ≤ 256),
  *        label? (button text; default "Report"), excerpt? (decrypted message text, offered
  *        only behind an explicit opt-in checkbox), small?, iconOnly?, className? (overrides button classes).
  */

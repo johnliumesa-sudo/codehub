@@ -187,7 +187,7 @@ test('admin seeds the examples; users install, report; admins remove', async ({ 
   await bob.getByRole('dialog', { name: /Install Pomodoro timer/ }).getByRole('button', { name: 'Install', exact: true }).click();
   await expect(hub.getByText('Installed', { exact: true })).toBeVisible();
 
-  // Report the word cloud (filed as a catalog item with target addon:{id}).
+  // Report the word cloud (kind `addon`, target = its pub/addons id).
   await hub.getByRole('button', { name: 'Back to the directory' }).click();
   await hub.getByRole('button', { name: /Channel word cloud/ }).click();
   await hub.getByRole('button', { name: 'Report' }).click();
@@ -197,6 +197,8 @@ test('admin seeds the examples; users install, report; admins remove', async ({ 
   await expect(bob.getByRole('dialog', { name: 'Report sent' })).toBeVisible();
   await bob.getByRole('dialog', { name: 'Report sent' }).getByRole('button', { name: 'Done' }).click();
   await bob.keyboard.press('Escape');
+  const cloudId = Object.entries((await adminGet('pub/addons')) || {}).find(([, a]) => a.name === 'Channel word cloud')[0];
+  expect(Object.values(await adminGet('reports'))).toContainEqual(expect.objectContaining({ kind: 'addon', target: cloudId, reason: 'spam' }));
 
   await bob.getByRole('button', { name: 'Add-ons', exact: true }).click();
   await bob.getByRole('complementary', { name: 'Add-ons' }).getByRole('button', { name: 'Open Pomodoro timer' }).click();

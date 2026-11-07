@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react';
 import { limitToLast, onValue, orderByChild, push, query, ref, remove, serverTimestamp, update } from 'firebase/database';
 import { auth, db } from './firebase.js';
 
-export const REPORT_KINDS = ['game', 'user', 'shopItem', 'message'];
+// bot: target = pub/bots id; addon: target = pub/addons id (round 3 public directories).
+export const REPORT_KINDS = ['game', 'user', 'shopItem', 'message', 'bot', 'addon'];
 export const REPORT_REASONS = [
   ['spam', 'Spam'],
   ['abuse', 'Harassment or abuse'],
@@ -13,7 +14,7 @@ export const REPORT_REASONS = [
   ['nsfw', 'Sexual or graphic content'],
   ['other', 'Something else'],
 ];
-export const KIND_LABEL = { game: 'Game', user: 'User', shopItem: 'Shop item', message: 'Message' };
+export const KIND_LABEL = { game: 'Game', user: 'User', shopItem: 'Shop item', message: 'Message', bot: 'Bot', addon: 'Add-on' };
 export const NOTE_MAX = 500;
 export const EXCERPT_MAX = 2000;
 export const TARGET_MAX = 256;

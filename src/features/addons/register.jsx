@@ -2,7 +2,7 @@
 // extension points" and docs/features/addons.md).
 import { register } from '../../lib/ext/registry.js';
 import { openHub, useHub } from './lib/hub.js';
-import { addonIdFromTarget } from './lib/report.js';
+import { reportedAddonId } from './lib/report.js';
 import ServerAddonMount from './components/ServerAddonMount.jsx';
 import { Lazy } from './components/lazy.jsx';
 import './addons.css';
@@ -72,7 +72,7 @@ register('adminTabs', { id: 'addons', label: 'Add-ons', render: ({ me }) => <Laz
 register('reportTargets', {
   id: 'addons.report',
   label: 'Add-on',
-  match: (r) => !!addonIdFromTarget(r?.target),
-  render: (r) => <Lazy name="ReportedAddon" inline id={addonIdFromTarget(r.target)} />,
-  actions: (r, opts) => <Lazy name="RemoveReportedAddon" inline id={addonIdFromTarget(r.target)} {...opts} />,
+  match: (r) => !!reportedAddonId(r),
+  render: (r) => <Lazy name="ReportedAddon" inline id={reportedAddonId(r)} />,
+  actions: (r, opts) => <Lazy name="RemoveReportedAddon" inline id={reportedAddonId(r)} {...opts} />,
 });

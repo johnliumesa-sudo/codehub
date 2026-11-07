@@ -1,13 +1,12 @@
 // Report a published bot through the existing reports flow (submitReport: plaintext, admins only,
-// one report per 30 s). The reports rules accept fixed kinds (no `bot` kind without a rules change),
-// so a bot is reported as its publisher (kind `user`) with the bot's id and name in the note.
+// one report per 30 s): kind `bot`, target = the pub/bots id, the reported version in the note.
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NOTE_MAX, REPORT_REASONS, submitReport } from '../../../lib/reports.js';
 import '../../../components/admin/admin.css';
 
 export const botReportNote = (entry, note) => {
-  const head = `[bot pub/bots/${entry.id} “${entry.def.name}” v${entry.ver}]`;
+  const head = `[v${entry.ver}]`;
   const body = String(note || '').trim();
   return `${head}${body ? ` ${body}` : ''}`.slice(0, NOTE_MAX);
 };
@@ -46,7 +45,7 @@ function ReportDialog({ entry, onClose }) {
     setBusy(true);
     setErr('');
     try {
-      await submitReport({ kind: 'user', target: entry.by, reason, note: botReportNote(entry, note) });
+      await submitReport({ kind: 'bot', target: entry.id, reason, note: botReportNote(entry, note) });
       setDone(true);
     } catch (ex) {
       setErr(ex?.message || 'Could not send the report.');
@@ -74,7 +73,7 @@ function ReportDialog({ entry, onClose }) {
           <form onSubmit={send} className="adm-report-form">
             <h2 id={`${id}-t`}>Report bot</h2>
             <p className="adm-note">
-              Reports go to Codehub app admins as plaintext: the bot&apos;s publisher, the bot&apos;s id and name, your reason and note.
+              Reports go to Codehub app admins as plaintext: the bot&apos;s id and version, your reason and note.
             </p>
             <fieldset className="adm-reasons">
               <legend>Reason</legend>

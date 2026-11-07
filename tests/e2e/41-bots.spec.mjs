@@ -287,8 +287,8 @@ test('welcome message for a new member, reporting a bot and app-admin removal', 
   await expect(bob.getByRole('heading', { name: 'Report sent' })).toBeVisible();
   await bob.getByRole('button', { name: 'Done' }).click();
   const reports = Object.values(await adminGet('reports'));
-  expect(reports).toContainEqual(expect.objectContaining({ kind: 'user', target: aliceUid, by: bobUid, reason: 'spam' }));
-  expect(reports.find((r) => r.by === bobUid).note).toContain('pub/bots/-Ngreeter0000000001');
+  expect(reports).toContainEqual(expect.objectContaining({ kind: 'bot', target: '-Ngreeter0000000001', by: bobUid, reason: 'spam' }));
+  expect(reports.find((r) => r.by === bobUid).note).toBe('[v1] too many welcomes');
   // Bob is neither the publisher nor an app admin: no edit/unpublish/remove.
   await expect(bob.getByRole('button', { name: /Unpublish|Remove/ })).toHaveCount(0);
   await closeSettings(bob);
@@ -296,6 +296,16 @@ test('welcome message for a new member, reporting a bot and app-admin removal', 
   // An app admin removes it from the directory; the server's pinned copy keeps working.
   const carol = await users('carol');
   await adminPut(`admins/${await uid(carol)}`, { at: Date.now() });
+  // The reports queue shows it as a bot (kind `bot`), with its name and publisher.
+  await carol.getByRole('button', { name: 'Open admin panel' }).click();
+  const adminPanel = carol.getByRole('dialog', { name: 'Admin panel' });
+  await adminPanel.getByRole('button', { name: 'Reports', exact: true }).click();
+  const card = adminPanel.locator('.adm-report', { hasText: 'Greeter' });
+  await expect(card.locator('.adm-pill.kind')).toHaveText('Bot');
+  await expect(card).toContainText('v1 by Alice');
+  await expect(card.getByRole('button', { name: 'Remove bot' })).toBeVisible();
+  await carol.keyboard.press('Escape');
+  await expect(adminPanel).toHaveCount(0);
   await openBotsSettings(carol);
   await carol.getByRole('button', { name: 'Greeter: details' }).click();
   await carol.getByRole('button', { name: 'Remove (app admin)' }).click();

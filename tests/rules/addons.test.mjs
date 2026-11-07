@@ -109,12 +109,18 @@ describe('add-ons', () => {
   });
 
   describe('reports', () => {
-    it('ALLOW reporting an add-on as kind shopItem with target addon:{id}', async () => {
+    it('ALLOW reporting an add-on as kind addon with target {id}', async () => {
       await ok(db('mallory').ref().update({
-        'reports/rA': { by: 'mallory', kind: 'shopItem', target: 'addon:a1', reason: 'malware', note: 'steals messages', ts: TS },
+        'reports/rA': { by: 'mallory', kind: 'addon', target: 'a1', reason: 'malware', note: 'steals messages', ts: TS },
         'reportLog/mallory': TS,
       }));
       await ok(db('admin1').ref('reports/rA').get());
+    });
+    it('ALLOW the older form (kind shopItem, target addon:{id}) that existing reports use', async () => {
+      await ok(db('mallory').ref().update({
+        'reports/rA': { by: 'mallory', kind: 'shopItem', target: 'addon:a1', reason: 'malware', ts: TS },
+        'reportLog/mallory': TS,
+      }));
     });
   });
 });

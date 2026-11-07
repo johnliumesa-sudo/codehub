@@ -28,11 +28,11 @@ Not to be confused with the shop's cosmetic "Add-ons" (themes, badges; Settings 
   the **permissions with what each one means (before install)**, the code checksum, "Try with sample
   data" (the mock-bridge preview of the published code), Install / Review update / Uninstall,
   Report, and for the publisher Edit / Unpublish, for app admins "Remove (app admin)".
-- **Report** uses the existing reports flow (`reports/{rid}` + `reportLog`, one per 30 s). The reports
-  rules only accept the kinds `game|user|shopItem|message` and this workstream has no rule budget, so
-  an add-on report is filed as kind `shopItem` with target `addon:{id}` (`lib/report.js`). The admin
-  reports queue shows such reports as "Add-on" with the add-on's name and a "Remove add-on" action
-  (through the new `reportTargets` registry, see "Shared-file changes").
+- **Report** uses the existing reports flow (`reports/{rid}` + `reportLog`, one per 30 s) with kind
+  `addon` and target = the add-on id (`lib/report.js`; the integration pass added the kind to the
+  rules). The admin reports queue shows such reports as "Add-on" with the add-on's name and a "Remove
+  add-on" action (through the new `reportTargets` registry, see "Shared-file changes"). Reports filed
+  before that (kind `shopItem`, target `addon:{id}`) are recognized the same way.
 - **App-admin removal**: from the details view, the admin panel's "Add-ons" tab (list of all
   published add-ons) or the reports queue.
 
@@ -102,7 +102,7 @@ Not to be confused with the shop's cosmetic "Add-ons" (themes, badges; Settings 
 | `udata/{me}/addonConsent/{sid}~{id}` | `{ sha, perms?, at, auto? }` | my consent to a server add-on |
 | `sconf/{sid}/addons/{id}` | `{ sha, perms?, by (installer), at, v, name, icon }` | server install; members read, `manageApps` writes |
 | `sconf/{sid}/addonPin/{id}` | `{ sha, n, c0… }` | the server's approved copy |
-| `reports/{rid}` | `{ by, kind: 'shopItem', target: 'addon:{id}', reason, note?, ts }` | existing reports flow |
+| `reports/{rid}` | `{ by, kind: 'addon', target: '{id}', reason, note?, ts }` | existing reports flow |
 
 Writes: publish/edit = one update of both `pub` entries; unpublish = one update nulling both;
 install = one update of the install record + pin; uninstall (personal) also deletes the stored data.
@@ -163,9 +163,7 @@ owner-only `udata` or member-only `sconf` blocks.
   (`{ id, label, render({ me }) }`) after the built-in tabs (additive).
 - `src/components/admin/ReportsQueue.jsx`: entries of a new **`reportTargets`** registry
   (`{ id, label, match(report), render(report), actions?(report, { act, dismiss, busy }) }`) take over
-  the kind pill, target line and extra actions of matching reports (additive). Bots can use both.
-- If the integrator ever has bytes to spare, adding `addon` to the reports `kind` regex would let
-  add-on reports use their own kind; change `ADDON_REPORT_KIND` in `lib/report.js` then.
+  the kind pill, target line and extra actions of matching reports (additive). Bots use it too.
 
 ## Tests
 

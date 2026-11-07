@@ -9,12 +9,13 @@ import BotsHost from './components/BotsHost.jsx';
 import { BotBadge, CommandNote, botGroupKey } from './components/MessageParts.jsx';
 import BotsTab, { requestBotsView } from './components/BotsTab.jsx';
 import ServerBotsTab from './components/ServerBotsTab.jsx';
+import { RemoveReportedBot, ReportedBot, reportedBotId } from './components/AdminReport.jsx';
 import './bots.css';
 
 const h = createElement;
 
-// 1. Built-in slash commands (order 50: after /help and other features' commands in the "/" list,
-// which shows the first eight). /gif first checks that GIPHY is configured.
+// 1. Built-in slash commands (listed with /help under "Built-in" in the "/" menu; order 50 keeps
+// them after /help). /gif first checks that GIPHY is configured.
 for (const cmd of BUILTIN_COMMANDS) {
   const run = cmd.name !== 'gif'
     ? cmd.run
@@ -44,6 +45,15 @@ register('sendHooks', { id: 'bots.triggers', order: 1e6, run: triggerHook });
 // 2. Directory and builder (Settings → Bots), server installs (Server settings → Bots).
 register('userSettingsTabs', { id: 'bots', label: 'Bots', render: (ctx) => h(BotsTab, { ctx }) });
 register('serverSettingsTabs', { id: 'bots', label: 'Bots', icon: 'code', render: (ctx) => h(ServerBotsTab, { ctx }) });
+
+// Reports of kind `bot` in the admin reports queue: the bot, and "Remove bot" for app admins.
+register('reportTargets', {
+  id: 'bots.report',
+  label: 'Bot',
+  match: (r) => !!reportedBotId(r),
+  render: (r) => h(ReportedBot, { id: reportedBotId(r) }),
+  actions: (r, opts) => h(RemoveReportedBot, { id: reportedBotId(r), ...opts }),
+});
 
 register('paletteActions', {
   id: 'bots.directory',

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { onValue, ref } from 'firebase/database';
 import { db } from '../../lib/firebase.js';
 import { useProfile } from '../../lib/profiles.js';
-import { KIND_LABEL, REPORT_REASONS, dismissReport, dismissReports, parseMessageTarget, useReports } from '../../lib/reports.js';
+import { KIND_LABEL, REPORT_KINDS, REPORT_REASONS, dismissReport, dismissReports, parseMessageTarget, useReports } from '../../lib/reports.js';
 import { deleteGame } from '../../lib/games.js'; // WS4 export (0.8)
 import { ConfirmButton } from '../layout/ui.jsx';
 import { useRegistry } from '../../lib/ext/registry.js';
@@ -34,8 +34,9 @@ function UserName({ uid }) {
   return <span className="adm-user" style={{ color: p?.color }}>{p?.name || '…'}</span>;
 }
 
-// Round 3: `reportTargets` entries { id, label, match(r), render(r), actions?(r, { act, dismiss }) } describe
-// reports whose target a feature owns (e.g. `addon:{id}` filed under an existing kind).
+// Round 3: `reportTargets` entries { id, label, match(r), render(r), actions?(r, { act, dismiss, busy }) }
+// describe reports whose target a feature owns: kinds `bot` and `addon` (target = the pub/bots or
+// pub/addons id), and older add-on reports filed as `shopItem` with target `addon:{id}`.
 function useReportExt(r) {
   const entries = useRegistry('reportTargets');
   return entries.find((e) => typeof e.match === 'function' && typeof e.render === 'function' && passes(e.match, r)) || null;
@@ -69,6 +70,7 @@ function TargetInfo({ r, ext }) {
       </span>
     );
   }
+  if (r.kind !== 'message') return <code className="adm-id">{r.target}</code>;
   const mt = parseMessageTarget(r.target);
   return (
     <span>
@@ -167,7 +169,7 @@ export default function ReportsQueue({ onOpenGame }) {
         cannot decrypt messages. Dismissing deletes the report.
       </p>
       <div className="adm-chips" role="tablist" aria-label="Filter reports">
-        {['all', 'game', 'user', 'shopItem', 'message'].map((k) => (
+        {['all', ...REPORT_KINDS].map((k) => (
           <button
             key={k}
             type="button"

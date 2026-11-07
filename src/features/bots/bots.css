@@ -147,3 +147,7 @@
   .bt-help dl > div { grid-template-columns: 1fr; gap: 0; }
   .bt-installed-head .bt-row-actions { margin-left: 0; }
 }
+
+/* Admin reports queue: a reported bot */
+.bt-report-target { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bt-report-target .bt-avatar { border-radius: 6px; }

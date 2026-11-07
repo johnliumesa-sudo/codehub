@@ -14,7 +14,7 @@ import {
   addonDocument, addonSdk, applyStorageOp, createBridgeHost, createRateLimiter, isHello, readTheme, storageSize,
   toAddonContext, toAddonMessages,
 } from '../../src/features/addons/lib/bridge.js';
-import { ADDON_REPORT_KIND, addonIdFromTarget, addonReportTarget } from '../../src/features/addons/lib/report.js';
+import { ADDON_REPORT_KIND, addonIdFromTarget, addonReportTarget, reportedAddonId } from '../../src/features/addons/lib/report.js';
 
 const SHA = 'a'.repeat(64);
 const manifestRaw = (extra = {}) => ({ name: 'Timer', desc: 'A timer', icon: '⏱', version: '1.2.3', perms: 'storage', sha: SHA, size: 120, by: 'u1', ts: 5, ...extra });
@@ -148,8 +148,14 @@ test('sha256Hex matches the standard test vector', async () => {
 });
 
 test('report targets', () => {
-  assert.equal(ADDON_REPORT_KIND, 'shopItem');
-  assert.equal(addonReportTarget('-Nabc'), 'addon:-Nabc');
+  assert.equal(ADDON_REPORT_KIND, 'addon');
+  assert.equal(addonReportTarget('-Nabc'), '-Nabc');
+  assert.equal(reportedAddonId({ kind: 'addon', target: '-Nabc' }), '-Nabc');
+  assert.equal(reportedAddonId({ kind: 'addon', target: 'a/b' }), null);
+  // Reports filed before the `addon` kind existed: shopItem + `addon:{id}`.
+  assert.equal(reportedAddonId({ kind: 'shopItem', target: 'addon:-Nabc' }), '-Nabc');
+  assert.equal(reportedAddonId({ kind: 'shopItem', target: 'itemA' }), null);
+  assert.equal(reportedAddonId({ kind: 'user', target: '-Nabc' }), null);
   assert.equal(addonIdFromTarget('addon:-Nabc'), '-Nabc');
   assert.equal(addonIdFromTarget('itemA'), null);
   assert.equal(addonIdFromTarget('addon:a/b'), null);
