@@ -171,6 +171,11 @@ export class CallSession {
     const slot = this.slot;
     if (!slot || this.closed) return;
     const sentAt = Date.now(); // not the ack time: an ack processed after a stall would look fresh
+    if (slot.legacy) {
+      // Rules from before heartbeats refuse `hb`: nothing to write; my slot is fine while I'm online.
+      if (this.dbConnected !== false) this.lastBeatOk = Math.max(this.lastBeatOk, sentAt);
+      return;
+    }
     updateSlot(this.scope, slot.index, { hb: serverTimestamp(), away: null }).then(() => {
       if (this.slot === slot) this.lastBeatOk = Math.max(this.lastBeatOk, sentAt);
     }, () => {});
@@ -188,7 +193,7 @@ export class CallSession {
     this.reconnectedAt = Date.now();
     this.staleViewUntil = this.reconnectedAt + 5_000;
     if (this.slot) {
-      armSlotDisconnect(this.scope, this.slot.index);
+      armSlotDisconnect(this.scope, this.slot.index, this.slot.legacy);
       this.beat();
     }
   }

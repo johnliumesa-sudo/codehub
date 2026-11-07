@@ -88,6 +88,16 @@ pruned, 46 s can; a real `onDisconnect` stamps the server time and `away`), `tes
 its slot removed only after the 45 s grace). Rule bytes: +184 originally (minified total 98,341 of
 102,400); the a4 fix (`away`, no `0`) adds 50.
 
+**Older published rules.** The rules are pasted into the console by hand after a deploy, so the app can
+run against rules from before heartbeats, where a slot with `hb` is invalid (`$other` is false). Every
+claim used to be refused there and the app said "This call is full (6 people max)" with nobody in the
+call. `claimSlot` (`core.js`) now retries a refused heartbeat slot as a plain one (`uid`, `joinedAt`,
+`mic`, `cam`, `screen`: the shape every rules version accepts) and then stays on plain slots for the page:
+no heartbeat writes, removed by `onDisconnect` (the old behaviour), counted as live by everyone. "Full" is
+said only when all six slots are occupied; a refusal or another error is reported as such. Tested in
+`tests/e2e/51-calls-old-rules.spec.mjs`, which loads today's rules without `hb` / `away` (voice channel
+with one and then two people, a closed tab's slot removed, a DM call, a refusal message).
+
 ## 12. Device settings & test
 
 **Purpose.** Settings → "Voice & video" (`userSettingsTabs` id `voice`; also palette action "Voice &

@@ -151,52 +151,93 @@ export async function ensureCall(scope, me, kind) {
   return { callId: id, kind, started: true };
 }
 
+export const isPermissionDenied = (e) => /permission[_ ]denied/i.test(`${e?.code || ''} ${e?.message || ''}`);
+
+// The rules are pasted into the console by hand after a deploy, so the app can run against rules from
+// before call heartbeats, which refuse a slot with `hb` (unknown children are invalid there). Once a
+// heartbeat slot is refused and a plain one accepted, this page sticks to plain ("legacy") slots: no
+// heartbeat writes, removed on disconnect (the old behaviour), counted as live by everyone.
+let heartbeatsRefused = false;
+
 /**
- * Claim the first free slot with a transaction per slot. Throws when all 6 are taken or when I
- * already hold a live slot (another tab). Ghost slots (no heartbeat for 45 s, or my own away slot) are
- * removed first. The slot carries a heartbeat (`hb`); if this connection drops, the server stamps `hb`
- * with that time and sets `away` (the slot stays for 45 s, so a short network blip doesn't end anyone's
- * call). Returns `{ index, joinedAt }` with the server-stored joinedAt.
+ * Claim the first free slot with a transaction per slot. Throws when all 6 are taken, when I already
+ * hold a live slot (another tab), or when the server refuses the claim (said as such: a refusal is
+ * never reported as a full call). Ghost slots (no heartbeat for 45 s, or my own away slot) are removed
+ * first. The slot carries a heartbeat (`hb`); if this connection drops, the server stamps `hb` with that
+ * time and sets `away` (the slot stays for 45 s, so a short network blip doesn't end anyone's call).
+ * Under rules that predate heartbeats the slot is written without `hb` (see heartbeatsRefused).
+ * Returns `{ index, joinedAt, legacy }` with the server-stored joinedAt.
  */
 export async function claimSlot(scope, me, flags) {
   const existing = await pruneGhostSlots(scope, me);
   if (Object.values(existing).some((s) => s?.uid === me)) {
     throw new Error('You are already in this call in another tab. If that tab was closed, try again in a minute.');
   }
+  const base = { uid: me, mic: !!flags.mic, cam: !!flags.cam, screen: !!flags.screen };
+  let taken = 0;
+  let failure = null;
   for (let i = 0; i < MAX_CALL; i++) {
-    if (existing[i]) continue;
+    if (existing[i]) {
+      taken += 1;
+      continue;
+    }
     const r = ref(db, `${slotsPath(scope)}/${i}`);
-    let res;
-    try {
-      res = await runTransaction(
-        r,
-        (cur) => (cur ? undefined : {
-          uid: me, joinedAt: serverTimestamp(), hb: serverTimestamp(), mic: !!flags.mic, cam: !!flags.cam, screen: !!flags.screen,
-        }),
-        { applyLocally: false },
-      );
-    } catch {
-      continue; // lost a race to the rules (slot taken meanwhile)
+    let res = null;
+    let legacy = heartbeatsRefused;
+    for (;;) {
+      const slot = legacy ? base : { ...base, hb: serverTimestamp() };
+      try {
+        res = await runTransaction(r, (cur) => (cur ? undefined : { ...slot, joinedAt: serverTimestamp() }), { applyLocally: false });
+        break;
+      } catch (e) {
+        if (isPermissionDenied(e) && !legacy) {
+          legacy = true; // maybe rules from before heartbeats: try the plain slot
+          continue;
+        }
+        failure = e;
+        break;
+      }
+    }
+    if (!res) {
+      // Refused for a reason that holds for every slot (not a member, timed out, no call): stop here.
+      if (isPermissionDenied(failure)) break;
+      continue; // e.g. a transaction that gave up under contention: try the next slot
     }
     if (res.committed && res.snapshot.val()?.uid === me) {
-      await armSlotDisconnect(scope, i);
+      if (legacy) heartbeatsRefused = true;
+      await armSlotDisconnect(scope, i, legacy);
       // A transaction resolves serverTimestamp() locally, so res.snapshot holds this client's estimate,
       // while the server stored its own clock. Peers see (and match signals against) the stored value.
       const stored = (await get(r).catch(() => null))?.val();
-      return { index: i, joinedAt: stored?.uid === me && typeof stored.joinedAt === 'number' ? stored.joinedAt : res.snapshot.val().joinedAt };
+      return {
+        index: i,
+        joinedAt: stored?.uid === me && typeof stored.joinedAt === 'number' ? stored.joinedAt : res.snapshot.val().joinedAt,
+        legacy,
+      };
     }
+    taken += 1; // someone else got this slot first
   }
-  throw new Error(`This call is full (${MAX_CALL} people max)`);
+  if (taken >= MAX_CALL) throw new Error(`This call is full (${MAX_CALL} people max)`);
+  if (isPermissionDenied(failure)) {
+    throw new Error("Couldn't join the call: the server refused it (permission denied). Check that you can still post here, then try again.");
+  }
+  throw new Error(`Couldn't join the call${failure?.message ? `: ${failure.message}` : ''}. Try again.`);
 }
 
 /**
  * When this connection drops, the server marks my slot away: `hb` = the disconnect time (server clock),
  * `away` = true. Others may remove it only once that is 45 s old. Registered again after every
  * reconnect (a disconnect consumes it). Harmless once the slot is gone or someone else's: the server
- * checks the rules again when it runs, and a slot without uid fails validation.
+ * checks the rules again when it runs, and a slot without uid fails validation. A `legacy` slot (rules
+ * from before heartbeats, which also refuse this update) is removed on disconnect instead.
  */
-export function armSlotDisconnect(scope, index) {
-  return onDisconnect(ref(db, `${slotsPath(scope)}/${index}`)).update({ hb: serverTimestamp(), away: true }).catch(() => {});
+export function armSlotDisconnect(scope, index, legacy = false) {
+  const r = ref(db, `${slotsPath(scope)}/${index}`);
+  if (legacy) return onDisconnect(r).remove().catch(() => {});
+  return onDisconnect(r).update({ hb: serverTimestamp(), away: true }).catch((e) => {
+    if (isPermissionDenied(e)) return onDisconnect(r).remove().catch(() => {});
+    return undefined;
+  });
 }
 
 /** Remove another member's ghost slot (the rules allow it once its heartbeat is 45 s old). */
