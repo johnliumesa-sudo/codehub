@@ -1,5 +1,5 @@
 // Lua games: Lua 5.4 compiled to WebAssembly (wasmoon, about 145 KB, from jsDelivr). The workspace's
-// .lua files are mounted so require("enemy") works; the entry runs with doFile. The page has a canvas,
+// .lua files are mounted so require("enemy") works; the entry runs with loadfile on a guarded thread. The page has a canvas,
 // an on-screen console and an input line.
 //
 // Lua API on top of the standard library:
@@ -51,10 +51,18 @@ ctx = _cx.ctx
 document = _cx.document
 window = _cx.window
 local _busy = _cx.busy
-debug.sethook(function()
-  if _busy() then error("this loop ran for 4 seconds without calling frame(), sleep() or input(), so it was stopped to keep the page responsive", 2) end
-end, "", 1000000)
+local _sethook = debug.sethook
+-- Hooks are per coroutine: the runner installs it on the thread that runs the game.
+function __cx_guard()
+  _sethook(function()
+    if _busy() then error("this loop ran for 4 seconds without calling frame(), sleep() or input(), so it was stopped to keep the page responsive", 2) end
+  end, "", 1000000)
+end
 `;
+
+/** Lua that runs the entry file on the current thread, with the busy-loop guard installed. */
+const runEntry = (entry) =>
+  `__cx_guard()\n__cx_guard = nil\nlocal chunk, err = loadfile(${JSON.stringify(entry)})\nif not chunk then error(err, 0) end\nreturn chunk()\n`;
 
 const CSS =
   'html,body{margin:0;height:100%;background:#0d1017;color:#e6e9f0;color-scheme:dark}' +
@@ -70,9 +78,11 @@ const CSS =
   '#cx-field:focus{outline:2px solid #5b8cff;outline-offset:0}' +
   '#cx-in button{background:#5b8cff;color:#fff;border:0;border-radius:6px;font:600 12px system-ui,sans-serif;padding:6px 10px;cursor:pointer}';
 
-// Runs in the frame as a module (self-contained, serialised with toString). C = { url, wasm, entry, prelude, canvas }.
+// Runs in the frame as a module (self-contained, serialised with toString). C = { url, wasm, prelude, run, canvas }.
 /* eslint-disable prefer-arrow-callback, func-names */
-async function luaBoot(C) {
+// `load(url)` is import(url), written into the page text (see luaDoc) so the app's bundler never
+// rewrites it: this code runs only in the frame.
+async function luaBoot(C, load) {
   const D = document;
   const W = window;
   const con = D.getElementById('cx-con');
@@ -142,7 +152,7 @@ async function luaBoot(C) {
   write('Loading Lua…\n', 'sys');
   let lua;
   try {
-    const { LuaFactory } = await import(C.url);
+    const { LuaFactory } = await load(C.url);
     const factory = new LuaFactory(C.wasm);
     const files = JSON.parse(D.getElementById('cx-files').textContent);
     for (const p of Object.keys(files)) await factory.mountFile(p, files[p]);
@@ -195,7 +205,7 @@ async function luaBoot(C) {
   try {
     await lua.doString(C.prelude);
     touch();
-    await lua.doFile(C.entry);
+    await lua.doString(C.run);
   } catch (e) {
     const m = String((e && e.message) || e);
     write(`${m}\n`, 'err');
@@ -211,7 +221,7 @@ export function luaDoc(entry, files, { title = '' } = {}) {
   if (!Object.prototype.hasOwnProperty.call(fs, ent)) throw new Error(`Entry file not found: ${entry}`);
   const src = Object.keys(fs).filter((p) => p.endsWith('.lua')).map((p) => fs[p]).join('\n');
   const canvas = /\b(?:ctx|canvas)\b/.test(src);
-  const cfg = { url: WASMOON_URL, wasm: WASMOON_WASM, entry: ent, prelude: PRELUDE, canvas };
+  const cfg = { url: WASMOON_URL, wasm: WASMOON_WASM, prelude: PRELUDE, run: runEntry(ent), canvas };
   const html =
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     `<title>${escapeHtml(title || ent)}</title><style>${CSS}</style>` +
@@ -223,6 +233,6 @@ export function luaDoc(entry, files, { title = '' } = {}) {
     '<button type="button" id="cx-send">Enter</button></div>' +
     '</div>' +
     `<script type="application/json" id="cx-files">${jsonForScript(fs)}</script>` +
-    `<script type="module">(${escapeScript(luaBoot.toString())})(${jsonForScript(cfg)});</script>`;
+    `<script type="module">(${escapeScript(luaBoot.toString())})(${jsonForScript(cfg)}, (u) => import(u));</script>`;
   return { html, files: Object.keys(fs), features: { canvas } };
 }
