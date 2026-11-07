@@ -257,6 +257,8 @@ The console also has a **Rules Playground** for testing reads and writes as a sp
 `.github/workflows/deploy.yml` builds the app and publishes `dist/` to GitHub Pages on every push
 to `main`. `vite.config.js` uses `base: './'`, so the site works from the repo sub-path
 (`https://<user>.github.io/codehub/`). Invite links use the `#` fragment, so no 404 fallback is needed.
+Each build writes `dist/version.json` (git short sha, build time); open tabs check it and offer a reload after a deploy
+(ARCHITECTURE.md "Update notice").
 
 One-time setup:
 
