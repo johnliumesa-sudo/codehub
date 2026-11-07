@@ -199,14 +199,22 @@ test('closing a tab removes its slot and tile; leaving cleans up slot and signal
   expect(await alice.evaluate(() => window.__pcs.every((p) => p.signalingState === 'closed'))).toBe(true);
 });
 
-test('a crashed tab leaves no ghost: its slot is removed by the others', async ({ users }) => {
-  const { alice, bob, a, b, slots } = await voiceRoom(users);
+test('a crashed tab leaves no ghost: hidden at once, its slot removed by the others after the 45 s grace', async ({ users }) => {
+  test.setTimeout(180_000);
+  const { alice, bob, a, b, sid, cid, slots } = await voiceRoom(users);
   const cdp = await bob.context().newCDPSession(bob);
   cdp.send('Page.crash').catch(() => {});
-  // The server marks the slot offline (hb = 0); once the media path is gone too, Alice removes it.
+  // The server marks the slot away (hb = the disconnect time, away = true); once the media path is
+  // gone too, Alice hides it, but nobody may remove it before its heartbeat is 45 s old (a short
+  // network blip must not drop anyone from the call).
   await expect(tile(alice, b)).toHaveCount(0, { timeout: 45_000 });
-  await expect.poll(slots, { timeout: 10_000 }).toEqual([a]);
   await expect(alice.locator('.call-head')).toContainText('1 in call');
+  const away = Object.values((await adminGet(`vcalls/${sid}/${cid}/slots`)) || {}).find((s) => s.uid === b);
+  expect(away?.away).toBe(true);
+  expect(typeof away.hb).toBe('number');
+  const until = away.hb + 45_000;
+  await expect.poll(slots, { timeout: 75_000, intervals: [1_000] }).toEqual([a]);
+  expect(Date.now()).toBeGreaterThanOrEqual(until - 2_000); // not before the grace (2 s for clock skew)
 });
 
 test('a stalled tab stops its heartbeat: its slot is cleared after 45 s, and it rejoins when it recovers', async ({ users }) => {

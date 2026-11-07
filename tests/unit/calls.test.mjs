@@ -18,7 +18,9 @@ test('slot liveness: heartbeat age, offline marker, older clients', () => {
   assert.equal(slotLiveness({ uid: 'a', hb: now - 1000 }, now), 'live');
   assert.equal(slotLiveness({ uid: 'a', hb: now - HB_STALE_MS }, now), 'live');
   assert.equal(slotLiveness({ uid: 'a', hb: now - HB_STALE_MS - 1 }, now), 'stale');
-  assert.equal(slotLiveness({ uid: 'a', hb: 0 }, now), 'away');
+  assert.equal(slotLiveness({ uid: 'a', hb: now - 1000, away: true }, now), 'away', 'offline marker (onDisconnect)');
+  assert.equal(slotLiveness({ uid: 'a', hb: now - HB_STALE_MS - 1, away: true }, now), 'stale', 'away for 45 s: gone');
+  assert.equal(slotLiveness({ uid: 'a', hb: 0 }, now), 'stale', 'legacy offline marker (hb = 0)');
   assert.equal(slotLiveness({ uid: 'a', joinedAt: 1 }, now), 'live', 'no hb: written by an older client, trusted');
   assert.equal(slotLiveness(null, now), 'stale');
   assert.equal(slotLiveness({ hb: now }, now), 'stale', 'no uid');

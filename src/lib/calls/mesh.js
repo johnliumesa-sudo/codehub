@@ -65,7 +65,7 @@ export class CallSession {
     this.dbConnected = null;
     this.reconnectedAt = 0;
     this.lastBeatOk = 0;
-    this.lastOwnHb = null;
+    this.lastOwnAway = false;
     this.awaySince = new Map(); // `${uid}:${joinedAt}` -> local ms first seen offline
     this.ghostsRemoved = new Set();
     this.rejoining = false;
@@ -171,7 +171,7 @@ export class CallSession {
     const slot = this.slot;
     if (!slot || this.closed) return;
     const sentAt = Date.now(); // not the ack time: an ack processed after a stall would look fresh
-    updateSlot(this.scope, slot.index, { hb: serverTimestamp() }).then(() => {
+    updateSlot(this.scope, slot.index, { hb: serverTimestamp(), away: null }).then(() => {
       if (this.slot === slot) this.lastBeatOk = Math.max(this.lastBeatOk, sentAt);
     }, () => {});
   }
@@ -184,7 +184,7 @@ export class CallSession {
       return;
     }
     if (was !== false || this.closed) return;
-    // Back online: the server ran my onDisconnect (hb = 0). Re-arm it and refresh the heartbeat.
+    // Back online: the server ran my onDisconnect (away). Re-arm it and refresh the heartbeat.
     this.reconnectedAt = Date.now();
     this.staleViewUntil = this.reconnectedAt + 5_000;
     if (this.slot) {
@@ -208,9 +208,9 @@ export class CallSession {
     if (this.slot && !this.rejoining) {
       const own = slots[this.slot.index];
       if (!own || own.uid !== this.me) return this.onOwnSlotLost();
-      this.lastOwnHb = own.hb ?? null;
+      this.lastOwnAway = own.away === true;
       if (typeof own.joinedAt === 'number') this.slot.joinedAt = own.joinedAt;
-      if (own.hb === 0 && this.dbConnected) this.beat(); // marked offline by a stale onDisconnect
+      if (own.away === true && this.dbConnected) this.beat(); // marked away by a stale onDisconnect
     }
     const visible = {};
     const present = new Map();
@@ -244,7 +244,11 @@ export class CallSession {
     this.emit();
   }
 
-  /** A slot whose owner is gone: heartbeat 45 s old, or offline with no working media path for 6 s. */
+  /**
+   * A slot whose owner is gone: heartbeat 45 s old (removed: the rules allow it), or away with no
+   * working media path for 6 s (hidden and its connection closed, but never removed before its 45 s
+   * grace: it comes back as soon as the owner's heartbeat does).
+   */
   isGhost(index, s, now, local) {
     const live = slotLiveness(s, now);
     const key = `${s.uid}:${s.joinedAt}`;
@@ -259,7 +263,7 @@ export class CallSession {
         return false;
       }
       if (!this.awaySince.has(key)) this.awaySince.set(key, local);
-      if (local - this.awaySince.get(key) < AWAY_GRACE_MS) return false;
+      return local - this.awaySince.get(key) >= AWAY_GRACE_MS;
     }
     const gk = `${index}:${key}:${s.hb}`;
     if (!this.ghostsRemoved.has(gk)) {
@@ -275,7 +279,7 @@ export class CallSession {
     const now = Date.now();
     // Lost while my connection was down or my tab was frozen (others then remove the slot): rejoin.
     // Removed while I was online and beating (e.g. a server admin disconnected me): end the call.
-    const wasAway = this.dbConnected === false || this.lastOwnHb === 0 || now - this.lastBeatOk > HB_STALE_MS - 5_000
+    const wasAway = this.dbConnected === false || this.lastOwnAway || now - this.lastBeatOk > HB_STALE_MS - 5_000
       || now - this.reconnectedAt < 20_000 || now - this.stalledAt < 20_000 || now - this.lastTick > 5_000;
     if (!wasAway) {
       this.error = 'You were disconnected from the call';
