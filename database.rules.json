@@ -1294,6 +1294,9 @@
      "createdAt": {
       ".validate": "newData.val() === data.val() || (!data.parent().exists() && newData.val() === now)"
      },
+     "premium": {
+      ".validate": "newData.val() === true"
+     },
      "data": {
       ".validate": "newData.hasChildren()",
       "tokens": {
@@ -1328,7 +1331,7 @@
    "$uid": {
     ".read": "$uid === auth.uid",
     ".write": "$uid === auth.uid && newData.exists()",
-    ".validate": "newData.hasChildren(['balance','lastClaim']) && newData.child('balance').isNumber() && newData.child('balance').val() >= 0 && newData.child('balance').val() % 1 === 0 && ( (!data.exists() && newData.child('balance').val() === 100 && newData.child('lastClaim').val() === now && !newData.hasChild('lastItem')) || (data.exists() && newData.child('lastClaim').val() === now && now - data.child('lastClaim').val() >= 72000000 && newData.child('balance').val() === data.child('balance').val() + 100 && newData.child('lastItem').val() === data.child('lastItem').val()) || (newData.child('lastClaim').val() === data.child('lastClaim').val() && newData.child('lastItem').isString() && root.child('shop/items/' + newData.child('lastItem').val() + '/active').val() === true && root.child('shop/items/' + newData.child('lastItem').val() + '/price').isNumber() && newData.child('balance').val() === data.child('balance').val() - root.child('shop/items/' + newData.child('lastItem').val() + '/price').val() && !root.child('inventory/' + $uid + '/' + newData.child('lastItem').val()).exists() && newData.parent().parent().child('inventory/' + $uid + '/' + newData.child('lastItem').val()).exists()) || (newData.child('lastClaim').val() === data.child('lastClaim').val() && newData.child('balance').val() === data.child('balance').val() + root.child('earnings/' + $uid + '/' + newData.child('lastEarn').val() + '/price').val() && !newData.parent().parent().child('earnings/' + $uid + '/' + newData.child('lastEarn').val()).exists()) )",
+    ".validate": "newData.hasChildren(['balance','lastClaim']) && newData.child('balance').isNumber() && newData.child('balance').val() >= 0 && newData.child('balance').val() % 1 === 0 && ( (!data.exists() && newData.child('balance').val() === 100 && newData.child('lastClaim').val() === now && !newData.hasChild('lastItem')) || (data.exists() && newData.child('lastClaim').val() === now && now - data.child('lastClaim').val() >= 72000000 && newData.child('balance').val() === data.child('balance').val() + (root.child('premium/' + $uid + '/until').isNumber() && root.child('premium/' + $uid + '/until').val() > now ? 200 : 100) && newData.child('lastItem').val() === data.child('lastItem').val()) || (newData.child('lastClaim').val() === data.child('lastClaim').val() && newData.child('lastItem').isString() && root.child('shop/items/' + newData.child('lastItem').val() + '/active').val() === true && root.child('shop/items/' + newData.child('lastItem').val() + '/price').isNumber() && newData.child('balance').val() === data.child('balance').val() - root.child('shop/items/' + newData.child('lastItem').val() + '/price').val() && !root.child('inventory/' + $uid + '/' + newData.child('lastItem').val()).exists() && newData.parent().parent().child('inventory/' + $uid + '/' + newData.child('lastItem').val()).exists()) || (newData.child('lastClaim').val() === data.child('lastClaim').val() && newData.child('balance').val() === data.child('balance').val() + root.child('earnings/' + $uid + '/' + newData.child('lastEarn').val() + '/price').val() && !newData.parent().parent().child('earnings/' + $uid + '/' + newData.child('lastEarn').val()).exists()) )",
     "balance": {
      ".validate": "newData.isNumber()"
     },
@@ -1351,7 +1354,7 @@
     ".read": "$uid === auth.uid",
     "$itemId": {
      ".write": "$uid === auth.uid && !data.exists() && newData.exists()",
-     ".validate": "newData.hasChildren(['at','price']) && newData.child('at').val() === now && root.child('shop').child('items').child($itemId).child('active').val() === true && newData.child('price').val() === root.child('shop').child('items').child($itemId).child('price').val() && (newData.child('price').val() === 0 || (newData.parent().parent().parent().child('wallets').child($uid).child('lastItem').val() === $itemId && newData.parent().parent().parent().child('wallets').child($uid).child('balance').val() === root.child('wallets').child($uid).child('balance').val() - newData.child('price').val()))",
+     ".validate": "newData.hasChildren(['at','price']) && newData.child('at').val() === now && root.child('shop').child('items').child($itemId).child('active').val() === true && (!root.child('shop/items/' + $itemId + '/premium').exists() || root.child('premium/' + $uid + '/until').val() > now) && newData.child('price').val() === root.child('shop').child('items').child($itemId).child('price').val() && (newData.child('price').val() === 0 || (newData.parent().parent().parent().child('wallets').child($uid).child('lastItem').val() === $itemId && newData.parent().parent().parent().child('wallets').child($uid).child('balance').val() === root.child('wallets').child($uid).child('balance').val() - newData.child('price').val()))",
      "at": {
       ".validate": "newData.isNumber()"
      },
@@ -1508,6 +1511,27 @@
    "$uid": {
     ".write": "$uid === auth.uid && (!newData.exists() || newData.parent().parent().child('admins').child($uid).exists())",
     ".validate": "newData.val() === true"
+   }
+  },
+  "premium": {
+   ".read": "root.child('admins').child(auth.uid).exists()",
+   "$uid": {
+    ".read": "auth != null",
+    ".write": "newData.exists() ? $uid === auth.uid && newData.child('m').val() !== data.child('m').val() && root.child('premiumCodes/' + newData.child('m').val() + '/c').val() === root.child('promoAttempts/' + $uid + '/code').val() && now - root.child('promoAttempts/' + $uid + '/at').val() <= 120000 && root.child('premiumCodes/' + newData.child('m').val() + '/from').val() <= now && now < root.child('premiumCodes/' + newData.child('m').val() + '/until').val() : $uid === auth.uid || root.child('admins').child(auth.uid).exists()",
+    ".validate": "newData.child('at').val() === now && newData.child('until').val() <= now + 2592000000 && newData.child('until').val() > now + 2591940000 && newData.child('m').val().matches(/^[0-9]{6}$/)",
+    "$f": {
+     ".validate": "$f.matches(/^(at|until|m)$/)"
+    }
+   }
+  },
+  "premiumCodes": {
+   ".read": "root.child('admins').child(auth.uid).exists() && root.child('config/ownerPass').val().length >= 12 && root.child('promoAttempts/' + auth.uid + '/code').val() === root.child('config/ownerPass').val() && now - root.child('promoAttempts/' + auth.uid + '/at').val() <= 900000",
+   ".write": "root.child('admins').child(auth.uid).exists() && root.child('config/ownerPass').val().length >= 12 && root.child('promoAttempts/' + auth.uid + '/code').val() === root.child('config/ownerPass').val() && now - root.child('promoAttempts/' + auth.uid + '/at').val() <= 900000",
+   "$m": {
+    ".validate": "$m.matches(/^[0-9]{6}$/) && newData.child('c').val().length >= 8 && newData.child('c').val().length <= 64 && newData.child('from').isNumber() && newData.child('until').val() > newData.child('from').val()",
+    "$f": {
+     ".validate": "$f.matches(/^(c|from|until)$/)"
+    }
    }
   },
   "reports": {
