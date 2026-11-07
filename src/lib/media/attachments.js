@@ -5,7 +5,10 @@
 //       may contain '_' and rules cannot split the scope string.
 //   att/{scope}/{attId}/c/{i} = { iv, ct }   i ∈ 0..7, ct ≤ 100000, AAD `att:{scope}/{attId}/{i}`
 // Messages reference attachments as body.attachments = [{ attId, w, h, mime, size }] (≤ 4).
-// Chunks are fetched lazily (IntersectionObserver) and kept as object URLs in a ≤ 50 MB LRU.
+// Voice messages (round 3) are attachments too: { attId, kind: 'audio', mime, size, dur, wave } (at most
+// one per message, ≤ 512 KB, see audio.js); the encrypted meta holds { kind: 'audio', mime, dur, name }.
+// Chunks are fetched lazily (IntersectionObserver; voice messages on first play) and kept as object
+// URLs in a ≤ 50 MB LRU.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, push, ref, remove, serverTimestamp, set, update } from 'firebase/database';
 import { db } from '../firebase.js';
@@ -14,6 +17,7 @@ import { currentUid } from '../keystore.js';
 import { blobCache } from './cache.js';
 import { STORED_MIMES, assertDims, processImage } from './image.js';
 import { keyForScope, scopeOf } from './scope.js';
+import { AUDIO_MAX_BYTES, AUDIO_MIMES, cleanAudioAtt } from './audio.js';
 
 export const MAX_ATTACHMENTS = 4;
 export const ATT_MAX_DIM = 1600;
@@ -25,19 +29,34 @@ export const attMetaAad = (scope, attId) => `att-meta:${scope}/${attId}`;
 export const attChunkAad = (scope, attId, i) => `att:${scope}/${attId}/${i}`;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** Validates and normalises body.attachments from a decrypted message (drops anything malformed). */
+/**
+ * Validates and normalises body.attachments from a decrypted message (drops anything malformed).
+ * Images keep { attId, mime, w, h, size }; a voice message (at most one) keeps cleanAudioAtt's shape.
+ */
 export function cleanAttachments(list) {
   if (!Array.isArray(list)) return [];
-  return list
-    .filter((a) => a && ID_RE.test(a.attId) && STORED_MIMES.includes(a.mime))
-    .slice(0, MAX_ATTACHMENTS)
-    .map((a) => ({
+  let audio = 0;
+  const out = [];
+  for (const a of list) {
+    if (out.length >= MAX_ATTACHMENTS) break;
+    if (a?.kind === 'audio') {
+      const clean = audio === 0 ? cleanAudioAtt(a) : null;
+      if (clean) {
+        audio++;
+        out.push(clean);
+      }
+      continue;
+    }
+    if (!a || a.kind !== undefined || !ID_RE.test(a.attId) || !STORED_MIMES.includes(a.mime)) continue;
+    out.push({
       attId: a.attId,
       mime: a.mime,
       w: Math.max(1, Math.min(ATT_MAX_DIM, Number(a.w) | 0)),
       h: Math.max(1, Math.min(ATT_MAX_DIM, Number(a.h) | 0)),
       size: Math.max(0, Number(a.size) | 0),
-    }));
+    });
+  }
+  return out;
 }
 
 /**
@@ -105,11 +124,88 @@ export async function uploadAttachments(conv, files, { onProgress } = {}) {
 }
 
 /**
+ * Encrypts and uploads one voice recording into the conversation, exactly like an image (same meta,
+ * chunk size, membership rules and upload rate limit). Resolves the body.attachments entry
+ * { attId, kind: 'audio', mime, size, dur, wave }.
+ * @param {Blob} blob   the recording (≤ 512 KB)
+ * @param {{ mime: string, dur: number, wave?: string, onProgress?: (fraction: number) => void }} info
+ */
+export async function uploadAudio(conv, blob, { mime, dur, wave, onProgress } = {}) {
+  const uid = currentUid();
+  if (!uid) throw new Error('Vault is locked');
+  if (!AUDIO_MIMES.includes(mime)) throw new Error('Unsupported audio format');
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  if (!bytes.length) throw new Error('The recording is empty');
+  if (bytes.length > AUDIO_MAX_BYTES) throw new Error('Voice messages can be at most 512 KB');
+  const entry = cleanAudioAtt({ attId: 'pending', kind: 'audio', mime, size: bytes.length, dur, wave });
+  if (!entry) throw new Error('Invalid recording');
+  const n = Math.ceil(bytes.length / ATT_CHUNK_BYTES);
+  if (n < 1 || n > ATT_MAX_CHUNKS) throw new Error('Recording too large');
+  const scope = scopeOf(conv);
+  const { key, epoch } = await keyForScope(conv);
+  const attId = push(ref(db, `att/${scope}`)).key;
+  const base = `att/${scope}/${attId}`;
+  const box = await encryptJSON(key, { kind: 'audio', mime, dur: entry.dur, name: 'voice-message' }, attMetaAad(scope, attId));
+  const meta = { by: uid, ts: serverTimestamp(), n, size: bytes.length, iv: box.iv, ct: box.ct };
+  if (epoch != null) meta.epoch = epoch;
+  if (conv.kind === 'channel') {
+    meta.sid = conv.sid;
+    meta.cid = conv.cid;
+  } else if (conv.kind === 'group') meta.gid = conv.gid;
+  let done = 0;
+  onProgress?.(0);
+  await writeMetaLogged(uid, scope, attId, meta, 'Upload limit reached (24 attachments per 10 minutes). Try again shortly.');
+  try {
+    await Promise.all(
+      Array.from({ length: n }, async (_, i) => {
+        const slice = bytes.subarray(i * ATT_CHUNK_BYTES, (i + 1) * ATT_CHUNK_BYTES);
+        const c = await encryptBytes(key, slice, attChunkAad(scope, attId, i));
+        await set(ref(db, `${base}/c/${i}`), { iv: c.iv, ct: c.ct });
+        done++;
+        onProgress?.(Math.min(1, done / n));
+      }),
+    );
+  } catch (e) {
+    await remove(ref(db, base)).catch(() => {});
+    throw e;
+  }
+  return { ...entry, attId };
+}
+
+/** Fetches, decrypts and caches one voice message; resolves an object URL. */
+export function loadAudio(conv, att) {
+  const clean = cleanAudioAtt(att);
+  if (!clean) return Promise.reject(new Error('Invalid voice message'));
+  const scope = scopeOf(conv);
+  return blobCache.load(`${scope}/${clean.attId}`, async () => {
+    const base = `att/${scope}/${clean.attId}`;
+    const ms = await get(ref(db, `${base}/meta`));
+    if (!ms.exists()) throw new Error('Voice message was deleted');
+    const meta = ms.val();
+    const n = Number(meta.n);
+    if (!Number.isInteger(n) || n < 1 || n > ATT_MAX_CHUNKS) throw new Error('Corrupt voice message');
+    const { key } = await keyForScope(conv, meta.epoch);
+    const info = await decryptJSON(key, meta, attMetaAad(scope, clean.attId));
+    if (info?.kind !== 'audio' || !AUDIO_MIMES.includes(info.mime)) throw new Error('Not a voice message');
+    const parts = await Promise.all(
+      Array.from({ length: n }, async (_, i) => {
+        const cs = await get(ref(db, `${base}/c/${i}`));
+        if (!cs.exists()) throw new Error('Voice message is incomplete');
+        return decryptBytes(key, cs.val(), attChunkAad(scope, clean.attId, i));
+      }),
+    );
+    const total = parts.reduce((s, p) => s + (p.byteLength ?? p.length ?? 0), 0);
+    if (total > AUDIO_MAX_BYTES) throw new Error('Voice message is too large');
+    return new Blob(parts, { type: info.mime });
+  });
+}
+
+/**
  * Rules require each attachment meta write to carry an `attLog/{uid}` update in the
  * same multi-path write (≤24 uploads per 10-minute window). Try continuing the
  * current window first; if the window has expired the rules refuse it, so start a new one.
  */
-async function writeMetaLogged(uid, scope, attId, meta) {
+async function writeMetaLogged(uid, scope, attId, meta, limitMsg = 'Upload limit reached (24 images per 10 minutes). Try again shortly.') {
   const prev = (await get(ref(db, `attLog/${uid}`))).val();
   const attempts = [];
   if (prev && typeof prev.ws === 'number' && typeof prev.n === 'number') attempts.push({ ws: prev.ws, n: prev.n + 1 });
@@ -126,7 +222,7 @@ async function writeMetaLogged(uid, scope, attId, meta) {
       lastErr = e;
     }
   }
-  const err = new Error('Upload limit reached (24 images per 10 minutes). Try again shortly.');
+  const err = new Error(limitMsg);
   err.cause = lastErr;
   throw err;
 }
