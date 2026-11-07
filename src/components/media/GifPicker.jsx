@@ -5,10 +5,10 @@ import { errMsg, normalizeGif } from './util.js';
 
 const PAGE = 24;
 
-/** Toggle-button + popover. onPick receives { url, w, h } (validated GIPHY URL). */
-export function GifPicker({ onPick, onClose }) {
+/** Toggle-button + popover. onPick receives { url, w, h } (validated GIPHY URL). initialQuery prefills the search. */
+export function GifPicker({ onPick, onClose, initialQuery = '' }) {
   const key = useGiphyKey();
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(() => String(initialQuery || '').slice(0, 50));
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
