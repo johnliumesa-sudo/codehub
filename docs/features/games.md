@@ -2,7 +2,8 @@
 
 Codehub runs other people's code in three places: **Arcade games**, the **live preview** of a workspace
 and the **Run** button under code in chat. All three use the same sandboxed iframe with the **play**
-profile. Add-ons keep the older, stricter **strict** profile, unchanged.
+CSP and runtime; chat Run uses the **snippet** variant (no fullscreen or pointer lock). Add-ons keep the
+older, stricter **strict** profile, unchanged.
 
 Code: `src/lib/sandbox.js` (profiles, `buildSrcdoc`, bundler, preview documents), `src/lib/sandboxPlay.js`
 (play CSP, CDN allowlist and rewrites, the in-frame runtime), `src/lib/esmScan.js` (JavaScript import
@@ -20,7 +21,8 @@ Before this change most pasted HTML games did not work (see "Why games broke"). 
   (Phaser, p5.js, three.js, Kaboom, confetti …), and fonts from **Google Fonts**;
 - be split into **ES modules** (`<script type="module" src="main.js">` plus `import './player.js'`),
   import **npm packages by name** (`import confetti from 'canvas-confetti'`; versions from
-  `package.json`), and read **workspace files** with `fetch('levels.json')`, `XMLHttpRequest`,
+  `package.json`), import **CSS from modules** (`import './style.css'`, CSS modules, package
+  stylesheets, as Vite and CRA projects do), and read **workspace files** with `fetch('levels.json')`, `XMLHttpRequest`,
   `new Image().src = 'ship.svg'`, `script.src`, `new Worker('worker.js')` and CSS `url(bg.svg)`;
 - keep a **high score in `localStorage`** (also `sessionStorage` and `document.cookie`). In the Arcade
   it is saved per game on your device, so Restart, a reload and the next visit continue from it;
@@ -42,12 +44,16 @@ storage. A CSP `<meta>` is the first thing in the document; a policy the game ad
 Neither profile ever gets `allow-same-origin`, `allow-popups`, `allow-top-navigation`, `allow-forms` or
 `allow-modals`.
 
-| | strict (add-ons) | play (games, preview, chat Run) |
-|---|---|---|
-| `sandbox` | `allow-scripts` | `allow-scripts allow-pointer-lock` |
-| `allow` | (empty) | `fullscreen *; gamepad *; autoplay *` |
-| network | none | the CDN paths below, `data:`, `blob:` |
-| runtime | none | compatibility runtime (storage, dialogs, error reports) |
+| | strict (add-ons) | play (games, preview) | snippet (chat Run) |
+|---|---|---|---|
+| `sandbox` | `allow-scripts` | `allow-scripts allow-pointer-lock` | `allow-scripts` |
+| `allow` | (empty) | `fullscreen *; gamepad *; autoplay *` | (empty) |
+| CSP | strict | play | play |
+| network | none | the CDN paths below, `data:`, `blob:` | same as play |
+| runtime | none | compatibility runtime (storage, dialogs, error reports, no WebRTC, no nested frames) | same as play |
+
+Chat Run code comes from any chat author (a DM from a stranger included) and runs after one click, so it
+gets no fullscreen or pointer lock: it can't cover Codehub with a fake screen.
 
 `*` in `allow` is needed because Firefox and WebKit don't match a `srcdoc` frame against the default
 allowlist. The strict profile is byte-for-byte the original one (`tests/unit/games.test.mjs` checks the
@@ -83,7 +89,7 @@ arbitrary URL** for the game:
 - `cdnjs.cloudflare.com/ajax/libs/`, `unpkg.com/`: npm/cdnjs packages.
 - `fonts.googleapis.com/css`, `/css2` and `fonts.gstatic.com/s/`: Google Fonts.
 - **Not allowed:** `esm.sh` and Skypack (they build code on their servers, from GitHub or any URL),
-  every other host, WebSockets.
+  every other host, WebSockets, WebRTC (removed by the runtime, see below).
 
 `eval` and WebAssembly add no capability inside an opaque origin; `'unsafe-inline'` already allowed any
 script.
@@ -91,7 +97,10 @@ script.
 The bundler rewrites well-known URLs that have an exact allowed equivalent, so pasted code keeps working:
 `https://esm.sh/pkg@v[/sub]` and `https://cdn.skypack.dev/pkg@v` become
 `https://cdn.jsdelivr.net/npm/pkg@v[/sub]/+esm`, and `https://code.jquery.com/jquery-X.Y.Z(.min).js`
-becomes the same file on jsDelivr. `http://` URLs on an allowed CDN become `https://`.
+becomes the same file on jsDelivr. The Tailwind Play CDN (`https://cdn.tailwindcss.com[/version]`, in most
+AI-made pages) becomes the official browser build `@tailwindcss/browser@4.3.5` on jsDelivr (Tailwind v4:
+utility classes work; a v3 `tailwind.config = {…}` object is ignored). `http://` URLs on an allowed CDN
+become `https://`.
 
 ## The compatibility runtime (play profile)
 
@@ -143,6 +152,19 @@ In the Arcade and the publish test run, the runtime posts uncaught errors, unhan
 as `{kind: 'error' | 'blocked', message, url?, directive?}`. In the preview and chat Run they go to the
 console instead.
 
+### Network the CSP doesn't cover, and focus
+
+- **WebRTC:** ICE (STUN/TURN) traffic isn't governed by `connect-src`, so a peer connection could reach
+  any host. The runtime replaces `RTCPeerConnection`, `webkitRTCPeerConnection`, `RTCDataChannel`,
+  `RTCIceTransport` and `RTCRtpTransceiver` with non-configurable `undefined`.
+- **Nested frames:** `frame-src 'none'` doesn't stop a `srcdoc` or `about:blank` frame, which would bring
+  a fresh window with its own WebRTC. A `MutationObserver` (also on open shadow roots, through
+  `attachShadow`) removes every `iframe`/`frame`/`object`/`embed` before it loads and logs one warning.
+  Nested frames couldn't load anything else anyway.
+- **Focus:** the runtime remembers the last element the game focused itself (or an `autofocus` element).
+  When the frame gets keyboard focus while nothing inside is focused, that element gets it back, so a
+  typing game that calls `input.focus()` on load takes typing in the Arcade without a click.
+
 ### Hook for runtimes built on top
 
 `window.__codehub` (frozen, non-enumerable): `{ version: 1, persistent, notice(label, text) }`.
@@ -155,7 +177,10 @@ console instead.
 snapshots must be plain objects of strings within the budget, and texts are capped. They are rendered
 as React text only.
 
-- **Storage messages:** accepted only when the host passed `storage.save` (the Arcade player).
+- **Storage messages:** accepted only when the host passed `storage.save` (the Arcade player). The
+  storage is bound to the document's token when it renders: a document's messages (including its
+  last flush while it unloads) only ever reach the storage it was rendered with, even if the `storage`
+  prop changes. The Arcade also remounts the player per game (`key={gameId}`).
 - **Self-reload:** a document that reloads itself (`location.reload()`) would restart from the data
   embedded in its `srcdoc`. The runtime says `hello` with a per-document id. When a second id appears
   for the same token, the frame is re-rendered from the latest saved data, and the old token's messages
@@ -184,8 +209,19 @@ document:
   - A bare import (`three`, `canvas-confetti`, `three/addons/…`) maps to
     `https://cdn.jsdelivr.net/npm/<name>@<version>[/sub]/+esm`. The version comes from the root
     `package.json` (`dependencies`, `devDependencies`, `peerDependencies`).
-  - A package without a version (or with a URL, git or file version) loads the latest. The publish
+  - A simple range (`^1.2.3`, `~1.2.3`, `>=1.2.3`) becomes the exact version (`exactVersion`): jsDelivr's
+    `+esm` builds import their dependencies by exact version, so a range would load a second copy of a
+    shared package.
+  - `react`, `react-dom` and `react/jsx-runtime` always use **one** exact version (`reactVersion`): the
+    exact one from `package.json`, else the last release of the major line named there (16.14.0, 17.0.2,
+    18.3.1, 19.3.1), else 19.3.1. The `react-dom` build of that version imports exactly that `react`, so
+    hooks work.
+  - Another package without a version (or with a URL, git or file version) loads the latest. The publish
     modal lists these as "unpinned".
+- **CSS imported from modules:** `import './style.css'` becomes a module that adds a `<style>` (with
+  `@import` and SVG `url()` inlined). `x.module.css` also default-exports `{ className: className }`
+  (class names stay as written). `import 'pkg/dist/x.css'` becomes a module that adds a `<link>` to the
+  file on jsDelivr.
 - **Workspace files read at run time:**
   - A text file named by a string literal in the code (`'levels.json'`, resolved against the page)
     is embedded and served to `fetch`, `XMLHttpRequest.open`, `HTMLImageElement.src`,
@@ -226,9 +262,12 @@ is exactly what gets published and what the Arcade plays. The play CSP is unchan
 - A file is offered as an entry unless another file loads it: a page's `<script src>`, a relative
   `import`/`export … from`/`import()` (with the `.js` → `.ts` convention), a Python `import`/`from … import`
   of its module name (`lib/util.py` = `lib.util`; `__init__.py` never), a Lua `require("a.b")` (`a/b.lua`).
-  When every file of a language is imported (a cycle), its `main`/`index`/`game` file is offered.
+  A module an HTML page loads (directly or through imports, `.js`/`.ts`/`.tsx`/`.jsx` alike) is never an
+  entry. When every file of a language is imported (a cycle) and no page loads any of them, its
+  `main`/`index`/`game` file is offered.
 - Order: HTML pages, then TypeScript, JavaScript, Python, Lua; `main`/`index`/`game`/`app` first.
-- The preview's "Auto" entry for a module is the page that loads it or the main entry of its language.
+- The preview's "Auto" entry, and the publish modal's default, for a module is the page that loads it,
+  else the main entry of its language.
 - `.c/.h/.cpp/.cc/.cxx/.hpp/.hh/.rs/.java/.kt/.kts`: never runnable. The publish modal names the languages
   it found and shows `UNSUPPORTED_MESSAGE`; the preview shows it for such a file.
 
@@ -250,9 +289,12 @@ is exactly what gets published and what the Arcade plays. The play CSP is unchan
   - the compiler is about 3.6 MB (1 MB gzipped) and only downloads when a TypeScript/JSX entry (or a page
     that loads a `.ts/.tsx/.jsx` script) is previewed or published. TypeScript 7 is the Go-native compiler
     with no JavaScript API, so 6.0.x is the newest usable version.
-- Everything else is `bundle()`: workspace modules, npm imports pinned from `package.json`, data files.
-- If `react` and `react-dom` versions differ, jsDelivr can load two copies of React: pin both to the same
-  version in `package.json`.
+- Everything else is `bundle()`: workspace modules, npm imports pinned from `package.json`, data files,
+  CSS imports. React loads once whatever the ranges in `package.json` (see "npm imports").
+- A `.jsx`/`.tsx` entry that only **exports a component** (`export default`, no `react-dom` import, no
+  `createRoot`/`hydrateRoot`, React's JSX) is mounted: the page gets a `<div id="root">` and
+  `createRoot(root).render(createElement(Default))`. A default export that isn't a component logs a clear
+  error instead.
 
 ### Python
 
@@ -283,8 +325,14 @@ is exactly what gets published and what the Arcade plays. The play CSP is unchan
 - **Errors:** tracebacks keep only the game's frames (runpy, Pyodide internals and Codehub's prelude are
   dropped) with workspace-relative file names. The summary (`ValueError: … (helpers.py line 7)`) is also
   reported to the Arcade's error panel and the preview console.
-- `from js import localStorage` reaches the play runtime's storage, so Python games keep high scores like
-  any other game.
+- **Files the game writes persist:** after the game's files are written (and before the entry runs), the
+  files saved under the `localStorage` key `__codehub_python_files__` are written back. Every second while
+  the game runs, and when it ends, new or changed text files in `/home/pyodide/game/` (not `__pycache__`
+  or `.pyc`; at most 64 K characters each, 256 K in all, 200 files) are saved under that key. In the
+  Arcade that is the game's saved data, so `open('best.txt', 'w')` survives Restart and a reload; the
+  preview keeps it for one run.
+- `from js import localStorage` reaches the play runtime's storage too.
+- The turtle shim's `goto`, `distance` and `towards` take `x, y`, a pair (tuple, list) or another turtle.
 
 ### Lua
 
@@ -314,7 +362,10 @@ is exactly what gets published and what the Arcade plays. The play CSP is unchan
 
 ## Arcade player
 
-- Keyboard focus goes to the game on load, after Restart and after full screen.
+- Keyboard focus goes to the game on load, after Restart and after full screen. Tab stays inside the
+  player, and closing it returns focus to the game's Play button.
+- One player per game (`key={gameId}`): opening another game while one plays (a notification, the
+  admin panel) starts a fresh player, and the old game's saved data can't reach the new one.
 - When focus is elsewhere (the toolbar, another window), a "Click the game to play with the keyboard"
   pill appears; only the pill takes clicks.
 - **Full screen** shows the game stage. Games may also call `requestFullscreen` themselves. Inside full
@@ -332,6 +383,8 @@ is exactly what gets published and what the Arcade plays. The play CSP is unchan
 ## Live preview
 
 - Runs with the play profile in preview mode (console bridge).
+- The publish dialog takes keyboard focus (its first field once the files are read), keeps Tab inside,
+  and returns focus to **Publish game** when it closes.
 - Game entries (any language) are built by `buildGameDoc`; the entry list shows each with its language.
   "Loading the TypeScript compiler…" shows while the lazy chunk loads.
 - The first run waits until the other workspace files are decrypted, so a page never starts without
@@ -342,8 +395,10 @@ is exactly what gets published and what the Arcade plays. The play CSP is unchan
 
 ## Chat
 
-- **Run** under HTML/CSS/JS uses the play profile (CDN libraries, storage, dialogs). The frame is 380 px
-  tall (300 px on phones).
+- **Run** under HTML/CSS/JS uses the snippet profile: the play CSP and runtime (CDN libraries, storage,
+  dialogs) with `sandbox="allow-scripts"` and `allow=""` (no fullscreen or pointer lock). The button's
+  tooltip says it can load public libraries from jsDelivr, cdnjs, unpkg and Google Fonts. The frame is
+  380 px tall (300 px on phones).
 - A message longer than 4,000 characters that is code goes out as a **code snippet** (≤ 45 KB) when you
   press Enter; the composer says "Sends as a code snippet". The cases:
   - one fenced block, or several in one language: that code;
@@ -355,12 +410,15 @@ is exactly what gets published and what the Arcade plays. The play CSP is unchan
 
 - Nothing changes for add-ons (strict profile, explicit `profile="strict"` in `AddonFrame`).
 - **What play frames can reach:**
-  - the network only at the pinned CDN paths, `data:` and `blob:`;
-  - no Codehub data, no other frames (`frame-src 'none'`), no forms, no popups;
+  - the network only at the pinned CDN paths, `data:` and `blob:` (WebRTC removed);
+  - no Codehub data, no other frames (`frame-src 'none'`, and nested `srcdoc` frames removed), no forms,
+    no popups;
   - from the parent page, only the validated storage snapshot of the game being played.
 - **Residual risks** (documented in the README):
   - A frame can navigate itself to any page. That page still has no access to Codehub.
-  - WebRTC is not covered by CSP in Chromium.
+  - WebRTC is not covered by CSP. Play frames remove it (and nested frames, which would bring it back),
+    but a closed declarative shadow root (`<template shadowrootmode="closed">`) can hide a nested frame
+    from the observer. Add-ons are not affected (their code runs in a Worker, which has no WebRTC).
   - jsDelivr's public per-file statistics are a slow, aggregate side channel.
   - Running a chat snippet or a game reveals your IP address to the CDNs it loads from.
 - Saved game data is the game's own data, kept unencrypted on your device and never uploaded.
@@ -408,6 +466,13 @@ always blamed the rate limit, and the Arcade cut emoji titles in half.
   - Python's JSPI paths need Chrome 137+. With Playwright's bundled Chromium 130 the tests check the
     "can't pause Python" behaviour; set `CODEHUB_E2E_CHROMIUM` to a newer Chromium/Chrome executable to run
     `input()` and pygame for real.
+- Review fixes: `games.test.mjs` (the snippet profile, one React version, CSS imports, the Tailwind
+  rewrite, WebRTC and nested-frame removal, focus restore in a VM DOM), `game-langs.test.mjs` (modules of
+  a page are never entries, component mounting, the Python file-save hooks, the turtle shim run in
+  CPython when `python3` is installed) and `49-games.spec.mjs` (a Vite-style React game with caret
+  versions, CSS imports and a module open in the editor, a component-only JSX file, an AI-style page with
+  Tailwind, a self-focused field, no WebRTC or nested frames and publish-dialog/player focus, Python files
+  and turtle `distance`, and saved data that stays with its game when a notification switches games).
 - `tests/unit/game-langs.test.mjs`: entry detection, TypeScript transpiling (and its errors), the JS/TS page,
   Python and Lua documents, the marker, titles, and the two templates (they build; the TypeScript one
   type-checks under `strict`).

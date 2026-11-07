@@ -412,7 +412,8 @@ Arcade games, the live preview and the chat **Run** button run code in an `<ifra
 
 - Code in the frame can't read your login session, your encryption keys, your messages, the Codehub page or
   Codehub's own storage.
-- Popups, forms, nested frames and top-level navigation are blocked.
+- Popups, forms, nested frames, WebRTC and top-level navigation are blocked.
+- Chat **Run** snippets also can't go full screen or lock the pointer (the code can come from anyone in a chat).
 - Native dialogs are blocked too (see below).
 - Console output and error reports are shown as plain text.
 - Nothing runs until you press Play or Run, and game code is fetched only then.
@@ -427,15 +428,15 @@ media from exactly these path prefixes:
 
 These hosts serve fixed package files and can't fetch an arbitrary URL for the game. Everything else is
 refused, including jsDelivr's `/gh/` (any GitHub repo), esm.sh and Skypack (they build code from any source),
-your own servers and WebSockets. The bundler rewrites esm.sh, Skypack and code.jquery.com links to the same
-package on jsDelivr. The exact policies are in [docs/features/games.md](docs/features/games.md).
+your own servers and WebSockets. The bundler rewrites esm.sh, Skypack, code.jquery.com and Tailwind Play CDN
+(`cdn.tailwindcss.com`) links to the same package on jsDelivr. The exact policies are in [docs/features/games.md](docs/features/games.md).
 
 **What persists.**
 
 - A game gets a working `localStorage`, `sessionStorage` and `document.cookie`. A game may store up to
   512 KB.
-- In the **Arcade**, what a game keeps in `localStorage` is saved per game and per account **on this device
-  only** (IndexedDB, 8 M characters for all games, least recently used dropped first). Restart, reloading
+- In the **Arcade**, what a game keeps in `localStorage` (and files a Python game writes in its folder, such as
+  `open('best.txt', 'w')`) is saved per game and per account **on this device only** (IndexedDB, 8 M characters for all games, least recently used dropped first). Restart, reloading
   Codehub and the next visit continue from it.
 - "Clear saved data" in the player removes it, and deleting your account removes all of it.
 - The preview, the publish test run and chat Run start empty every time.
@@ -456,8 +457,9 @@ Gaps that remain:
 
 - A game can still navigate *its own frame* to an external page (for example a fake "sign in again" screen shown
   inside Codehub). That page has no access to anything of yours, but never enter a password inside a game frame.
-- `connect-src` does not cover **WebRTC** in Chromium-based browsers, so a game can open a peer connection
-  through a STUN/TURN server. That can reveal your IP address and send out anything you type into the game.
+- `connect-src` does not cover **WebRTC**. Games, previews and chat snippets have it removed (and nested frames,
+  which would bring it back, are removed as they are added), but a determined page can hide a nested frame in a
+  closed shadow root. Like self-navigation, that could send out what you type into the game.
 - Loading a library tells that CDN your IP address, as any web page does. jsDelivr's public download statistics
   are a slow, aggregate side channel a game author could watch.
 

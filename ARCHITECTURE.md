@@ -305,7 +305,9 @@ Round 3 opened the catalog to every signed-in user and added creator earnings; d
     `allow=""`, `STRICT_CSP` (= `GAME_CSP`): `default-src 'none'; script-src 'unsafe-inline' blob: data:;
     style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none';
     form-action 'none'; base-uri 'none'`. The add-on Worker inherits this CSP; never loosen it.
-  - `play` (Arcade player and publish test run, live preview, chat Run): `sandbox="allow-scripts allow-pointer-lock"`,
+  - `snippet` (chat Run): the play CSP and runtime with `sandbox="allow-scripts"` and `allow=""` (no fullscreen or
+    pointer lock for code from any chat author).
+  - `play` (Arcade player and publish test run, live preview): `sandbox="allow-scripts allow-pointer-lock"`,
     `allow="fullscreen *; gamepad *; autoplay *"`, `PLAY_CSP` (`src/lib/sandboxPlay.js`):
     - `'unsafe-eval' 'wasm-unsafe-eval'`;
     - `data:`/`blob:` everywhere;
@@ -317,13 +319,19 @@ Round 3 opened the catalog to every signed-in user and added creator earnings; d
   - in-memory `localStorage`/`sessionStorage` (Storage API plus named properties, 512 KB per game) and `document.cookie`;
   - `alert` → in-frame notice, `confirm` → `true`, `prompt` → its default or `""`;
   - error and CSP-violation reports;
+  - no WebRTC (`RTCPeerConnection` and friends are non-configurable `undefined`; ICE isn't covered by `connect-src`)
+    and no nested frames (a `MutationObserver`, also on open shadow roots, removes `srcdoc`/`about:blank` frames that
+    would bring WebRTC back);
+  - focus restore: the element the game last focused itself gets focus back when the frame is focused;
   - `window.__codehub = { version, persistent, notice }`.
 - **Frame → parent messages** carry `__sbx: token` and are accepted only from that frame's window with that render's
   token (fresh per render). Payloads are validated by `readRuntimeMessage` and rendered as text.
   - Console lines: `{level, args}`, preview mode only, capped at 200 lines.
   - Runtime messages: `{kind: 'hello' | 'storage' | 'error' | 'blocked', …}`, play profile only.
-  - Storage snapshots are accepted only when the host passes `storage.save` (the Arcade player). A second `hello`
-    (the document reloaded itself) re-renders the frame from the saved data.
+  - Storage snapshots are accepted only when the host passes `storage.save` (the Arcade player), and go to the
+    storage the document was rendered with (bound to its token), never to a later `storage` prop. The Arcade mounts
+    one player per game (`key={gameId}`). A second `hello` (the document reloaded itself) re-renders the frame from
+    the saved data.
   - Strict frames that aren't in preview mode have no listener.
 - **Saved game data** (`src/lib/gameSaves.js`): IndexedDB `codehub-game-saves` / `saves`, key `<uid>/<gameId>`,
   device-only and unencrypted (the game's own data). Total 8 M characters / 200 games, LRU eviction. Cleared per game
@@ -332,21 +340,27 @@ Round 3 opened the catalog to every signed-in user and added creator earnings; d
   - inlines workspace CSS (with `@import` and SVG `url()`), classic JS and SVG `<img>`;
   - embeds ES module graphs (specifiers rewritten to `@codehub-ws/<path>` by `src/lib/esmScan.js`; a boot script makes
     `blob:` URLs and installs one import map merged with the page's own);
-  - maps bare imports to `cdn.jsdelivr.net/npm/<pkg>@<package.json version>/+esm`;
+  - maps bare imports to `cdn.jsdelivr.net/npm/<pkg>@<package.json version>/+esm` (simple ranges become the exact
+    version; `react`/`react-dom`/`react/jsx-runtime` share one exact version so React loads once);
+  - turns CSS imported from modules (`import './x.css'`, CSS modules, `import 'pkg/x.css'`) into modules that add the
+    stylesheet;
   - serves workspace text files named in code to `fetch`/XHR/`img.src`/`script.src`/`Worker`;
-  - rewrites esm.sh/Skypack/code.jquery.com URLs to jsDelivr, and reports external URLs with whether the CSP allows them.
+  - rewrites esm.sh/Skypack/code.jquery.com/cdn.tailwindcss.com URLs to jsDelivr, and reports external URLs with whether the CSP allows them.
   - Options `html`, `transform`, `moduleExts` let language runtimes compile other module types.
   - Size limits: preview ≤ 2 MB, game ≤ 262144 chars.
 - **Game languages** (`src/lib/gameLangs/`, used by the live preview and the publish modal, so the preview is what gets
   published): `findEntries`/`entryKind` pick runnable entries (HTML pages, and JS/TS/TSX/JSX/Python/Lua files no other
-  file imports); `buildGameDoc(entry, files, { ts })` returns one self-contained document.
+  file imports; a module an HTML page loads is never an entry); `buildGameDoc(entry, files, { ts })` returns one
+  self-contained document.
   - `.js`/`.ts`/`.tsx`/`.jsx`: `jsShellHtml` (canvas `#game` + on-screen console) bundled by `bundle()` with the
     `transform` option; TypeScript 6.0.3 `transpileModule` (`transpile.js`) is a lazy chunk (`loadTypeScript()`),
-    never in the start-up bundle.
+    never in the start-up bundle. A `.jsx`/`.tsx` entry that only default-exports a React component is mounted into
+    `#root`.
   - `.py`: Pyodide 314.0.7 from `https://cdn.jsdelivr.net/pyodide/v314.0.7/full/` (`python.js`): files written to
     `/home/pyodide/game/`, entry run with `runpy`; `input()`/`time.sleep`/pygame-ce timing through JSPI
     (`pyodide.ffi.run_sync`), a `sys.monitoring` JUMP watchdog that yields every 50 ms, a canvas turtle shim
-    (`pyTurtle.js`), tracebacks trimmed to the game's own frames.
+    (`pyTurtle.js`), tracebacks trimmed to the game's own frames; text files the game writes in its folder are kept
+    in its `localStorage` (key `__codehub_python_files__`) and written back on the next run.
   - `.lua`: wasmoon 1.16.0 from jsDelivr (`lua.js`), files mounted for `require`, a 4 s busy-loop guard.
   - Generated documents start with `<meta name="codehub-lang" content="…">` (`langOfDoc`); C, C++, Rust, Java and
     Kotlin get `UNSUPPORTED_MESSAGE`. No CSP change: the play CSP already allows these CDN paths and wasm.

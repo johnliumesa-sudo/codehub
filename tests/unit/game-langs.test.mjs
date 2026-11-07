@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +16,16 @@ import { jsShellHtml } from '../../src/lib/gameLangs/jsShell.js';
 import { readTsConfig } from '../../src/lib/gameLangs/transpile.js';
 import { MAX_GAME_CHARS, WS_PREFIX } from '../../src/lib/sandbox.js';
 import { getTemplate, templateFiles } from '../../src/lib/codespaceTemplates.js';
+import { TURTLE_PY } from '../../src/lib/gameLangs/pyTurtle.js';
+
+function hasPython() {
+  try {
+    execFileSync('python3', ['-c', 'pass'], { stdio: 'ignore', timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const F = (obj) => Object.entries(obj).map(([path, text]) => ({ path, text }));
 const paths = (list) => list.map((e) => e.path);
@@ -311,4 +322,91 @@ test('templates: the Python and TypeScript games build into publishable document
   const diags = ts.getPreEmitDiagnostics(prog).map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
   rmSync(dir, { recursive: true, force: true });
   assert.deepEqual(diags, []);
+});
+
+// ---------- review fixes ----------
+
+test('findEntries: modules an HTML page loads are never offered as entries, even when they are open', () => {
+  const asteroid = F({
+    'index.html': '<canvas id="c"></canvas><script type="module" src="js/main.js"></script>',
+    'js/main.js': "import { Ship } from './ship.js';\nimport { clamp } from './util/math.js';",
+    'js/ship.js': "import { clamp } from './util/math.js';\nexport class Ship {}",
+    'js/util/math.js': 'export const clamp = (v) => v;',
+  });
+  assert.deepEqual(paths(findEntries(asteroid)), ['index.html']);
+  for (const open of ['js/main.js', 'js/ship.js', 'js/util/math.js']) assert.equal(autoGameEntry(open, asteroid), 'index.html', open);
+  // The Web starter / Canvas game layout: a classic script loaded by the page.
+  const starter = F({ 'index.html': '<script src="main.js"></script>', 'main.js': 'draw()' });
+  assert.deepEqual(paths(findEntries(starter)), ['index.html']);
+  // A Vite TypeScript / React project: index.html -> /src/main.ts|tsx -> other modules.
+  const vite = F({
+    'index.html': '<div id="root"></div><script type="module" src="/src/main.tsx"></script>',
+    'src/main.tsx': "import App from './App';\nimport './index.css';",
+    'src/App.tsx': "import { Board } from './Board.js';\nexport default function App() { return null; }",
+    'src/Board.ts': 'export const Board = 1;',
+    'src/index.css': '',
+  });
+  assert.deepEqual(paths(findEntries(vite)), ['index.html']);
+  for (const open of ['src/main.tsx', 'src/App.tsx', 'src/Board.ts']) assert.equal(autoGameEntry(open, vite), 'index.html', open);
+  // A real cycle with no page still offers its main file.
+  assert.deepEqual(paths(findEntries(F({ 'main.js': "import './b.js'", 'b.js': "import './main.js'" }))), ['main.js']);
+});
+
+test('JSX/TSX entry that only exports a component is mounted into #root with one React', () => {
+  const files = F({
+    'ReactionGame.jsx': "import { useState } from 'react';\nexport default function ReactionGame() { const [n] = useState(0); return <p>{n}</p>; }",
+  });
+  const d = buildGameDoc('ReactionGame.jsx', files, { ts });
+  assert.equal(d.error, null);
+  assert.match(d.html, /<div id="root"><\/div>/);
+  assert.match(d.html, /createRoot\(document\.getElementById\(\\?"root\\?"\)\)\.render\(createElement\(C\)\)/);
+  const urls = d.external.map((e) => e.url).sort();
+  assert.deepEqual(urls, [
+    'https://cdn.jsdelivr.net/npm/react-dom@19.3.1/client/+esm',
+    'https://cdn.jsdelivr.net/npm/react@19.3.1/+esm',
+    'https://cdn.jsdelivr.net/npm/react@19.3.1/jsx-runtime/+esm',
+  ]);
+  // A file that renders itself, or isn't React's JSX, is left alone.
+  const self = F({ 'main.jsx': "import { createRoot } from 'react-dom/client';\nexport default 1;\ncreateRoot(document.body).render(<p/>);" });
+  assert.doesNotMatch(buildGameDoc('main.jsx', self, { ts }).html, /<div id="root">/);
+  const preact = F({ 'main.tsx': 'export default function A() { return <p/>; }', 'tsconfig.json': '{"compilerOptions":{"jsxImportSource":"preact"}}' });
+  assert.doesNotMatch(buildGameDoc('main.tsx', preact, { ts }).html, /<div id="root">/);
+});
+
+test('Python document keeps files the game writes (reserved localStorage key)', () => {
+  const d = pythonDoc('main.py', F({ 'main.py': "open('best.txt', 'w').write('5')" }));
+  assert.match(d.html, /"saveKey":"__codehub_python_files__"/);
+  assert.match(d.html, /function saveFiles\(py, files\)/);
+  assert.match(d.html, /restoreSaved\(py, files\)/);
+});
+
+test('turtle shim: distance/towards/goto accept another turtle, a pair or x, y', { skip: !hasPython() && 'python3 not installed' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cx-turtle-'));
+  try {
+    // A stand-in for `from js import document`: a canvas whose context accepts any call.
+    writeFileSync(join(dir, 'js.py'), [
+      'class _Any:',
+      '    width = 640',
+      '    height = 400',
+      '    hidden = True',
+      '    def __getattr__(self, n): return _Any()',
+      '    def __call__(self, *a, **k): return _Any()',
+      '    def __setattr__(self, n, v): pass',
+      'document = _Any()',
+      'window = _Any()',
+    ].join('\n'));
+    writeFileSync(join(dir, 'turtle.py'), TURTLE_PY);
+    writeFileSync(join(dir, 'check.py'), [
+      'import turtle',
+      'a = turtle.Turtle(); b = turtle.Turtle()',
+      'b.penup(); b.goto(30, 40)',
+      'print(round(a.distance(b), 3), round(a.distance((30, 40)), 3), round(a.distance(30, 40), 3))',
+      'print(round(a.towards(b), 3))',
+      'c = turtle.Turtle(); c.penup(); c.goto(b); print(c.pos())',
+    ].join('\n'));
+    const out = execFileSync('python3', ['-I', '-c', `import sys; sys.path.insert(0, ${JSON.stringify(dir)}); exec(open(${JSON.stringify(join(dir, 'check.py'))}).read())`], { encoding: 'utf8', timeout: 20_000 });
+    assert.deepEqual(out.trim().split('\n'), ['50.0 50.0 50.0', '53.13', '(30.0, 40.0)']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

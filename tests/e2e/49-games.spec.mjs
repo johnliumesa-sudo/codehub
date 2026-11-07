@@ -4,6 +4,10 @@
 // pasted into chat. Games in other languages: a multi-file TypeScript/TSX game, a JavaScript-only
 // game (also published under rules that predate games/{id}/lang), Python (print/input console,
 // tracebacks, pygame-ce), the Python and TypeScript templates, and the message for C/C++/Rust/Java.
+// Review fixes: a Vite-style React project (caret versions, CSS imports, a module open in the editor),
+// a component-only JSX file, an AI-style page (Tailwind Play CDN, a self-focused field, no WebRTC or
+// nested frames, dialog focus), Python files that persist and turtle.distance(turtle), and saved data
+// that stays with its own game when the player switches games.
 // CDN requests (also Pyodide and pygame-ce) are served from a local cache (page.route), never the
 // network, once the cache is filled (CODEHUB_CDN_CACHE, default <tmp>/codehub-cdn-cache).
 // Python's input(), time.sleep and pygame loops need WebAssembly JSPI (Chrome 137+): with the
@@ -26,7 +30,18 @@ const CDN_FILES = {
   'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js': 'text/javascript',
 };
 // Whole pinned runtimes the language layer loads (any file under these prefixes).
-const CDN_PREFIXES = ['https://cdn.jsdelivr.net/pyodide/v314.0.7/full/', 'https://cdn.jsdelivr.net/npm/wasmoon@1.16.0/'];
+const CDN_PREFIXES = [
+  'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/',
+  'https://cdn.jsdelivr.net/npm/wasmoon@1.16.0/',
+  // React (one exact version per major line, see sandbox.js reactVersion) and the Tailwind browser build.
+  'https://cdn.jsdelivr.net/npm/react@18.3.1/',
+  'https://cdn.jsdelivr.net/npm/react-dom@18.3.1/',
+  'https://cdn.jsdelivr.net/npm/scheduler@0.23.2/',
+  'https://cdn.jsdelivr.net/npm/react@19.3.1/',
+  'https://cdn.jsdelivr.net/npm/react-dom@19.3.1/',
+  'https://cdn.jsdelivr.net/npm/scheduler@0.28.0/',
+  'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.5/',
+];
 const CDN_TYPES = { js: 'text/javascript', mjs: 'text/javascript', wasm: 'application/wasm', json: 'application/json', zip: 'application/zip', whl: 'application/zip' };
 const cdnType = (url) => CDN_FILES[url] || (/\/\+esm$/.test(url) ? 'text/javascript' : CDN_TYPES[url.split(/[?#]/)[0].split('.').pop()] || 'application/octet-stream');
 const CDN_HOSTS = /^https:\/\/(?:cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|unpkg\.com|fonts\.googleapis\.com|fonts\.gstatic\.com)\//;
@@ -776,4 +791,221 @@ error("boom")
   const dlg = await publish(alice, { title: 'Lua Box' });
   expect(await entryOptions(dlg)).toEqual(['main.lua · Lua', 'busy.lua · Lua']);
   await expect(dlg.locator('.gm-lang')).toHaveText('Lua');
+});
+
+// ---------- review fixes ----------
+
+const REACT_VITE = [
+  ['index.html', '<!doctype html>\n<html><head><title>Whack React</title></head>\n<body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>\n'],
+  ['package.json', '{ "name": "whack", "private": true, "dependencies": { "react": "^18.3.1", "react-dom": "^18.3.1" } }'],
+  ['src/main.jsx', "import { createRoot } from 'react-dom/client';\nimport App from './App.jsx';\nimport './index.css';\n\ncreateRoot(document.getElementById('root')).render(<App />);\n"],
+  ['src/App.jsx', "import { useState } from 'react';\nimport styles from './App.module.css';\n\nexport default function App() {\n  const [hits, setHits] = useState(0);\n  return <button id=\"whack\" className={styles.mole} onClick={() => setHits(hits + 1)}>Hits: {hits}</button>;\n}\n"],
+  ['src/index.css', 'body { background: rgb(1, 2, 3); }\n'],
+  ['src/App.module.css', '.mole { color: rgb(0, 200, 0); }\n'],
+  // What an AI chat usually answers with: one file that exports a component.
+  ['ReactionGame.jsx', "import { useState } from 'react';\n\nexport default function ReactionGame() {\n  const [n, setN] = useState(0);\n  return <button id=\"react-btn\" onClick={() => setN(n + 1)}>Reacted {n}</button>;\n}\n"],
+];
+
+test('Vite-style React game: caret versions, CSS imports, a module open in the editor; a component-only JSX file', async ({ users }) => {
+  test.setTimeout(240_000);
+  const alice = await users('alice');
+  await routeCdn(alice);
+  await newCodespace(alice, 'Whack', 'Blank');
+  await importZip(alice, REACT_VITE);
+  await openFile(alice, 'src/App.jsx');
+
+  // The open module runs through the page that loads it, with one React and its CSS.
+  const pv = await openPreview(alice);
+  await expect(alice.locator('.sbx-entry')).toContainText('Auto: index.html');
+  await expect(pv.locator('#whack')).toHaveText('Hits: 0', { timeout: 60_000 });
+  await pv.locator('#whack').click();
+  await expect(pv.locator('#whack')).toHaveText('Hits: 1');
+  await expect(pv.locator('#whack')).toHaveCSS('color', 'rgb(0, 200, 0)');
+  await expect(pv.locator('body')).toHaveCSS('background-color', 'rgb(1, 2, 3)');
+
+  // A JSX file that only exports a component is mounted (React 19 when nothing pins a version).
+  await openFile(alice, 'ReactionGame.jsx');
+  await expect(alice.locator('.sbx-entry')).toContainText('Auto: ReactionGame.jsx');
+  await expect(pv.locator('#react-btn')).toHaveText('Reacted 0', { timeout: 60_000 });
+  await pv.locator('#react-btn').click();
+  await expect(pv.locator('#react-btn')).toHaveText('Reacted 1');
+  await alice.getByRole('button', { name: 'Close preview' }).click();
+
+  // Publish: the page is the default for a module, and modules are not offered as entries.
+  await openFile(alice, 'src/main.jsx');
+  const dlg = await publish(alice, {});
+  expect(await entryOptions(dlg)).toEqual(['index.html · HTML page', 'ReactionGame.jsx · JSX']);
+  await expect(dlg.getByLabel('Entry file')).toHaveValue('index.html');
+  await expect(dlg.getByLabel('Title')).toHaveValue('Whack React');
+  await confirmPublish(dlg);
+  const game = await playInArcade(alice, 'Whack React');
+  await expect(game.locator('#whack')).toHaveText('Hits: 0', { timeout: 60_000 });
+  await game.locator('#whack').click();
+  await expect(game.locator('#whack')).toHaveText('Hits: 1');
+  await expect(alice.locator('.gm-issues')).toHaveCount(0);
+});
+
+const TYPE_RUSH = [
+  ['index.html', `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Type Rush</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-white p-4">
+  <h1 id="title" class="text-pink-500 text-3xl font-bold">Type Rush</h1>
+  <p>Type <b>sakura</b> and press Enter.</p>
+  <input id="answer" class="border p-2" autocomplete="off">
+  <p id="score">Score: 0</p>
+  <p id="net"></p>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    // WebRTC and nested frames are not available to games.
+    $('net').textContent = 'rtc:' + typeof RTCPeerConnection;
+    addEventListener('message', (e) => { if (e.data === 'child ran') $('net').textContent += ' child'; });
+    const f = document.createElement('iframe');
+    f.srcdoc = '<script>parent.postMessage("child ran", "*")<' + '/script>';
+    document.body.appendChild(f);
+    let score = 0;
+    const a = $('answer');
+    a.focus();
+    a.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      if (a.value.trim() === 'sakura') $('score').textContent = 'Score: ' + ++score;
+      a.value = '';
+    });
+  </script>
+</body>
+</html>
+`],
+];
+
+test('AI-style page: Tailwind Play CDN, a field the game focuses itself, no WebRTC or nested frames; dialog focus', async ({ users }) => {
+  test.setTimeout(180_000);
+  const alice = await users('alice');
+  await routeCdn(alice);
+  await newCodespace(alice, 'Type Rush', 'Blank');
+  await importZip(alice, TYPE_RUSH);
+  await openFile(alice, 'index.html');
+
+  const pv = await openPreview(alice);
+  await expect(pv.locator('#net')).toHaveText('rtc:undefined', { timeout: 30_000 });
+  // Tailwind styles apply (pink, not the default black) and nothing is reported as blocked.
+  await expect.poll(() => pv.locator('#title').evaluate((el) => getComputedStyle(el).color), { timeout: 30_000 }).not.toBe('rgb(0, 0, 0)');
+  await expect(alice.locator('.sbx-banner.warn')).toHaveCount(0);
+  await expect(pv.locator('iframe')).toHaveCount(0);
+  await alice.waitForTimeout(500);
+  await expect(pv.locator('#net')).toHaveText('rtc:undefined');
+  await alice.getByRole('button', { name: 'Close preview' }).click();
+
+  // The publish dialog takes keyboard focus, keeps Tab inside, and gives it back on close.
+  const publishBtn = alice.getByRole('button', { name: 'Publish game' });
+  await publishBtn.focus();
+  await alice.keyboard.press('Enter');
+  const dlg = alice.getByRole('dialog', { name: 'Publish game' });
+  await expect(dlg.getByLabel('Entry file')).toBeVisible({ timeout: 30_000 });
+  const inDialog = () => alice.evaluate(() => !!document.activeElement?.closest('[role="dialog"][aria-label="Publish game"]'));
+  await expect.poll(() => alice.evaluate(() => document.activeElement?.tagName)).toBe('SELECT');
+  for (let i = 0; i < 14; i++) {
+    await alice.keyboard.press('Tab');
+    expect(await inDialog()).toBe(true);
+  }
+  await alice.keyboard.press('Shift+Tab');
+  expect(await inDialog()).toBe(true);
+  await alice.keyboard.press('Escape');
+  await expect(dlg).toHaveCount(0);
+  await expect(publishBtn).toBeFocused();
+
+  const dlg2 = await publish(alice, {});
+  await confirmPublish(dlg2);
+
+  // In the Arcade, typing goes to the game's field without clicking it first.
+  const game = await playInArcade(alice, 'Type Rush');
+  await expect(game.locator('#net')).toHaveText('rtc:undefined', { timeout: 30_000 });
+  await expect.poll(() => activeTitle(alice)).toBe('Game: Type Rush');
+  await expect.poll(() => game.locator('#answer').evaluate((el) => document.activeElement === el)).toBe(true);
+  await alice.keyboard.type('sakura');
+  await alice.keyboard.press('Enter');
+  await expect(game.locator('#score')).toHaveText('Score: 1');
+  // Closing the player returns focus to its Play button.
+  await alice.getByRole('button', { name: 'Close player' }).click();
+  await expect(alice.getByRole('button', { name: 'Play Type Rush' })).toBeFocused();
+});
+
+test('Python: files the game writes persist in the Arcade; turtle.distance() takes another turtle', async ({ users }) => {
+  test.setTimeout(300_000);
+  const alice = await users('alice');
+  await routeCdn(alice);
+  await newCodespace(alice, 'Py Save', 'Blank');
+  await importZip(alice, [
+    ['main.py', `import os
+import turtle
+
+best = open("best.txt").read().strip() if os.path.exists("best.txt") else "none yet"
+print("best so far:", best)
+runs = int(best) + 1 if best.isdigit() else 1
+with open("best.txt", "w") as f:
+    f.write(str(runs))
+
+player = turtle.Turtle()
+target = turtle.Turtle()
+target.penup()
+target.goto(30, 40)
+print("distance", player.distance(target), "heading", round(player.towards(target), 2))
+`],
+  ]);
+  await openFile(alice, 'main.py');
+  const pv = await openPreview(alice);
+  await expect(pv.locator('#cx-con')).toContainText('distance 50.0 heading 53.13', { timeout: 90_000 });
+  await expect(pv.locator('#cx-con')).toContainText('best so far: none yet');
+  await alice.getByRole('button', { name: 'Close preview' }).click();
+
+  const dlg = await publish(alice, { title: 'Py Save' });
+  await confirmPublish(dlg);
+  let game = await playInArcade(alice, 'Py Save');
+  await expect(game.locator('#cx-con')).toContainText('best so far: none yet', { timeout: 90_000 });
+  await expect(game.locator('#cx-con')).toContainText('distance 50.0');
+  await alice.waitForTimeout(500);
+  await alice.getByRole('button', { name: 'Restart' }).first().click();
+  game = alice.frameLocator('iframe[title="Game: Py Save"]');
+  await expect(game.locator('#cx-con')).toContainText('best so far: 1', { timeout: 90_000 });
+  await alice.waitForTimeout(500);
+  await alice.getByRole('button', { name: 'Restart' }).first().click();
+  game = alice.frameLocator('iframe[title="Game: Py Save"]');
+  await expect(game.locator('#cx-con')).toContainText('best so far: 2', { timeout: 90_000 });
+});
+
+// Game A writes its localStorage all the time; game B shows what it finds in its own.
+const SWITCH_CODE = {
+  A: '<script>let n = 0; setInterval(() => localStorage.setItem("owned", "written-by-game-A-" + ++n), 5);</script>A',
+  B: '<body><script>document.body.append("B sees: " + localStorage.getItem("owned"))</script>',
+};
+
+test('saved data stays with its game when the player switches games while one is running', async ({ page }) => {
+  // The real SandboxFrame and saved-game storage, in a parent shaped like the Arcade player
+  // (tests/e2e/harness/frameSwitch.jsx, served by the dev server).
+  await page.goto('/');
+  const peekB = () => page.evaluate(() => window.__h.peek('B'));
+  await page.evaluate(async (code) => {
+    const m = await import('/tests/e2e/harness/frameSwitch.jsx');
+    window.__h = m.mount(code, 'A');
+  }, SWITCH_CODE);
+  const frame = page.frameLocator('iframe[title="harness game"]');
+  await expect(frame.locator('body')).toHaveText('A', { timeout: 30_000 });
+  await page.waitForTimeout(500);
+  expect((await peekB()).local).toEqual({});
+  // Switch to B while A writes; A's last flushes (and its unload grace) must not land in B's save.
+  await page.evaluate(() => window.__h.open('B'));
+  await expect(frame.locator('body')).toHaveText('B sees: null', { timeout: 30_000 });
+  await page.waitForTimeout(2000);
+  expect((await peekB()).local).toEqual({});
+  expect((await page.evaluate(() => window.__h.peek('A'))).local.owned).toMatch(/^written-by-game-A-\d+$/);
+  // A fresh start of B reads only B's own data.
+  await page.evaluate(() => { window.__h.unmount(); });
+  await page.evaluate(async (code) => {
+    const m = await import('/tests/e2e/harness/frameSwitch.jsx');
+    window.__h = m.mount(code, 'B');
+  }, SWITCH_CODE);
+  await expect(page.frameLocator('iframe[title="harness game"]').locator('body')).toHaveText('B sees: null', { timeout: 30_000 });
 });

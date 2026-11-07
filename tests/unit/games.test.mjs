@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {
   GAME_CSP, PLAY_ALLOW, PLAY_CSP, PLAY_SANDBOX, SANDBOX, STRICT_CSP, WS_PREFIX, autoEntry, buildPreviewHtml, buildSrcdoc, bundle,
-  frameAttrs, htmlFilesReferencing, isAllowedUrl, newToken, npmModuleUrl, rewriteCdnUrl,
+  exactVersion, frameAttrs, htmlFilesReferencing, isAllowedUrl, newToken, npmModuleUrl, rewriteCdnUrl,
 } from '../../src/lib/sandbox.js';
-import { SAVE_MAX_CHARS, cleanStorageSnapshot, jsonForScript, playRuntimeScript, readRuntimeMessage } from '../../src/lib/sandboxPlay.js';
+import { TAILWIND_BROWSER_URL, SAVE_MAX_CHARS, cleanStorageSnapshot, jsonForScript, playRuntimeScript, readRuntimeMessage } from '../../src/lib/sandboxPlay.js';
 import { applyEdits, looksLikeModule, scanModule } from '../../src/lib/esmScan.js';
 import { chooseEvictions } from '../../src/lib/gameSaves.js';
 import { clipChars, coverLetter, publishRefusal, titleFromHtml } from '../../src/lib/gameText.js';
@@ -393,4 +393,156 @@ test('chat: a long code paste becomes a runnable snippet', () => {
   assert.equal(snippetFromLongText('```py\nprint(1)\n```\n```js\nx\n```'), null);
   assert.equal(snippetFromLongText('plain long prose'), null);
   assert.equal(snippetFromLongText('<!DOCTYPE html><html><body>hi</body></html>').code.lang, 'html');
+});
+
+// ---------- review fixes ----------
+
+test('snippet profile (chat Run): play CSP, but no fullscreen or pointer lock', () => {
+  const a = frameAttrs('snippet');
+  assert.equal(a.sandbox, 'allow-scripts');
+  assert.equal(a.allow, '');
+  assert.equal(a.csp, PLAY_CSP);
+  assert.ok(buildSrcdoc('<p>x</p>', { profile: 'snippet', mode: 'preview', token: 't' }).includes(PLAY_CSP.replace(/"/g, '&quot;')));
+  // Add-ons are untouched.
+  assert.ok(buildSrcdoc('<p>x</p>').startsWith(ORIGINAL_HEAD));
+});
+
+test('bundle: one React for ranges and unpinned imports; exact versions from simple ranges', () => {
+  const code = "import { createRoot } from 'react-dom/client';\nimport { useState } from 'react';\nimport { jsx } from 'react/jsx-runtime';\nimport _ from 'lodash-es';";
+  const page = '<div id="root"></div><script type="module" src="/src/main.js"></script>';
+  const urls = (pkg) => {
+    const f = { 'index.html': page, 'src/main.js': code };
+    if (pkg) f['package.json'] = JSON.stringify({ dependencies: pkg });
+    return bundle('index.html', files(f)).external.map((e) => e.url).sort();
+  };
+  assert.deepEqual(urls({ react: '^18.3.1', 'react-dom': '^18.3.1', 'lodash-es': '~4.17.21' }), [
+    'https://cdn.jsdelivr.net/npm/lodash-es@4.17.21/+esm',
+    'https://cdn.jsdelivr.net/npm/react-dom@18.3.1/client/+esm',
+    'https://cdn.jsdelivr.net/npm/react@18.3.1/+esm',
+    'https://cdn.jsdelivr.net/npm/react@18.3.1/jsx-runtime/+esm',
+  ]);
+  assert.ok(urls(null).every((u) => /react(-dom)?@19\.3\.1\/|lodash-es\/\+esm/.test(u)), 'unpinned: one React version');
+  assert.ok(urls({ react: '^18', 'react-dom': '^18' }).filter((u) => /react/.test(u)).every((u) => u.includes('@18.3.1/')));
+  assert.ok(urls({ react: '18.2.0', 'react-dom': '^18.3.1' }).filter((u) => /react/.test(u)).every((u) => u.includes('@18.2.0/')));
+  assert.equal(exactVersion('>=2.0.0'), '2.0.0');
+  assert.equal(exactVersion('^1.2'), null);
+  assert.equal(exactVersion('latest'), null);
+});
+
+test('bundle: CSS imported from modules (Vite style), CSS modules and package stylesheets', () => {
+  const r = bundle('index.html', files({
+    'index.html': '<div id="app"></div><script type="module" src="/src/main.js"></script>',
+    'src/main.js': "import './style.css';\nimport s from './btn.module.css';\nimport 'bootstrap/dist/css/bootstrap.min.css';\ndocument.body.className = s.big;",
+    'src/style.css': "@import './base.css';\nbody { color: red }",
+    'src/base.css': 'html { margin: 0 }',
+    'src/btn.module.css': '.big { font-size: 2em } .big:hover { color: blue }',
+    'package.json': '{"dependencies":{"bootstrap":"^5.3.3"}}',
+  }));
+  assert.deepEqual(r.missing, []);
+  assert.deepEqual(r.errors, []);
+  const boot = JSON.parse(/\}\)\((\{"k":"@codehub-ws\/".*?)\);<\/script>/s.exec(r.html)[1]);
+  assert.match(boot.m['src/style.css'], /document\.head\.appendChild\(s\)/);
+  assert.match(boot.m['src/style.css'], /html \{ margin: 0 \}/, '@import inlined');
+  assert.match(boot.m['src/btn.module.css'], /export default \{"big":"big"\}/);
+  assert.equal(boot.map.imports['bootstrap/dist/css/bootstrap.min.css'], `${WS_PREFIX}.codehub-npm-css/bootstrap/dist/css/bootstrap.min.css`);
+  assert.ok(r.external.some((e) => e.url === 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css' && e.allowed));
+  assert.ok(!r.modules.some((p) => p.includes('codehub-npm-css')));
+  // The main module's import now points at the generated module.
+  assert.match(boot.m['src/main.js'], /import "@codehub-ws\/src\/style\.css"/);
+});
+
+test('Tailwind Play CDN maps to the official browser build on jsDelivr', () => {
+  for (const u of ['https://cdn.tailwindcss.com', 'https://cdn.tailwindcss.com/', 'https://cdn.tailwindcss.com/3.4.16', 'https://cdn.tailwindcss.com?plugins=forms', '//cdn.tailwindcss.com']) {
+    assert.equal(rewriteCdnUrl(u), TAILWIND_BROWSER_URL, u);
+  }
+  assert.ok(isAllowedUrl(TAILWIND_BROWSER_URL, 'script'));
+  const r = bundle('index.html', files({ 'index.html': '<script src="https://cdn.tailwindcss.com"></script><h1 class="text-pink-500">x</h1>' }));
+  assert.ok(r.html.includes(`<script src="${TAILWIND_BROWSER_URL}"></script>`));
+  assert.ok(!r.html.includes('type="module"'));
+});
+
+function runtimeDom() {
+  // Enough DOM for the runtime's WebRTC, nested-frame and focus guards.
+  const listeners = {};
+  class El {
+    constructor(name) { this.nodeName = name.toUpperCase(); this.nodeType = 1; this.children = []; this.parent = null; }
+    get firstElementChild() { return this.children[0] || null; }
+    get isConnected() { let n = this; while (n.parent) n = n.parent; return n === doc; }
+    remove() { if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1); this.parent = null; }
+    querySelectorAll(sel) {
+      const names = sel.split(',').map((s) => s.trim().toUpperCase());
+      const out = [];
+      const walk = (n) => n.children.forEach((c) => { if (names.includes(c.nodeName)) out.push(c); walk(c); });
+      walk(this);
+      return out;
+    }
+    focus() { doc.activeElement = this; }
+  }
+  const doc = new El('#document');
+  doc.nodeType = 9;
+  doc.body = new El('body');
+  doc.body.parent = doc;
+  doc.children.push(doc.body);
+  doc.activeElement = doc.body;
+  doc.querySelector = () => null;
+  doc.addEventListener = () => {};
+  doc.createElement = (n) => new El(n);
+  const observers = [];
+  class MO {
+    constructor(cb) { this.cb = cb; observers.push(this); }
+    observe() {}
+  }
+  const append = (parent, child) => {
+    child.parent = parent;
+    parent.children.push(child);
+    observers.forEach((o) => o.cb([{ addedNodes: [child] }]));
+  };
+  const proto = El.prototype;
+  const timers = [];
+  const g = {
+    console: { info() {}, error() {}, log() {}, warn() {} },
+    document: doc,
+    addEventListener: (t, fn) => { (listeners[t] ||= []).push(fn); },
+    setTimeout: (fn) => timers.push(fn),
+    DOMException,
+    MutationObserver: MO,
+    HTMLElement: function HTMLElement() {},
+    RTCPeerConnection: function RTCPeerConnection() {},
+    webkitRTCPeerConnection: function webkitRTCPeerConnection() {},
+    RTCDataChannel: function RTCDataChannel() {},
+  };
+  g.HTMLElement.prototype = proto;
+  g.window = g;
+  g.parent = { postMessage() {} };
+  const ctx = vm.createContext(g);
+  vm.runInContext(playRuntimeScript({ token: 't', mode: 'game' }).replace(/^<script>/, '').replace(/<\/script>$/, ''), ctx);
+  return { g, doc, El, append, fire: (t) => (listeners[t] || []).forEach((fn) => fn()), flush: () => { while (timers.length) timers.shift()(); }, run: (c) => vm.runInContext(c, ctx) };
+}
+
+test('runtime: no WebRTC in play frames, nested frames are removed', () => {
+  const r = runtimeDom();
+  assert.equal(r.run('typeof RTCPeerConnection'), 'undefined');
+  assert.equal(r.run('typeof webkitRTCPeerConnection'), 'undefined');
+  assert.equal(r.run('typeof RTCDataChannel'), 'undefined');
+  r.run('RTCPeerConnection = function () {}');
+  assert.equal(r.run('typeof RTCPeerConnection'), 'undefined', 'a game cannot put it back');
+  const frame = new r.El('iframe');
+  r.append(r.doc.body, frame);
+  assert.equal(frame.parent, null);
+  const wrap = new r.El('div');
+  wrap.children.push(Object.assign(new r.El('iframe'), { parent: wrap }));
+  r.append(r.doc.body, wrap);
+  assert.equal(wrap.children.length, 0, 'frames inside inserted subtrees too');
+  assert.equal(r.doc.body.children.length, 1);
+});
+
+test('runtime: a field the game focused gets focus back when the frame is focused', () => {
+  const r = runtimeDom();
+  const input = new r.El('input');
+  r.append(r.doc.body, input);
+  input.focus();
+  r.doc.activeElement = r.doc.body; // the focus call was lost: the frame didn't have focus yet
+  r.fire('focus');
+  r.flush();
+  assert.equal(r.doc.activeElement, input);
 });
