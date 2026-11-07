@@ -142,13 +142,16 @@ Markdown path; rules are React text.
 **Purpose.** Owners list a server publicly from the server settings tab "Discovery"
 (`serverSettingsTabs` `community.discovery`; managers see the status read-only): public name,
 description, up to 5 tags, an icon (emoji or letters) and color, with a preview. A warning says plainly
-that listing publishes an invite: anyone signed in can join and read every message, including older
-ones; listing needs an "I understand" tick. The "Discover servers" view (search, tag filter, sort by
+that listing publishes an invite including the server's encryption key: anyone signed in can join, and
+anyone who reads the listing can read the server's past and future messages; unlisting does not make
+the server private again (only a new server would). Listing needs an "I understand" tick that repeats
+this. The "Discover servers" view (search, tag filter, sort by
 members or recently updated) opens from "Add a server" in the server rail (`serverCreateOptions`
 `community.discover`) and from the palette ("Discover public servers"). "Join" uses the existing invite
 flow (it sets `#/join/{sid}/{iid}/{key}`, so the app's "You've been invited" dialog takes over);
 servers I'm already in show "Open". App admins can remove a listing from the directory. Unlisting
-removes the listing and revokes its invite in one update.
+asks first ("Unlist this server?", an `alertdialog` with focus on Cancel; Esc cancels) and says again
+that it does not make the server private, then removes the listing and revokes its invite in one update.
 
 **Data.**
 ```
@@ -161,10 +164,22 @@ snapshot, refreshed when the listing is saved or the owner opens the Discovery t
 revoking the invite are written to the audit log ("public discovery listing").
 
 **Security.** Only the server's owner can write `pub/servers/{sid}` (rules); listings are sanitized on
-read (`sanitizeListing`) and rendered as React text. Unlisting revokes the invite but cannot take back
-the key: people who joined stay members (remove them from Members if needed); non-members still can't
-read anything without joining. If the invite is revoked elsewhere (Invites tab), the Discovery tab says
-so and offers "Create a new invite". Deleting the server removes the listing.
+read (`sanitizeListing`) and rendered as React text. A new listing is a `pub` create: it stamps the
+shared one-per-minute publish window (`publishLog/{uid}`, bound to the server id through
+`udata/{uid}/pub/last`; see ARCHITECTURE.md "Generic rules blocks"), so listing, unlisting and listing
+again within a minute is refused with "try again in N seconds"; updating an existing listing is not
+rate-limited.
+
+**The listing publishes the server key (by design, round 3 security review M1).** A public listing has
+to let strangers join, so it carries the key every invite link carries. Anyone who read the listing
+(any signed-in user) holds the key for good: end-to-end encryption no longer keeps them out of this
+server's past or future messages; only membership (the database rules) does, and they could join while
+the invite was public. Unlisting revokes the invite but cannot take back the key, and people who joined
+stay members (remove them from Members if needed). Codehub has no server key rotation (only groups
+rotate keys), so the only way to be private again is a new server; the listing warning, the "I
+understand" tick and the unlist confirmation say exactly this. If the invite is revoked elsewhere
+(Invites tab), the Discovery tab says so and offers "Create a new invite". Deleting the server removes
+the listing.
 
 **Limits.** Name 64, description 300 characters, 5 tags of 20; the directory loads the 200 most recently
 updated listings.
@@ -195,7 +210,22 @@ settings tab says this. Edited messages are not checked when sent, only when sho
 Reply previews and search results of a hidden message still show its text (only the message itself is
 collapsed).
 
-**Limits.** 200 patterns of 60 characters; max mentions 0..50; caps 0 (off) or 50..100 %.
+**Matching without regex backtracking (round 3 security review A2).** Patterns used to become regular
+expressions (`*` -> `[\p{L}\p{N}_]*`), and `a*a*a*a*a*a*a*a*a*a*a*b` against a 40-letter word took 9.6 s,
+so one manager could freeze every member's browser. Now text and pattern are split into tokens (maximal
+runs of letters/digits/`_`, and single other characters); a pattern matches a run of consecutive text
+tokens with no word character right before or after it; a word token with `*` is a glob matched against
+one whole text word by anchored prefix/suffix and ordered `indexOf` (linear). Only positions holding
+the pattern's first token are tried, and a pattern whose literal tokens don't all occur is skipped.
+Same results as before (a randomized test compares the old regex on small inputs), except words over
+256 characters are checked on their first 256. Every message has a budget of 2,000,000 token
+comparisons; a message that exhausts it (only long, repetitive text against long, repetitive patterns)
+is treated as breaking the word rule ("too long and repetitive for AutoMod to check"), never as clean.
+`tests/unit/sec-misc.test.mjs`: the reviewer's pattern takes well under 50 ms on 20 to 45,000 characters;
+200 adversarial patterns against a 4,000-character message stay under 250 ms.
+
+**Limits.** 200 patterns of 60 characters; words tested up to 256 characters; 2,000,000 comparisons per
+message; max mentions 0..50; caps 0 (off) or 50..100 %.
 
 ---
 
@@ -203,6 +233,8 @@ collapsed).
 - Generic-block feature names taken: `sconf` `welcome`, `automod`, `discovery`; `sitems` `events`,
   `rsvp`, `accepted` (the last two are key-bound by the rules); `udata` `rsvp`, `welcomeSeen`,
   `templates`; `pub` `servers`.
+- `sitems` fields are limited by the rules to `by iv ct s v ts` (`ct` up to 20,000 characters, the rest
+  up to 200): events `{ by, iv, ct }`, RSVPs `{ by, s, ts }`, rules markers `{ by, v, ts }`.
 - Body extra key used: `srvEvent` (`{ id }`), validated before rendering.
 - Send hooks: `community.gate` (order -1e8) and `community.automod` (order 1e6).
 - Event reminders call `showNotification` from `lib/notify.js` directly when desktop notifications are
