@@ -1,8 +1,9 @@
 // Starter templates for new codespaces (F8) and for empty channel workspaces.
 //
 // Rules for template content:
-//  - vanilla HTML/CSS/JS only, no external URLs (no CDNs, fonts, images or fetches), so every
-//    template works inside the network-less preview sandbox and as a public game as-is;
+//  - no external URLs in the code (no CDNs, fonts, images or fetches), so every template works in
+//    the preview sandbox and as a public game as-is. The Python template's runtime (Pyodide and
+//    pygame-ce) is loaded by Codehub's game page from the pinned jsDelivr path, not by the code;
 //  - HTML references sibling files with relative <link href> / <script src>, which the preview
 //    bundler inlines;
 //  - each file is far below the 900 KB per-file seed limit.
@@ -620,6 +621,317 @@ const NOTES_MEETING = `# Meeting — YYYY-MM-DD
 - [ ] who — what — by when
 `;
 
+const PY_GAME_MAIN = `"""Coin Rush: catch the coins, dodge the rocks.
+
+Arrow keys (or A and D) move the basket. Space starts a new round.
+This is real Python with pygame-ce, running in your browser.
+"""
+import random
+
+import pygame
+from js import localStorage  # the game's saved data (kept per game in the Arcade)
+
+from things import Falling
+
+WIDTH, HEIGHT = 480, 360
+GOLD, ROCK, SKY, INK = (255, 200, 40), (140, 150, 170), (18, 24, 40), (235, 240, 250)
+
+pygame.init()
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Coin Rush")
+clock = pygame.time.Clock()
+font = pygame.font.Font(None, 28)
+big = pygame.font.Font(None, 56)
+
+basket = pygame.Rect(WIDTH // 2 - 30, HEIGHT - 28, 60, 14)
+held = set()
+items = []
+score, lives, ticks, over = 0, 3, 0, False
+best = int(localStorage.getItem("coin-rush-best") or 0)
+print("Coin Rush! Best score so far:", best)
+
+running = True
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.KEYDOWN:
+            held.add(event.key)
+            if over and event.key in (pygame.K_SPACE, pygame.K_RETURN):
+                score, lives, over, items = 0, 3, False, []
+        elif event.type == pygame.KEYUP:
+            held.discard(event.key)
+
+    if not over:
+        right = pygame.K_RIGHT in held or pygame.K_d in held
+        left = pygame.K_LEFT in held or pygame.K_a in held
+        basket.x = max(0, min(WIDTH - basket.width, basket.x + (right - left) * 7))
+        ticks += 1
+        if ticks % 28 == 0:
+            items.append(Falling(random.randint(8, WIDTH - 8), "coin", 2.2 + score / 30))
+        if ticks % 70 == 0:
+            items.append(Falling(random.randint(8, WIDTH - 8), "rock", 2.8 + score / 25))
+        for item in items[:]:
+            item.fall()
+            if item.rect().colliderect(basket):
+                items.remove(item)
+                if item.kind == "coin":
+                    score += 1
+                else:
+                    lives -= 1
+                    if lives == 0:
+                        over = True
+                        if score > best:
+                            best = score
+                            localStorage.setItem("coin-rush-best", str(best))
+                        print(f"Game over: {score} coins (best {best})")
+            elif item.y > HEIGHT + 20:
+                items.remove(item)
+
+    screen.fill(SKY)
+    for item in items:
+        pygame.draw.circle(screen, GOLD if item.kind == "coin" else ROCK, (int(item.x), int(item.y)), item.size)
+    pygame.draw.rect(screen, INK, basket, border_radius=6)
+    screen.blit(font.render(f"Coins {score}   Lives {lives}   Best {best}", True, INK), (12, 10))
+    if over:
+        text = big.render("Game over", True, GOLD)
+        screen.blit(text, text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 16)))
+        hint = font.render("Press Space to play again", True, INK)
+        screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 24)))
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
+`;
+
+const PY_GAME_THINGS = `"""Things that fall from the sky."""
+import pygame
+
+
+class Falling:
+    def __init__(self, x, kind, speed):
+        self.x, self.y = float(x), -10.0
+        self.kind = kind
+        self.speed = speed
+        self.size = 9 if kind == "coin" else 12
+
+    def fall(self):
+        self.y += self.speed
+
+    def rect(self):
+        return pygame.Rect(int(self.x - self.size), int(self.y - self.size), self.size * 2, self.size * 2)
+`;
+
+const PY_GAME_README = `# Python game
+
+**Coin Rush**, written in Python with [pygame-ce](https://pyga.me/). It runs in your browser on Pyodide
+(CPython compiled to WebAssembly).
+
+- \`main.py\` is the entry: open it and press **Preview**, or **Publish game** to put it in the Arcade.
+- \`things.py\` is imported by \`main.py\`: split your game into as many \`.py\` files as you like.
+- \`print()\` shows up under the game, and \`input()\` asks in a text box.
+- The standard library and Pyodide's packages (pygame-ce, numpy …) are available; pip is not.
+- The first run downloads Python (about 6 MB, plus 1.5 MB for pygame) and is cached after that.
+`;
+
+const TS_GAME_MAIN = `// Brick Breaker in TypeScript. Codehub compiles each .ts file in your browser and runs main.ts
+// on a page with a <canvas id="game">.
+import { Game, HEIGHT, WIDTH } from './game';
+
+const canvas = document.getElementById('game') as HTMLCanvasElement;
+canvas.width = WIDTH;
+canvas.height = HEIGHT;
+const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+const game = new Game(Number(localStorage.getItem('brick-best')) || 0);
+
+let last = performance.now();
+function frame(now: number): void {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  game.update(dt);
+  if (game.best > Number(localStorage.getItem('brick-best') || 0)) localStorage.setItem('brick-best', String(game.best));
+  game.draw(ctx);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+`;
+
+const TS_GAME_GAME = `import { State, type Ball, type Brick, type Rect } from './types';
+import { isDown, takePressed } from './input';
+
+export const WIDTH = 480;
+export const HEIGHT = 320;
+const COLORS = ['#ff6b6b', '#ffa94d', '#ffd43b', '#69db7c', '#4dabf7'];
+const SPEED = 260;
+
+const hits = (b: Ball, r: Rect): boolean => b.x + b.r > r.x && b.x - b.r < r.x + r.w && b.y + b.r > r.y && b.y - b.r < r.y + r.h;
+
+export class Game {
+  state = State.Ready;
+  score = 0;
+  lives = 3;
+  paddle: Rect = { x: WIDTH / 2 - 40, y: HEIGHT - 22, w: 80, h: 10 };
+  ball: Ball = { x: 0, y: 0, r: 6, vx: 0, vy: 0 };
+  bricks: Brick[] = [];
+
+  constructor(public best: number) {
+    this.reset();
+  }
+
+  reset(): void {
+    this.score = 0;
+    this.lives = 3;
+    this.bricks = [];
+    for (let row = 0; row < COLORS.length; row++) {
+      for (let col = 0; col < 8; col++) {
+        this.bricks.push({ x: 16 + col * 56, y: 40 + row * 20, w: 52, h: 14, color: COLORS[row] });
+      }
+    }
+    this.serve();
+  }
+
+  private serve(): void {
+    this.state = State.Ready;
+    this.ball = { ...this.ball, vx: 0, vy: 0 };
+  }
+
+  update(dt: number): void {
+    for (const key of takePressed()) {
+      if (key !== ' ' && key !== 'Enter') continue;
+      if (this.state === State.Ready) {
+        this.state = State.Playing;
+        this.ball.vx = SPEED * (Math.random() < 0.5 ? -0.6 : 0.6);
+        this.ball.vy = -SPEED;
+      } else if (this.state !== State.Playing) this.reset();
+    }
+    const dir = Number(isDown('ArrowRight', 'd')) - Number(isDown('ArrowLeft', 'a'));
+    this.paddle.x = Math.max(0, Math.min(WIDTH - this.paddle.w, this.paddle.x + dir * 380 * dt));
+
+    const b = this.ball;
+    if (this.state === State.Ready) {
+      b.x = this.paddle.x + this.paddle.w / 2;
+      b.y = this.paddle.y - b.r - 1;
+      return;
+    }
+    if (this.state !== State.Playing) return;
+
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    if (b.x < b.r || b.x > WIDTH - b.r) b.vx = -b.vx;
+    if (b.y < b.r) b.vy = Math.abs(b.vy);
+    if (b.vy > 0 && hits(b, this.paddle)) {
+      const offset = (b.x - (this.paddle.x + this.paddle.w / 2)) / (this.paddle.w / 2);
+      b.vx = SPEED * offset * 1.2;
+      b.vy = -Math.abs(b.vy);
+    }
+    const hit = this.bricks.findIndex((brick) => hits(b, brick));
+    if (hit >= 0) {
+      this.bricks.splice(hit, 1);
+      b.vy = -b.vy;
+      this.score += 10;
+      this.best = Math.max(this.best, this.score);
+      if (this.bricks.length === 0) this.state = State.Won;
+    }
+    if (b.y > HEIGHT + b.r) {
+      this.lives -= 1;
+      if (this.lives > 0) this.serve();
+      else this.state = State.Lost;
+    }
+  }
+
+  draw(ctx: CanvasRenderingContext2D): void {
+    ctx.fillStyle = '#121826';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    for (const brick of this.bricks) {
+      ctx.fillStyle = brick.color;
+      ctx.fillRect(brick.x, brick.y, brick.w, brick.h);
+    }
+    ctx.fillStyle = '#e8ecf4';
+    ctx.fillRect(this.paddle.x, this.paddle.y, this.paddle.w, this.paddle.h);
+    ctx.beginPath();
+    ctx.arc(this.ball.x, this.ball.y, this.ball.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = '14px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(\`Score \${this.score}   Lives \${this.lives}   Best \${this.best}\`, 12, 22);
+    if (this.state) {
+      ctx.textAlign = 'center';
+      ctx.font = '600 18px system-ui, sans-serif';
+      ctx.fillText(this.state, WIDTH / 2, HEIGHT / 2 + 40);
+    }
+  }
+}
+`;
+
+const TS_GAME_INPUT = `// Keyboard state: which keys are held, and which were pressed since the last frame.
+const held = new Set<string>();
+let pressed: string[] = [];
+
+addEventListener('keydown', (e: KeyboardEvent) => {
+  if (!held.has(e.key)) pressed.push(e.key);
+  held.add(e.key);
+});
+addEventListener('keyup', (e: KeyboardEvent) => held.delete(e.key));
+addEventListener('blur', () => held.clear());
+
+export const isDown = (...keys: string[]): boolean => keys.some((k) => held.has(k));
+
+export function takePressed(): string[] {
+  const list = pressed;
+  pressed = [];
+  return list;
+}
+`;
+
+const TS_GAME_TYPES = `export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface Ball {
+  x: number;
+  y: number;
+  r: number;
+  vx: number;
+  vy: number;
+}
+
+export interface Brick extends Rect {
+  color: string;
+}
+
+export enum State {
+  Ready = 'Press Space to launch',
+  Playing = '',
+  Won = 'You cleared it! Space to play again',
+  Lost = 'Game over. Space to try again',
+}
+`;
+
+const TS_GAME_CONFIG = `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM"],
+    "strict": true
+  }
+}
+`;
+
+const TS_GAME_README = `# TypeScript game
+
+**Brick Breaker**, split into typed modules. Codehub compiles TypeScript (also \`.tsx\` and \`.jsx\`) in
+your browser with the TypeScript compiler, so there's nothing to install.
+
+- \`main.ts\` is the entry. It runs on a page with a full-size \`<canvas id="game">\` and an on-screen console.
+- \`game.ts\`, \`input.ts\` and \`types.ts\` are modules it imports (\`import { Game } from './game'\`).
+- npm packages work too: \`import confetti from 'canvas-confetti'\` loads it from jsDelivr. Pin versions in a
+  \`package.json\` (\`"dependencies": { "canvas-confetti": "1.9.3" }\`).
+- Types aren't checked when the game runs; the editor is where you catch type errors.
+`;
+
 /** @type {Array<{id:string, name:string, description:string, icon:string, files: Record<string,string>}>} */
 export const TEMPLATES = [
   {
@@ -660,6 +972,31 @@ export const TEMPLATES = [
       'index.html': SNAKE_INDEX,
       'style.css': SNAKE_STYLE,
       'snake.js': SNAKE_JS,
+    },
+  },
+  {
+    id: 'python-game',
+    name: 'Python game',
+    description: 'Coin Rush in Python with pygame-ce, running in your browser. Publish it to the arcade.',
+    icon: 'Py',
+    files: {
+      'main.py': PY_GAME_MAIN,
+      'things.py': PY_GAME_THINGS,
+      'README.md': PY_GAME_README,
+    },
+  },
+  {
+    id: 'typescript-game',
+    name: 'TypeScript game',
+    description: 'Brick Breaker in typed TypeScript modules, compiled in your browser.',
+    icon: 'TS',
+    files: {
+      'main.ts': TS_GAME_MAIN,
+      'game.ts': TS_GAME_GAME,
+      'input.ts': TS_GAME_INPUT,
+      'types.ts': TS_GAME_TYPES,
+      'tsconfig.json': TS_GAME_CONFIG,
+      'README.md': TS_GAME_README,
     },
   },
   {
