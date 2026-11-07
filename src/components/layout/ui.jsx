@@ -2,6 +2,7 @@
 import { Component, createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { initials } from '../../lib/profiles.js';
 import { Avatar as MediaAvatar } from '../media/Avatar.jsx';
+import { isChunkLoadError, reportLoadError } from '../../lib/appVersion.js';
 
 // ---------- Icons (inline SVG, currentColor) ----------
 
@@ -209,12 +210,23 @@ export class ErrorBoundary extends Component {
   }
   componentDidCatch(error, info) {
     console.error('[layout] view crashed', error, info);
+    reportLoadError(error); // a lazy view's chunk is gone after a deploy: offer the reload
   }
   componentDidUpdate(prev) {
     if (prev.resetKey !== this.props.resetKey && this.state.error) this.setState({ error: null });
   }
   render() {
     if (!this.state.error) return this.props.children;
+    if (isChunkLoadError(this.state.error)) {
+      return (
+        <div className="ly-empty">
+          <div className="ly-empty-icon danger">!</div>
+          <h3>This part of Codehub couldn't load</h3>
+          <p className="muted">Codehub may have been updated, or the connection dropped. Reload to continue.</p>
+          <button className="btn primary" onClick={() => window.location.reload()}>Reload</button>
+        </div>
+      );
+    }
     return (
       <div className="ly-empty">
         <div className="ly-empty-icon danger">!</div>
