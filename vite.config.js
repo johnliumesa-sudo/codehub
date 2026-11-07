@@ -5,5 +5,7 @@ export default defineConfig({
   // Relative asset paths so the build works from a GitHub Pages sub-path (/codehub/).
   base: './',
   plugins: [react()],
-  build: { chunkSizeWarningLimit: 2000 },
+  // The start-up chunk carries CodeMirror's core (shop editor themes), the emoji data, Firebase and the
+  // round 3 feature registrations (about 2.3 MB minified, 640 KB gzipped); heavy views load lazily.
+  build: { chunkSizeWarningLimit: 2500 },
 });

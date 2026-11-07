@@ -13,11 +13,7 @@
 const isDenied = (e) => /permission[_ ]denied/i.test(`${e?.code || ''} ${e?.message || ''}`);
 
 async function sdkDeps() {
-  const [{ ref, update, remove }, { db }] = await Promise.all([import('firebase/database'), import('./firebase.js')]);
-  return {
-    update: (patch) => update(ref(db), patch),
-    remove: (path) => remove(ref(db, path)),
-  };
+  return (await import('./cleanupSdk.js')).sdkDeps;
 }
 
 export async function updateWithCleanup(core, sidePaths = [], deps) {
