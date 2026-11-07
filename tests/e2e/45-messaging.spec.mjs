@@ -312,7 +312,8 @@ test('run code: JavaScript output, the 5 s guard and an HTML + CSS page, only on
   await expect(pageOut.getByRole('log')).toContainText('Hello sandbox');
   const frame = alice.frameLocator('.mx-run-frame:not(.hidden)');
   await expect(frame.locator('#hello')).toHaveCSS('color', 'rgb(255, 0, 0)');
-  expect(await pageOut.locator('iframe').getAttribute('sandbox')).toBe('allow-scripts');
+  // The play sandbox profile: scripts and pointer lock only (never same-origin, popups, forms or modals).
+  expect((await pageOut.locator('iframe').getAttribute('sandbox')).split(' ').sort()).toEqual(['allow-pointer-lock', 'allow-scripts']);
   await pageOut.getByRole('button', { name: 'Stop' }).click();
   await expect(pageOut.locator('iframe')).toHaveCount(0);
   await expect(pageOut.getByRole('status')).toHaveText('Stopped');
