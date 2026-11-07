@@ -4,7 +4,7 @@ import { KIND_PLURAL, SLOTS } from '../../lib/addons/registry.js';
 import { equip, toggleExt, unequipAll, useCatalog, useEquipped, useInventory } from '../../lib/shop.js';
 import { useToast } from '../layout/ui.jsx';
 import ItemPreview from './ItemPreview.jsx';
-import { WalletBar } from './ShopView.jsx';
+import { WalletBar } from './Wallet.jsx';
 import './shop.css';
 
 const errText = (e) => String(e?.message || e).replace(/^Error:\s*/, '');
