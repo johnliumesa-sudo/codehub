@@ -1,6 +1,30 @@
 // Bots (round 3): built-in slash commands, the bot builder and public directory, installing a bot
 // in a server, bot commands, keyword triggers, welcome messages, updates, reports and removal.
+import zlib from 'node:zlib';
 import { test, expect, createServer, makeInvite, joinServer, send, adminGet, adminPut, uid } from './fixtures.mjs';
+
+/** A real w x h RGBA PNG (solid colour) for the image pipeline. */
+function png(w, h, rgba = [40, 160, 255, 255]) {
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(td) >>> 0);
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr.set([8, 6, 0, 0, 0], 8);
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: w }, () => rgba).flat())]);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(Buffer.concat(Array.from({ length: h }, () => row)))),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
 
 const composer = (page) => page.locator('textarea[aria-label^="Message"]');
 
@@ -114,6 +138,9 @@ test('bot builder, directory, install, commands, keyword triggers, update and un
   await alice.getByRole('button', { name: 'Create a bot' }).click();
   await alice.getByLabel('Name', { exact: true }).fill('Helper');
   await alice.getByLabel('Icon (emoji)').fill('🛠');
+  // A small image replaces the emoji (shared image pipeline: re-encoded, <= 128 px).
+  await alice.locator('.bt-file input[type=file]').setInputFiles({ name: 'bot.png', mimeType: 'image/png', buffer: png(300, 200) });
+  await expect(alice.locator('.bt-identity img.bt-avatar')).toBeVisible();
   await alice.getByLabel('Description', { exact: true }).fill('Greets people and plays ping-pong');
   await alice.getByRole('button', { name: 'Add command' }).click();
   await alice.getByLabel('Command 1 name').fill('hello');
@@ -130,6 +157,8 @@ test('bot builder, directory, install, commands, keyword triggers, update and un
   await expect(alice.getByRole('list', { name: 'My bots' })).toContainText('Helper');
   const helper = Object.values(await adminGet('pub/bots')).find((b) => b.name === 'Helper');
   expect(helper).toMatchObject({ name: 'Helper', ver: 1, glyph: '🛠' });
+  expect(helper.imgType).toMatch(/^image\/(webp|jpeg|png)$/);
+  expect(helper.img.length).toBeLessThanOrEqual(20000);
   expect(JSON.parse(helper.def).commands[0]).toMatchObject({ name: 'hello', usage: '<text>' });
 
   // The directory lists it with its details.
@@ -164,6 +193,7 @@ test('bot builder, directory, install, commands, keyword triggers, update and un
   await expect(badge).toContainText('Helper');
   await expect(badge).toContainText('BOT');
   await expect(badge).toContainText('via @Alice');
+  await expect(badge.locator('img.bt-avatar')).toBeVisible(); // the installed copy's image
   await expect(reply.locator('.msg-author')).toBeHidden();
   await expect(reply.locator('.bt-cmd-note')).toHaveText('used /hello');
 
