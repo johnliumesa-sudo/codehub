@@ -1,97 +1,58 @@
-// The add-on shop: wallet header with daily claim + countdown, catalog grid filterable by kind,
-// Buy / Get / Equip / Unequip. Coins are free and have no real-money value. Everything here is
-// plaintext by design (see src/lib/shop.js).
-import { useEffect, useMemo, useState } from 'react';
+// The add-on shop: wallet header with daily claim + countdown and three tabs:
+//  - Browse: official and community items (filter by kind or creator, search, sort), Buy / Get / Equip,
+//    report, and quick take-down / delete for app admins;
+//  - My items: create, edit, switch off and delete your own community items, with sales counts;
+//  - Earnings: coins buyers paid for your items, collected one sale at a time.
+// Coins are free and have no real-money value. Everything here is plaintext by design (see src/lib/shop.js).
+import { useMemo, useRef, useState } from 'react';
 import { KINDS, KIND_LABELS, KIND_PLURAL, slotForKind } from '../../lib/addons/registry.js';
 import {
-  DAILY_COINS,
   buy,
-  claimDaily,
+  deleteItem,
   equip,
-  formatCountdown,
-  msUntilClaim,
-  serverNow,
+  setItemActive,
   toggleExt,
   useCatalog,
+  useEarnings,
   useEquipped,
   useInventory,
   useWallet,
 } from '../../lib/shop.js';
+import { useIsAppAdmin } from '../../lib/admin.js';
+import { useProfiles } from '../../lib/profiles.js';
 import { ConfirmButton, Icon, useToast } from '../layout/ui.jsx';
 import ReportButton from '../admin/ReportButton.jsx'; // WS6 agreed export (spec 0.8)
 import ItemPreview from './ItemPreview.jsx';
+import MyItems from './MyItems.jsx';
+import Earnings from './Earnings.jsx';
+import { Coin, Price, WalletBar } from './Wallet.jsx';
 import './shop.css';
 
 const errText = (e) => String(e?.message || e).replace(/^Error:\s*/, '');
 
-export function Coin({ size = 14 }) {
-  return <span className="shop-coin" style={{ width: size, height: size }} aria-hidden="true" />;
+export { Coin, Price, WalletBar };
+
+export const SORTS = [
+  ['featured', 'Featured'],
+  ['newest', 'Newest'],
+  ['priceAsc', 'Price: low to high'],
+  ['priceDesc', 'Price: high to low'],
+];
+
+/** Sort a filtered item list. 'featured' keeps the catalog order (kind, price, name). */
+export function sortItems(list, sort) {
+  const out = [...list];
+  if (sort === 'newest') out.sort((a, b) => b.createdAt - a.createdAt || a.name.localeCompare(b.name));
+  else if (sort === 'priceAsc') out.sort((a, b) => a.price - b.price || a.name.localeCompare(b.name));
+  else if (sort === 'priceDesc') out.sort((a, b) => b.price - a.price || a.name.localeCompare(b.name));
+  return out;
 }
 
-export function Price({ price }) {
-  if (price === 0) return <span className="shop-price free">Free</span>;
-  return (
-    <span className="shop-price">
-      <Coin size={13} />
-      {price.toLocaleString()}
-    </span>
-  );
-}
+const nameOf = (profiles, uid) => profiles[uid]?.name || 'a member';
 
-/** Re-renders every `ms` while `active`; returns the server-corrected clock. */
-function useServerClock(active, ms = 1000) {
-  const [now, setNow] = useState(() => serverNow());
-  useEffect(() => {
-    if (!active) return undefined;
-    setNow(serverNow());
-    const t = setInterval(() => setNow(serverNow()), ms);
-    return () => clearInterval(t);
-  }, [active, ms]);
-  return now;
-}
-
-/** Wallet balance + daily claim with countdown. Props: { uid, compact? } */
-export function WalletBar({ uid, compact = false }) {
-  const toast = useToast();
-  const { wallet, loading } = useWallet(uid);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const pending = wallet ? msUntilClaim(wallet) > 0 : false;
-  const now = useServerClock(pending);
-  const wait = wallet ? msUntilClaim(wallet, now) : 0;
-
-  const claim = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const bal = await claimDaily(uid);
-      toast(`+${DAILY_COINS} coins. Balance: ${bal.toLocaleString()}`, 'success');
-    } catch (e) {
-      setError(errText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className={`shop-wallet ${compact ? 'compact' : ''}`}>
-      <div className="shop-wallet-balance" aria-live="polite">
-        <Coin size={compact ? 16 : 20} />
-        <strong>{loading ? '…' : (wallet?.balance ?? 0).toLocaleString()}</strong>
-        <span className="muted">coins</span>
-      </div>
-      <div className="shop-wallet-claim">
-        <button className="btn primary sm" onClick={claim} disabled={busy || loading || wait > 0}>
-          {busy ? <span className="spinner shop-spinner-sm" /> : wait > 0 ? <>Next claim in {formatCountdown(wait)}</> : wallet ? `Claim daily coins (+${DAILY_COINS})` : `Claim ${DAILY_COINS} starter coins`}
-        </button>
-        {error && <span className="error-text shop-wallet-error">{error}</span>}
-      </div>
-    </div>
-  );
-}
-
-function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy }) {
+function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy, creatorName, onCreator, isAdmin, onModerate }) {
   const isExt = item.kind === 'editorExt';
+  const mine = !!item.by && item.by === me?.uid;
   const short = item.price > 0 && (!wallet || wallet.balance < item.price);
 
   let action;
@@ -104,7 +65,7 @@ function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy })
       </button>
     );
   } else if (!item.active) {
-    action = <span className="shop-tag muted">Retired</span>;
+    action = <span className="shop-tag muted">{item.heldByAdmin ? 'Taken down' : 'Retired'}</span>;
   } else if (item.price === 0) {
     action = (
       <button className="btn primary sm" disabled={busy} onClick={() => onBuy(item)}>
@@ -115,7 +76,7 @@ function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy })
     action = (
       <ConfirmButton
         className="btn primary sm"
-        confirmLabel={`Pay ${item.price.toLocaleString()}?`}
+        confirmLabel={mine ? `Pay ${item.price.toLocaleString()}? (no earnings)` : `Pay ${item.price.toLocaleString()}?`}
         disabled={busy || short}
         onConfirm={() => onBuy(item)}
       >
@@ -125,11 +86,12 @@ function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy })
   }
 
   return (
-    <article className={`shop-card ${owned ? 'owned' : ''} ${equippedOn ? 'equipped' : ''}`}>
+    <article className={`shop-card ${owned ? 'owned' : ''} ${equippedOn ? 'equipped' : ''}`} aria-label={item.name}>
       <div className="shop-card-preview">
         <ItemPreview item={item} me={me} />
         {equippedOn && <span className="shop-card-flag on"><Icon name="check" size={12} stroke={2.4} /> {isExt ? 'Enabled' : 'Equipped'}</span>}
         {owned && !equippedOn && <span className="shop-card-flag">Owned</span>}
+        {mine && !owned && <span className="shop-card-flag">Yours</span>}
       </div>
       <div className="shop-card-body">
         <div className="shop-card-head">
@@ -137,6 +99,15 @@ function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy })
           {!owned && <Price price={item.price} />}
         </div>
         {item.desc && <p className="shop-card-desc">{item.desc}</p>}
+        <div className="shop-card-by">
+          {item.by ? (
+            <button type="button" className="shop-by-link" onClick={() => onCreator(item.by)} title={`Show every item by ${mine ? 'you' : creatorName}`}>
+              by {mine ? 'you' : creatorName}
+            </button>
+          ) : (
+            <span className="shop-tag official">Official</span>
+          )}
+        </div>
         <div className="shop-card-foot">
           <span className="shop-card-kind">
             {KIND_LABELS[item.kind]}
@@ -149,10 +120,27 @@ function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy })
             {action}
           </div>
         </div>
+        {isAdmin && item.by && (
+          <div className="shop-card-admin" role="group" aria-label={`Admin actions for ${item.name}`}>
+            <span className="muted">Admin</span>
+            <button type="button" className="btn ghost sm" disabled={busy} onClick={() => onModerate(item, item.active ? 'off' : 'on')}>
+              {item.active ? 'Take down' : 'Restore'}
+            </button>
+            <ConfirmButton confirmLabel="Delete for everyone?" disabled={busy} onConfirm={() => onModerate(item, 'delete')}>
+              Delete
+            </ConfirmButton>
+          </div>
+        )}
       </div>
     </article>
   );
 }
+
+const TABS = [
+  ['browse', 'Browse'],
+  ['mine', 'My items'],
+  ['earnings', 'Earnings'],
+];
 
 /**
  * Props: { me: {uid, name, ...}, onClose?(), onMenu?() (mobile nav button) }
@@ -160,45 +148,61 @@ function ItemCard({ item, me, owned, equippedOn, wallet, onBuy, onEquip, busy })
 export default function ShopView({ me, onClose, onMenu }) {
   const uid = me?.uid;
   const toast = useToast();
-  const { items, loading, error } = useCatalog();
+  const isAdmin = useIsAppAdmin();
+  const { items, byId, loading, error } = useCatalog();
   const { wallet } = useWallet(uid);
   const { inventory } = useInventory(uid);
   const { equipped } = useEquipped(uid);
+  const { entries: earnings, total: earned } = useEarnings(uid);
+  const [tab, setTab] = useState('browse');
   const [kind, setKind] = useState('all');
+  const [sort, setSort] = useState('featured');
+  const [creator, setCreator] = useState(null);
   const [ownedOnly, setOwnedOnly] = useState(false);
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const tabRefs = useRef({});
 
   const isOwned = (id) => Object.prototype.hasOwnProperty.call(inventory, id);
   const isOn = (item) =>
     item.kind === 'editorExt' ? equipped.ext?.[item.id] === true : equipped[slotForKind(item.kind)] === item.id;
 
-  // Inactive items stay listed only for people who own them.
+  const creators = useMemo(() => [...new Set(items.map((i) => i.by).filter(Boolean))], [items]);
+  const profiles = useProfiles(creators);
+  const myCount = useMemo(() => items.filter((i) => i.by === uid).length, [items, uid]);
+
+  // Inactive items, and items whose creator deleted their account (nobody could ever collect the coins),
+  // stay listed only for people who own them.
+  const listed = (i) => isOwned(i.id) || (i.active && !(i.by && profiles[i.by]?.deleted));
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter(
       (i) =>
-        (i.active || isOwned(i.id)) &&
+        listed(i) &&
         (kind === 'all' || i.kind === kind) &&
+        (!creator || i.by === creator) &&
         (!ownedOnly || isOwned(i.id)) &&
-        (!q || i.name.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q)),
+        (!q ||
+          i.name.toLowerCase().includes(q) ||
+          i.desc.toLowerCase().includes(q) ||
+          (i.by && (profiles[i.by]?.name || '').toLowerCase().includes(q))),
     );
-  }, [items, inventory, kind, ownedOnly, query]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, inventory, kind, creator, ownedOnly, query, profiles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counts = useMemo(() => {
     const c = { all: 0 };
     for (const i of items) {
-      if (!i.active && !isOwned(i.id)) continue;
+      if (!listed(i) || (creator && i.by !== creator)) continue;
       c.all += 1;
       c[i.kind] = (c[i.kind] || 0) + 1;
     }
     return c;
-  }, [items, inventory]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, inventory, creator, profiles]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const sections = useMemo(
-    () => KINDS.map((k) => ({ kind: k, list: visible.filter((i) => i.kind === k) })).filter((s) => s.list.length),
-    [visible],
-  );
+  const sections = useMemo(() => {
+    if (sort !== 'featured') return [{ kind: null, list: sortItems(visible, sort) }];
+    return KINDS.map((k) => ({ kind: k, list: visible.filter((i) => i.kind === k) })).filter((s) => s.list.length);
+  }, [visible, sort]);
 
   const run = async (item, fn, okMsg) => {
     setBusyId(item.id);
@@ -220,6 +224,31 @@ export default function ShopView({ me, onClose, onMenu }) {
       item.kind === 'editorExt' ? toggleExt(uid, item.id, on) : equip(uid, slotForKind(item.kind), on ? item.id : null),
     );
 
+  const onModerate = (item, action) =>
+    run(
+      item,
+      () => (action === 'delete' ? deleteItem(item.id) : setItemActive(item.id, action === 'on')),
+      action === 'delete' ? `Deleted ${item.name}` : action === 'on' ? `Restored ${item.name}` : `Took down ${item.name}. Only an admin can restore it`,
+    );
+
+  const pickCreator = (by) => {
+    setCreator(by);
+    setTab('browse');
+  };
+
+  const onTabKey = (e) => {
+    const i = TABS.findIndex(([id]) => id === tab);
+    const next = e.key === 'ArrowRight' ? (i + 1) % TABS.length
+      : e.key === 'ArrowLeft' ? (i + TABS.length - 1) % TABS.length
+        : e.key === 'Home' ? 0
+          : e.key === 'End' ? TABS.length - 1
+            : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    setTab(TABS[next][0]);
+    tabRefs.current[TABS[next][0]]?.focus();
+  };
+
   return (
     <section className="shop-view" aria-label="Add-on shop">
       <header className="shop-head">
@@ -230,7 +259,7 @@ export default function ShopView({ me, onClose, onMenu }) {
         )}
         <div className="shop-head-title">
           <h2>Add-on shop</h2>
-          <span className="muted">Themes, editor add-ons and cosmetics. Coins are free and have no real-money value.</span>
+          <span className="muted">Themes, editor add-ons and cosmetics by Codehub and by members. Coins are free and have no real-money value.</span>
         </div>
         <WalletBar uid={uid} />
         {onClose && (
@@ -240,79 +269,139 @@ export default function ShopView({ me, onClose, onMenu }) {
         )}
       </header>
 
-      <div className="shop-toolbar">
-        <div className="shop-chips" role="tablist" aria-label="Filter by kind">
-          {['all', ...KINDS].map((k) => (
-            <button
-              key={k}
-              role="tab"
-              aria-selected={kind === k}
-              className={`shop-chip ${kind === k ? 'on' : ''}`}
-              onClick={() => setKind(k)}
-            >
-              {k === 'all' ? 'All' : KIND_PLURAL[k]}
-              <span className="shop-chip-count">{counts[k] || 0}</span>
-            </button>
-          ))}
-        </div>
-        <div className="shop-toolbar-right">
-          <label className="shop-check">
-            <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
-            Owned only
-          </label>
-          <div className="shop-search">
-            <Icon name="search" size={15} />
-            <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search add-ons" aria-label="Search add-ons" />
-          </div>
-        </div>
+      <div className="shop-tabs" role="tablist" aria-label="Shop sections" onKeyDown={onTabKey}>
+        {TABS.map(([id, label]) => (
+          <button
+            key={id}
+            ref={(el) => { tabRefs.current[id] = el; }}
+            type="button"
+            role="tab"
+            id={`shop-tab-${id}`}
+            aria-selected={tab === id}
+            aria-controls={`shop-panel-${id}`}
+            tabIndex={tab === id ? 0 : -1}
+            className={`shop-tab-btn ${tab === id ? 'on' : ''}`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+            {id === 'mine' && myCount > 0 && <span className="shop-chip-count">{myCount}</span>}
+            {id === 'earnings' && earned > 0 && (
+              <span className="shop-tab-earned">
+                <Coin size={11} />
+                {earned.toLocaleString()}
+                <span className="shop-sr-only"> coins to collect</span>
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
-      <div className="shop-scroll">
-        {loading ? (
-          <div className="shop-empty"><span className="spinner" /></div>
-        ) : error ? (
-          <div className="shop-empty">
-            <h3>Couldn't load the shop</h3>
-            <p className="muted">{errText(error)}</p>
-          </div>
-        ) : items.length === 0 ? (
-          <div className="shop-empty">
-            <div className="shop-empty-icon"><Coin size={30} /></div>
-            <h3>The shop is empty</h3>
-            <p className="muted">An app admin can stock it from Admin panel → Shop catalog → Seed defaults.</p>
-          </div>
-        ) : sections.length === 0 ? (
-          <div className="shop-empty">
-            <h3>Nothing matches</h3>
-            <p className="muted">Try another filter.</p>
-          </div>
-        ) : (
-          sections.map((s) => (
-            <section key={s.kind} className="shop-section">
-              {kind === 'all' && <h3 className="shop-section-title">{KIND_PLURAL[s.kind]}</h3>}
-              <div className="shop-grid">
-                {s.list.map((item) => (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    me={me}
-                    owned={isOwned(item.id)}
-                    equippedOn={isOn(item)}
-                    wallet={wallet}
-                    busy={busyId === item.id}
-                    onBuy={onBuy}
-                    onEquip={onEquip}
-                  />
-                ))}
+      {tab === 'browse' && (
+        <div className="shop-panel" role="tabpanel" id="shop-panel-browse" aria-labelledby="shop-tab-browse">
+          <div className="shop-toolbar">
+            <div className="shop-chips" role="group" aria-label="Filter by kind">
+              {['all', ...KINDS].map((k) => (
+                <button key={k} type="button" aria-pressed={kind === k} className={`shop-chip ${kind === k ? 'on' : ''}`} onClick={() => setKind(k)}>
+                  {k === 'all' ? 'All' : KIND_PLURAL[k]}
+                  <span className="shop-chip-count">{counts[k] || 0}</span>
+                </button>
+              ))}
+            </div>
+            <div className="shop-toolbar-right">
+              <label className="shop-check">
+                <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
+                Owned only
+              </label>
+              <select className="input shop-sort" value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort items">
+                {SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+              <div className="shop-search">
+                <Icon name="search" size={15} />
+                <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search items or creators" aria-label="Search items or creators" />
               </div>
-            </section>
-          ))
-        )}
-        <p className="shop-footnote muted">
-          Purchases are final: no refunds or transfers. Your wallet, inventory and equipped cosmetics are stored unencrypted;
-          equipped badges and name colors are visible to other signed-in users.
-        </p>
-      </div>
+            </div>
+          </div>
+          {creator && (
+            <div className="shop-filter-bar" role="status">
+              <span>
+                Items by <strong>{creator === uid ? 'you' : nameOf(profiles, creator)}</strong>
+              </span>
+              <button type="button" className="btn ghost sm" onClick={() => setCreator(null)}>
+                <Icon name="x" size={14} /> Show everyone's
+              </button>
+            </div>
+          )}
+
+          <div className="shop-scroll">
+            {loading ? (
+              <div className="shop-empty"><span className="spinner" /></div>
+            ) : error ? (
+              <div className="shop-empty">
+                <h3>Couldn't load the shop</h3>
+                <p className="muted">{errText(error)}</p>
+              </div>
+            ) : items.length === 0 ? (
+              <div className="shop-empty">
+                <div className="shop-empty-icon"><Coin size={30} /></div>
+                <h3>The shop is empty</h3>
+                <p className="muted">Be the first: publish a theme, badge or name color from <strong>My items</strong>.</p>
+                <button type="button" className="btn primary sm" onClick={() => setTab('mine')}>Create an item</button>
+              </div>
+            ) : sections.length === 0 ? (
+              <div className="shop-empty">
+                <h3>Nothing matches</h3>
+                <p className="muted">Try another filter.</p>
+              </div>
+            ) : (
+              sections.map((s) => (
+                <section key={s.kind || 'all'} className="shop-section" aria-label={s.kind ? KIND_PLURAL[s.kind] : 'Items'}>
+                  {s.kind && kind === 'all' && <h3 className="shop-section-title">{KIND_PLURAL[s.kind]}</h3>}
+                  <div className="shop-grid">
+                    {s.list.map((item) => (
+                      <ItemCard
+                        key={item.id}
+                        item={item}
+                        me={me}
+                        owned={isOwned(item.id)}
+                        equippedOn={isOn(item)}
+                        wallet={wallet}
+                        busy={busyId === item.id}
+                        onBuy={onBuy}
+                        onEquip={onEquip}
+                        creatorName={nameOf(profiles, item.by)}
+                        onCreator={pickCreator}
+                        isAdmin={isAdmin}
+                        onModerate={onModerate}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))
+            )}
+            <p className="shop-footnote muted">
+              Purchases are final: no refunds or transfers. When you buy a member's item, the coins you pay go to its creator, who
+              can see that you bought it. Your wallet, inventory and equipped cosmetics are stored unencrypted; equipped badges and
+              name colors are visible to other signed-in users.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {tab === 'mine' && (
+        <div className="shop-panel" role="tabpanel" id="shop-panel-mine" aria-labelledby="shop-tab-mine">
+          <div className="shop-scroll">
+            <MyItems me={me} items={items} earnings={earnings} onShowInShop={() => pickCreator(uid)} />
+          </div>
+        </div>
+      )}
+
+      {tab === 'earnings' && (
+        <div className="shop-panel" role="tabpanel" id="shop-panel-earnings" aria-labelledby="shop-tab-earnings">
+          <div className="shop-scroll">
+            <Earnings me={me} byId={byId} wallet={wallet} />
+          </div>
+        </div>
+      )}
     </section>
   );
 }

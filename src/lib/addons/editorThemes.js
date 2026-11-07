@@ -6,6 +6,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { EDITOR_THEME_INFO } from './registry.js';
+import { cleanEditorTokens, editorPalette } from './editorPalette.js';
 import { getResolvedTheme } from '../theme.js';
 
 // Palette -> [editor chrome theme, syntax highlighting]. Selection uses !important so it wins over
@@ -102,6 +103,30 @@ export function editorThemeExtension(builtinId) {
   if (cache.has(builtinId)) return cache.get(builtinId);
   const ext = builtinId === 'one-dark' ? oneDark : makeTheme(PALETTES[builtinId], EDITOR_THEME_INFO[builtinId].dark);
   cache.set(builtinId, ext);
+  return ext;
+}
+
+// Token-based (community) editor themes: the first-party generator turns eleven validated `#rrggbb` tokens
+// into the same chrome + highlight pair the bundled themes use. Small LRU so switching back and forth
+// between a few themes doesn't rebuild them, without growing without bound.
+const tokenCache = new Map();
+const TOKEN_CACHE_MAX = 16;
+
+/** CodeMirror extension for an editor-theme item's color tokens, or null when they don't validate. */
+export function editorThemeFromTokens(tokens) {
+  const clean = cleanEditorTokens(tokens);
+  if (!clean) return null;
+  const key = JSON.stringify(clean);
+  const hit = tokenCache.get(key);
+  if (hit) {
+    tokenCache.delete(key);
+    tokenCache.set(key, hit);
+    return hit;
+  }
+  const palette = editorPalette(clean);
+  const ext = makeTheme(palette, palette.dark);
+  tokenCache.set(key, ext);
+  if (tokenCache.size > TOKEN_CACHE_MAX) tokenCache.delete(tokenCache.keys().next().value);
   return ext;
 }
 

@@ -11,7 +11,7 @@ import { useCatalog, useEquipped } from '../../lib/shop.js';
 // ---------- module store: resolved editor spec -> CodeMirror extensions ----------
 
 const NONE = Object.freeze([]);
-const DEFAULT_SPEC = Object.freeze({ theme: null, exts: [] });
+const DEFAULT_SPEC = Object.freeze({ theme: null, palette: null, exts: [] });
 let spec = DEFAULT_SPEC;
 let specKey = '';
 let runtime = null; // loaded module

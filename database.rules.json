@@ -1265,8 +1265,8 @@
    "items": {
     ".read": "auth != null",
     "$itemId": {
-     ".write": "root.child('admins').child(auth.uid).exists()",
-     ".validate": "newData.hasChildren(['name','desc','kind','price','data','active','updatedAt','updatedBy']) && ((newData.child('kind').val() === 'theme' && newData.child('data').child('tokens').exists()) || ((newData.child('kind').val() === 'editorTheme' || newData.child('kind').val() === 'editorExt') && newData.child('data').child('builtinId').exists()) || (newData.child('kind').val() === 'badge' && newData.child('data').child('glyph').exists()) || (newData.child('kind').val() === 'nameColor' && newData.child('data').child('color').exists()))",
+     ".write": "root.child('admins').child(auth.uid).exists() || ((data.exists() ? data.child('by').val() === auth.uid && (data.child('active').val() === true || data.child('updatedBy').val() === auth.uid || !newData.exists()) : $itemId.beginsWith('-') && newData.hasChild('by') && newData.parent().parent().parent().child('publishLog').child(auth.uid).val() === now && newData.parent().parent().parent().child('udata/' + auth.uid + '/shop/last').val() === $itemId) && (!newData.exists() || !newData.child('data').child('builtinId').exists()))",
+     ".validate": "newData.hasChildren(['name','desc','kind','price','data','active','updatedAt','updatedBy']) && (newData.child('data/' + (newData.child('kind').val() === 'badge' ? 'glyph' : newData.child('kind').val() === 'nameColor' ? 'color' : newData.child('kind').val() === 'theme' ? 'tokens' : 'builtinId')).exists() || (newData.child('kind').val() === 'editorTheme' && newData.child('data').child('tokens').exists())) && (!data.exists() || newData.child('by').val() === data.child('by').val())",
      "name": {
       ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 48"
      },
@@ -1288,12 +1288,18 @@
      "updatedBy": {
       ".validate": "newData.val() === auth.uid"
      },
+     "by": {
+      ".validate": "newData.val() === auth.uid || data.exists()"
+     },
+     "createdAt": {
+      ".validate": "newData.val() === data.val() || (!data.parent().exists() && newData.val() === now)"
+     },
      "data": {
       ".validate": "newData.hasChildren()",
       "tokens": {
        ".validate": "newData.hasChildren()",
        "$k": {
-        ".validate": "$k.matches(/^(bg0|bg1|bg2|bg3|bgHover|border|text|textDim|textFaint|accent|accent2|ok|warn|danger)$/) && newData.isString() && newData.val().matches(/^#[0-9a-fA-F]{6}$/)"
+        ".validate": "$k.matches(/^(bg0|bg1|bg2|bg3|bgHover|border|text|textDim|textFaint|accent|accent2|ok|warn|danger|bg|fg|sel|caret|kw|str|cmt|num|fn|type|op)$/) && newData.isString() && newData.val().matches(/^#[0-9a-fA-F]{6}$/)"
        }
       },
       "builtinId": {
@@ -1322,7 +1328,7 @@
    "$uid": {
     ".read": "$uid === auth.uid",
     ".write": "$uid === auth.uid && newData.exists()",
-    ".validate": "newData.hasChildren(['balance','lastClaim']) && newData.child('balance').isNumber() && newData.child('balance').val() >= 0 && newData.child('balance').val() % 1 === 0 && ( (!data.exists() && newData.child('balance').val() === 100 && newData.child('lastClaim').val() === now && !newData.hasChild('lastItem')) || (data.exists() && newData.child('lastClaim').val() === now && now - data.child('lastClaim').val() >= 72000000 && newData.child('balance').val() === data.child('balance').val() + 100 && newData.child('lastItem').val() === data.child('lastItem').val()) || (data.exists() && newData.child('lastClaim').val() === data.child('lastClaim').val() && newData.child('lastItem').isString() && root.child('shop').child('items').child(newData.child('lastItem').val()).child('active').val() === true && root.child('shop').child('items').child(newData.child('lastItem').val()).child('price').isNumber() && newData.child('balance').val() === data.child('balance').val() - root.child('shop').child('items').child(newData.child('lastItem').val()).child('price').val() && !root.child('inventory').child($uid).child(newData.child('lastItem').val()).exists() && newData.parent().parent().child('inventory').child($uid).child(newData.child('lastItem').val()).exists()) )",
+    ".validate": "newData.hasChildren(['balance','lastClaim']) && newData.child('balance').isNumber() && newData.child('balance').val() >= 0 && newData.child('balance').val() % 1 === 0 && ( (!data.exists() && newData.child('balance').val() === 100 && newData.child('lastClaim').val() === now && !newData.hasChild('lastItem')) || (data.exists() && newData.child('lastClaim').val() === now && now - data.child('lastClaim').val() >= 72000000 && newData.child('balance').val() === data.child('balance').val() + 100 && newData.child('lastItem').val() === data.child('lastItem').val()) || (newData.child('lastClaim').val() === data.child('lastClaim').val() && newData.child('lastItem').isString() && root.child('shop/items/' + newData.child('lastItem').val() + '/active').val() === true && root.child('shop/items/' + newData.child('lastItem').val() + '/price').isNumber() && newData.child('balance').val() === data.child('balance').val() - root.child('shop/items/' + newData.child('lastItem').val() + '/price').val() && !root.child('inventory/' + $uid + '/' + newData.child('lastItem').val()).exists() && newData.parent().parent().child('inventory/' + $uid + '/' + newData.child('lastItem').val()).exists()) || (newData.child('lastClaim').val() === data.child('lastClaim').val() && newData.child('balance').val() === data.child('balance').val() + root.child('earnings/' + $uid + '/' + newData.child('lastEarn').val() + '/price').val() && !newData.parent().parent().child('earnings/' + $uid + '/' + newData.child('lastEarn').val()).exists()) )",
     "balance": {
      ".validate": "newData.isNumber()"
     },
@@ -1331,6 +1337,9 @@
     },
     "lastItem": {
      ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 64"
+    },
+    "lastEarn": {
+     ".validate": "newData.isString()"
     },
     "$other": {
      ".validate": false
@@ -1351,6 +1360,18 @@
      },
      "$other": {
       ".validate": false
+     }
+    }
+   }
+  },
+  "earnings": {
+   "$creator": {
+    ".read": "$creator === auth.uid",
+    "$key": {
+     ".write": "$creator === auth.uid ? !newData.exists() : !data.exists() && $key === auth.uid + '_' + $key.replace(auth.uid + '_', '') && root.child('shop/items/' + $key.replace(auth.uid + '_', '') + '/by').val() === $creator && newData.child('price').val() === root.child('shop/items/' + $key.replace(auth.uid + '_', '') + '/price').val() && !root.child('inventory/' + auth.uid + '/' + $key.replace(auth.uid + '_', '')).exists() && newData.parent().parent().parent().child('inventory/' + auth.uid + '/' + $key.replace(auth.uid + '_', '')).exists()",
+     ".validate": "newData.child('ts').val() === now",
+     "$f": {
+      ".validate": "$f === 'price' || $f === 'ts'"
      }
     }
    }
