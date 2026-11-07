@@ -285,6 +285,11 @@ export default function GamePlayer({ gameId, me, onClose, onEdit }) {
                 title={game ? `Game: ${game.title}` : 'Game'}
                 className="gm-frame"
               />
+              {isFs && (
+                <button type="button" className="gm-fs-exit" onClick={fullscreen} aria-label="Exit full screen" title="Exit full screen (Esc)">
+                  <Icon name="shrink" size={16} />
+                </button>
+              )}
               {loaded && !focused && !showIssues && (
                 <button type="button" className="gm-focus-hint" onClick={focusGame}>
                   <Icon name="keyboard" size={15} /> Click the game to play with the keyboard
@@ -308,7 +313,16 @@ export default function GamePlayer({ gameId, me, onClose, onEdit }) {
                     <button type="button" className="btn sm" onClick={restart}>
                       <Icon name="refresh" size={13} /> Restart
                     </button>
-                    <button type="button" className="btn sm ghost" onClick={() => setIssuesHidden(true)}>Dismiss</button>
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={() => {
+                        setIssuesHidden(true);
+                        focusGame();
+                      }}
+                    >
+                      Dismiss
+                    </button>
                   </div>
                 </div>
               )}

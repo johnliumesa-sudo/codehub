@@ -181,7 +181,7 @@ function playRuntime(C) {
     try {
       if (!host) {
         host = D.createElement('codehub-notice');
-        root = host.attachShadow ? host.attachShadow({ mode: 'closed' }) : host;
+        root = host.attachShadow ? host.attachShadow({ mode: 'open' }) : host;
         var st = D.createElement('style');
         st.textContent =
           ':host{all:initial;position:fixed;z-index:2147483647;top:10px;left:50%;transform:translateX(-50%);display:flex;' +
@@ -423,8 +423,13 @@ function playRuntime(C) {
     function (e) {
       var t = e && e.target;
       if (t && t !== W && t.nodeType === 1) {
-        var u = str(t.src || t.href || '');
-        if (u) report('blocked', { url: u.slice(0, 500), directive: 'load', message: 'Could not load ' + u.slice(0, 500) });
+        var u = str(t.src || t.href || '').slice(0, 500);
+        // A load the CSP refused also fires a securitypolicyviolation event (more precise): wait for it.
+        if (u) {
+          setTimeout(function () {
+            report('blocked', { url: u, directive: 'load', message: 'Could not load ' + u });
+          }, 60);
+        }
         return;
       }
       if (C.preview) return; // the console bridge reports script errors
