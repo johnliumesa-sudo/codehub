@@ -13,6 +13,7 @@ One file per workstream. Feature numbers match the list in the main [README](../
 | [community.md](community.md) | 26 Server events with RSVP · 27 Server templates · 28 Welcome screen and rules gate · 29 Server discovery · 30 AutoMod (client-enforced) |
 | [shop.md](shop.md) | 31 Community shop: creator items and earnings |
 | [premium.md](premium.md) | 32 Premium membership: monthly codes, owner dashboard, perks, and agent mode in codespaces (Claude edits workspace files with the member's own API key) |
+| [games.md](games.md) | Games, live preview and chat Run in the "play" sandbox: CDN libraries, ES modules, saved game data, dialogs, Arcade player |
 | [sec-misc.md](sec-misc.md) | Security fixes from the round 3 review: size and rate limits on the generic blocks, AutoMod matching, discovery key warning, call slot grace, assistant names and sharing, bot welcomes |
 
 Most workstreams live in `src/features/<ws>/`; calls and the shop mainly extend existing code (`src/lib/calls/`,

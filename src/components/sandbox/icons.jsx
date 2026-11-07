@@ -19,6 +19,8 @@ const P = {
   file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Zm0 0v5h5',
   check: 'm5 12 5 5 9-10',
   menu: 'M4 6h16M4 12h16M4 18h16',
+  shrink: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
+  keyboard: 'M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M7 14h10',
 };
 
 export function Icon({ name, size = 16, className = '', title, fill = 'none' }) {

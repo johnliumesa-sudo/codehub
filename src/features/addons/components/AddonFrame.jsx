@@ -208,5 +208,6 @@ export default function AddonFrame({ code, perms, handlers, context, messagesKey
   }
   if (assetsError) return <p className="error-text" role="alert">Add-ons can’t start here: {assetsError}</p>;
   if (!html) return <div className="ad-center"><div className="spinner" aria-label="Starting the add-on" /></div>;
-  return <SandboxFrame key={token} ref={frameRef} html={html} mode="game" title={title} className="ad-frame" />;
+  // profile="strict": exactly the original sandbox and CSP; the add-on Worker inherits connect-src 'none'.
+  return <SandboxFrame key={token} ref={frameRef} html={html} profile="strict" mode="game" title={title} className="ad-frame" />;
 }

@@ -23,6 +23,8 @@ const LANGS = {
   cpp: { label: 'C++', fence: 'cpp', color: '#5b8cff', load: () => cpp() },
   c: { label: 'C', fence: 'c', color: '#8892a6', load: () => cpp() },
   rust: { label: 'Rust', fence: 'rust', color: '#ff8f4d', load: () => rust() },
+  // No Lua grammar is bundled: labelled (and runnable as a game) without highlighting.
+  lua: { label: 'Lua', fence: 'lua', color: '#7b8cff', load: () => [] },
 };
 
 const EXT = {
@@ -37,6 +39,7 @@ const EXT = {
   c: 'c', h: 'c',
   cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp',
   rs: 'rust',
+  lua: 'lua',
 };
 
 const PLAIN = { id: 'text', label: 'Plain text', fence: '', color: '#6b7487', load: () => [] };

@@ -1439,6 +1439,9 @@
     "size": {
      ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 262144"
     },
+    "lang": {
+     ".validate": "newData.isString() && newData.val().matches(/^(html|js|ts|py|lua)$/)"
+    },
     "$other": {
      ".validate": false
     }

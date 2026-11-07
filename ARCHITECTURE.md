@@ -180,7 +180,7 @@ equipped/{uid}            { theme?, editorTheme?, badge?, nameColor?: itemId, ex
 udata/{uid}/shopSales/{buyerUid}_{itemId}  { item, price, at }       // collected-sales history (generic udata block)
 
 # Games (F4), PUBLIC PLAINTEXT
-games/{gameId}            { ownerId, title<=80, desc<=500, createdAt, updatedAt, likes:int>=0, size:int<=262144 }  // .indexOn createdAt, likes, ownerId
+games/{gameId}            { ownerId, title<=80, desc<=500, createdAt, updatedAt, likes:int>=0, size:int<=262144, lang? }  // .indexOn createdAt, likes, ownerId; lang: html|js|ts|py|lua
 gameCode/{gameId}         { html: string <= 262144 }   // fetched only on Play
 gameLikes/{gameId}/{uid}  true                          // count in games/{id}/likes moved ±1 atomically with the entry
 publishLog/{uid}          ts                            // write-only; one publish/update per 60 s (=== now)
@@ -313,16 +313,76 @@ Round 3 opened the catalog to every signed-in user and added creator earnings; d
   One wallet write is a claim, a purchase or a collect, never two.
 
 ## Sandbox: games and live preview (F4, F7)
-- `src/lib/sandbox.js` + `SandboxFrame`: `<iframe sandbox="allow-scripts" srcdoc referrerPolicy="no-referrer" allow="">`.
-  - It never gets allow-same-origin, allow-popups, allow-top-navigation, allow-forms or allow-modals.
-  - `buildSrcdoc` prepends a CSP meta: `default-src 'none'; script-src 'unsafe-inline' blob: data:; style-src 'unsafe-inline';
-    img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'`.
-- Console bridge (preview mode only):
-  - The frame posts `{__sbx: token, level, args}`. The parent accepts a message only if `e.source === iframe.contentWindow`
-    and the token matches; the token is fresh for every render.
-  - Output is text only, capped at 200 lines.
-- Bundling inlines workspace-relative CSS, JS and SVG. Size limits: preview ≤ 2 MB, game ≤ 262144 chars.
-- **Publish:** one update of `games/{id}`, `gameCode/{id}` and `publishLog/{me}`.
+- `src/lib/sandbox.js` + `SandboxFrame`: `<iframe sandbox=… srcdoc referrerPolicy="no-referrer" allow=…>` with a CSP
+  `<meta>` first in the document. Neither profile ever gets allow-same-origin, allow-popups, allow-top-navigation,
+  allow-forms or allow-modals. Details and the full policies: [docs/features/games.md](docs/features/games.md).
+- **Two profiles** (`profile` prop / `buildSrcdoc` option; `frameAttrs(profile)`):
+  - `strict` (default; add-ons, `AddonFrame` passes it explicitly): exactly the original sandbox. `sandbox="allow-scripts"`,
+    `allow=""`, `STRICT_CSP` (= `GAME_CSP`): `default-src 'none'; script-src 'unsafe-inline' blob: data:;
+    style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none';
+    form-action 'none'; base-uri 'none'`. The add-on Worker inherits this CSP; never loosen it.
+  - `snippet` (chat Run): the play CSP and runtime with `sandbox="allow-scripts"` and `allow=""` (no fullscreen or
+    pointer lock for code from any chat author).
+  - `play` (Arcade player and publish test run, live preview): `sandbox="allow-scripts allow-pointer-lock"`,
+    `allow="fullscreen *; gamepad *; autoplay *"`, `PLAY_CSP` (`src/lib/sandboxPlay.js`):
+    - `'unsafe-eval' 'wasm-unsafe-eval'`;
+    - `data:`/`blob:` everywhere;
+    - scripts, styles, images, fonts, media and fetch from `https://cdn.jsdelivr.net/npm/`,
+      `https://cdnjs.cloudflare.com/ajax/libs/`, `https://unpkg.com/` (plus `https://cdn.jsdelivr.net/pyodide/` for
+      scripts and fetch, Google Fonts for styles and fonts);
+    - `worker-src blob: data:`; `frame-src`, `object-src`, `form-action` and `base-uri` `'none'`.
+- **Play runtime** (`playRuntimeScript`, injected before any user markup, after the console bridge):
+  - in-memory `localStorage`/`sessionStorage` (Storage API plus named properties, 512 KB per game) and `document.cookie`;
+  - `alert` → in-frame notice, `confirm` → `true`, `prompt` → its default or `""`;
+  - error and CSP-violation reports;
+  - no WebRTC (`RTCPeerConnection` and friends are non-configurable `undefined`; ICE isn't covered by `connect-src`)
+    and no nested frames (a `MutationObserver`, also on open shadow roots, removes `srcdoc`/`about:blank` frames that
+    would bring WebRTC back);
+  - focus restore: the element the game last focused itself gets focus back when the frame is focused;
+  - `window.__codehub = { version, persistent, notice }`.
+- **Frame → parent messages** carry `__sbx: token` and are accepted only from that frame's window with that render's
+  token (fresh per render). Payloads are validated by `readRuntimeMessage` and rendered as text.
+  - Console lines: `{level, args}`, preview mode only, capped at 200 lines.
+  - Runtime messages: `{kind: 'hello' | 'storage' | 'error' | 'blocked', …}`, play profile only.
+  - Storage snapshots are accepted only when the host passes `storage.save` (the Arcade player), and go to the
+    storage the document was rendered with (bound to its token), never to a later `storage` prop. The Arcade mounts
+    one player per game (`key={gameId}`). A second `hello` (the document reloaded itself) re-renders the frame from
+    the saved data.
+  - Strict frames that aren't in preview mode have no listener.
+- **Saved game data** (`src/lib/gameSaves.js`): IndexedDB `codehub-game-saves` / `saves`, key `<uid>/<gameId>`,
+  device-only and unencrypted (the game's own data). Total 8 M characters / 200 games, LRU eviction. Cleared per game
+  from the player and for all games by account deletion.
+- **Bundling** (`bundle()`):
+  - inlines workspace CSS (with `@import` and SVG `url()`), classic JS and SVG `<img>`;
+  - embeds ES module graphs (specifiers rewritten to `@codehub-ws/<path>` by `src/lib/esmScan.js`; a boot script makes
+    `blob:` URLs and installs one import map merged with the page's own);
+  - maps bare imports to `cdn.jsdelivr.net/npm/<pkg>@<package.json version>/+esm` (simple ranges become the exact
+    version; `react`/`react-dom`/`react/jsx-runtime` share one exact version so React loads once);
+  - turns CSS imported from modules (`import './x.css'`, CSS modules, `import 'pkg/x.css'`) into modules that add the
+    stylesheet;
+  - serves workspace text files named in code to `fetch`/XHR/`img.src`/`script.src`/`Worker`;
+  - rewrites esm.sh/Skypack/code.jquery.com/cdn.tailwindcss.com URLs to jsDelivr, and reports external URLs with whether the CSP allows them.
+  - Options `html`, `transform`, `moduleExts` let language runtimes compile other module types.
+  - Size limits: preview ≤ 2 MB, game ≤ 262144 chars.
+- **Game languages** (`src/lib/gameLangs/`, used by the live preview and the publish modal, so the preview is what gets
+  published): `findEntries`/`entryKind` pick runnable entries (HTML pages, and JS/TS/TSX/JSX/Python/Lua files no other
+  file imports; a module an HTML page loads is never an entry); `buildGameDoc(entry, files, { ts })` returns one
+  self-contained document.
+  - `.js`/`.ts`/`.tsx`/`.jsx`: `jsShellHtml` (canvas `#game` + on-screen console) bundled by `bundle()` with the
+    `transform` option; TypeScript 6.0.3 `transpileModule` (`transpile.js`) is a lazy chunk (`loadTypeScript()`),
+    never in the start-up bundle. A `.jsx`/`.tsx` entry that only default-exports a React component is mounted into
+    `#root`.
+  - `.py`: Pyodide 314.0.7 from `https://cdn.jsdelivr.net/pyodide/v314.0.7/full/` (`python.js`): files written to
+    `/home/pyodide/game/`, entry run with `runpy`; `input()`/`time.sleep`/pygame-ce timing through JSPI
+    (`pyodide.ffi.run_sync`), a `sys.monitoring` JUMP watchdog that yields every 50 ms, a canvas turtle shim
+    (`pyTurtle.js`), tracebacks trimmed to the game's own frames; text files the game writes in its folder are kept
+    in its `localStorage` (key `__codehub_python_files__`) and written back on the next run.
+  - `.lua`: wasmoon 1.16.0 from jsDelivr (`lua.js`), files mounted for `require`, a 4 s busy-loop guard.
+  - Generated documents start with `<meta name="codehub-lang" content="…">` (`langOfDoc`); C, C++, Rust, Java and
+    Kotlin get `UNSUPPORTED_MESSAGE`. No CSP change: the play CSP already allows these CDN paths and wasm.
+- **Publish:** one update of `games/{id}` (with `lang` when known), `gameCode/{id}` and `publishLog/{me}`. Rules that
+  predate `lang` refuse it (`$other: false`): `publishGame`/`updateGame` then retry once without it, and the player
+  falls back to the code's language marker.
 - **Like:** one update of `gameLikes/{id}/{me}` and the like count ±1.
 - **Unpublish** (owner or app admin): one update nulls all three nodes.
 - **Navigation:** `nav.view === 'arcade'`.
@@ -400,7 +460,7 @@ Every navigation action clears `view`.
 - groups: `src/lib/groups.js`, `src/components/groups/*`, `src/components/common/UserPicker.jsx`
 - codespaces: `src/lib/collab/{space,read}.js`, `src/lib/codespaces.js`, `src/lib/codespaceTemplates.js`, `src/components/codespaces/*`
 - shop: `src/lib/shop.js`, `src/lib/addons/*`, `src/components/shop/*`
-- games: `src/lib/{games,sandbox}.js`, `src/components/{games,sandbox}/*`
+- games: `src/lib/{games,gameSaves,gameText,sandbox,sandboxPlay,esmScan}.js`, `src/components/{games,sandbox}/*`
 - roles: `src/lib/{roles,moderation}.js`, `src/components/roles/*`
 - admin: `src/lib/{admin,reports,announcements}.js`, `src/components/admin/*`
 - safety: `src/lib/{blocks,verify,linkguard,notify}.js`, `src/components/safety/*`
@@ -665,3 +725,20 @@ only ever stops processes listening on its own block. `npm run test:rules -- tes
 `npm run test:e2e -- 40-ext` run a subset. In dev and emulator builds `window.__codehubTestExt`
 (`{ register, unregister, list, h }`, h = `React.createElement`) lets browser tests register throwaway entries; production builds
 don't include it.
+
+### Update notice (`src/lib/appVersion.js`, `src/components/common/UpdateBanner.jsx`)
+A small plugin in `vite.config.js` gives each build an id `{ v, t }` (git short sha, else `GITHUB_SHA`, else a time
+id; build time as ISO): it writes `dist/version.json`, defines the same object as `__CODEHUB_BUILD__`, and the dev
+server answers `/version.json` too. `startUpdateWatch()` (main.jsx) fetches `version.json` resolved against
+`document.baseURI` (so the `/codehub/` sub-path is kept) with `cache: 'no-store'` and a `?t=` query, on start, every
+5 minutes while visible, and on `visibilitychange`/`online`. A different `v` (unless its `t` is older than the
+running build's: a stale CDN copy) shows the banner "Codehub has been updated…" with Reload and Later; Later hides it
+until another id appears. The banner is mounted next to `<App />`, so it also shows on the sign-in screen; it never
+reloads by itself and never takes focus.
+A deploy removes the old hashed chunks, so an old tab's lazy views fail. `vite:preloadError`, unhandled
+dynamic-import rejections and the layout/extension error boundaries (`reportLoadError`) report them; the tab then
+reloads once by itself only if nothing could be lost (no focused editable, no visible field with text, no files in
+an attachment tray, no active call, online) and the guard in `sessionStorage['codehub.autoReload']` (`{ from, at }`)
+allows it: never again from the same build and never within 5 minutes of the last one. Otherwise the banner says a
+part of the app couldn't load, and the view's error boundary shows a Reload button instead of "Try again".
+Tests: `tests/unit/update.test.mjs`, `tests/e2e/50-update.spec.mjs`.

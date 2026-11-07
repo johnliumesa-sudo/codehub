@@ -1,6 +1,6 @@
 import PollComposer from '../chatx/PollComposer.jsx';
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { mentionToken, searchEmoji } from '../../lib/markdown.js';
+import { SNIPPET_LANGUAGES, langFromFilename, mentionToken, searchEmoji } from '../../lib/markdown.js';
 import { MAX_TEXT } from '../../lib/messages.js';
 import EmojiPopover from './EmojiPopover.jsx';
 import { Avatar, previewText } from './Message.jsx';
@@ -13,8 +13,18 @@ import { useRegistry } from '../../lib/ext/registry.js';
 import { MentionStatus } from '../../features/personal/components/StatusBits.jsx';
 import { SLASH_GROUPS, commandGroup, commandsFor, matchCommands, parseSlash } from '../../lib/ext/send.js';
 import { ComposerExtButtons } from '../ext/ChatExt.jsx';
+import { snippetFromLongText } from '../../features/messaging/lib/runnable.js';
 
 const TYPING_THROTTLE = 3000;
+
+// Over-long code pastes go out as a code snippet (up to ~45 KB) instead of being refused.
+function longPasteBody(text) {
+  const snip = snippetFromLongText(text);
+  if (!snip) return null;
+  const fence = String(snip.code.lang || '').toLowerCase();
+  const lang = langFromFilename(snip.code.filename || `x.${fence}`) || (SNIPPET_LANGUAGES.some(([v]) => v === fence) ? fence : 'plaintext');
+  return { text: snip.caption, code: { ...snip.code, lang } };
+}
 const STACK_BELOW = 520; // px of composer width
 
 // Find an autocomplete trigger ("/cmd" at the very start, ":sho" or "@na") right before the caret.
@@ -209,7 +219,8 @@ const Composer = forwardRef(function Composer(props, ref) {
     const text = value.trim();
     const files = conv ? draft.files : [];
     if ((!text && !files.length) || sending || disabled) return;
-    if (text.length > MAX_TEXT) return;
+    const longBody = text.length > MAX_TEXT ? longPasteBody(text) : null;
+    if (text.length > MAX_TEXT && !longBody) return;
     setSending(true);
     let attachments;
     if (files.length) {
@@ -226,7 +237,8 @@ const Composer = forwardRef(function Composer(props, ref) {
     setValue('');
     setTrigger(null);
     lastTypingRef.current = 0;
-    const ok = await onSend(attachments ? { text, attachments } : { text });
+    const body = longBody || { text };
+    const ok = await onSend(attachments ? { ...body, attachments } : body);
     if (ok !== false && attachments) draft.clear();
     setSending(false);
     if (!ok) setValue(prev);
@@ -285,6 +297,7 @@ const Composer = forwardRef(function Composer(props, ref) {
   };
 
   const over = value.trim().length > MAX_TEXT;
+  const asSnippet = useMemo(() => (over ? !!longPasteBody(value) : false), [over, value]);
 
   const renderSuggestion = (s, i) => (
     <button
@@ -403,7 +416,12 @@ const Composer = forwardRef(function Composer(props, ref) {
           aria-activedescendant={trigger && suggestions.length > 0 ? `${listId}-${sel}` : undefined}
           spellCheck
         />
-        {over && <span className="composer-count over">{value.trim().length}/{MAX_TEXT}</span>}
+        {over && asSnippet && (
+          <span className="composer-count snippet" title={`Longer than ${MAX_TEXT} characters: Enter sends it as a code snippet (up to 45 KB)`}>
+            Sends as a code snippet
+          </span>
+        )}
+        {over && !asSnippet && <span className="composer-count over">{value.trim().length}/{MAX_TEXT}</span>}
         {!over && value.length > MAX_TEXT - 500 && <span className="composer-count">{value.trim().length}/{MAX_TEXT}</span>}
         <button type="button" className={`composer-btn${pickerRect ? ' active' : ''}`} title="Emoji" onClick={openPicker} disabled={disabled}>
           <EmojiIcon />

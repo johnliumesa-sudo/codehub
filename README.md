@@ -17,15 +17,22 @@ End-to-end encrypted (the server only stores ciphertext):
 - **Private group chats**: up to 25 people, owner-managed. A fresh group key is created whenever someone is removed or leaves.
 - **Code workspaces** inside servers, plus standalone **Codespaces** with owner/editor/viewer roles. Both are real-time
   CodeMirror + Yjs editors with a GitHub panel (browse, diff, commit, branch, pull request). Codespaces start from
-  **templates**: blank, web starter, canvas game, snake, markdown notes.
+  **templates**: blank, web starter, canvas game, snake, Python game, TypeScript game, markdown notes.
 - **Checkpoints**: named versions of a file you can restore. **Zip export and import** of a workspace.
 - **Personal snippet library**, encrypted with your vault key. Insert snippets into the editor or the chat composer.
 - **Server roles** with eight permissions, **timeouts**, and an **encrypted moderation audit log**.
 
 Other features:
 
-- **Live preview and run console** for HTML/CSS/JS/Markdown in a sandboxed iframe. It runs locally and nothing is uploaded.
+- **Live preview and run console** for HTML/CSS/JS (including ES modules and npm imports), TypeScript/TSX/JSX, Python,
+  Lua and Markdown in a sandboxed iframe. It runs locally and your files are never uploaded.
 - **Arcade**: publish a workspace as a **public** game that anyone signed in can play, like or report. Games are plaintext.
+  - Write games in **HTML/JavaScript, TypeScript (also TSX/JSX), Python or Lua**. The preview and the published game
+    are built the same way, so what you preview is what gets published. Each game shows its language.
+  - Games can use libraries from jsDelivr, cdnjs and unpkg, Google Fonts, ES modules, `localStorage` high scores
+    (saved per game on your device), `alert`/`confirm`/`prompt`, full screen and gamepads.
+  - Titles and games can be in any language.
+  - See "Games in other languages" below and [docs/features/games.md](docs/features/games.md).
 - **Add-on shop**: daily coins, app themes, editor themes, editor add-ons, name colors and badges. Any member can publish
   themes, editor themes, badges and name colors, and collects the coins buyers pay. Data only, plaintext.
 - **App admins** (promo code), **global announcement banner**, and **reports** to app admins.
@@ -270,7 +277,9 @@ fake camera and microphone).
 Several checkouts can run tests at the same time on separate ports: set `CODEHUB_PORT_BASE` (default
 9000 = database 9000, auth 9099, Vite 5199). A base `B` such as 9100, 9200 … uses database `B`, auth
 `B+99`, Vite `B+80`, emulator hub `B+50` and logging `B+51`; the runner writes a gitignored
-`firebase.test-<B>.json` and only stops processes on its own ports. Pass files to run a subset:
+`firebase.test-<B>.json` and only stops processes on its own ports. `tests/e2e/49-games.spec.mjs` serves CDN
+libraries from a local cache (`CODEHUB_CDN_CACHE`, default `<tmp>/codehub-cdn-cache`), filled from the network the
+first time. Pass files to run a subset:
 
 ```bash
 CODEHUB_PORT_BASE=9300 npm run test:rules -- tests/rules/ext.test.mjs
@@ -291,6 +300,8 @@ The console also has a **Rules Playground** for testing reads and writes as a sp
 `.github/workflows/deploy.yml` builds the app and publishes `dist/` to GitHub Pages on every push
 to `main`. `vite.config.js` uses `base: './'`, so the site works from the repo sub-path
 (`https://<user>.github.io/codehub/`). Invite links use the `#` fragment, so no 404 fallback is needed.
+Each build writes `dist/version.json` (git short sha, build time); open tabs check it and offer a reload after a deploy
+(ARCHITECTURE.md "Update notice").
 
 One-time setup:
 
@@ -397,23 +408,96 @@ with database access can read them.
 - **Private to their owner, but not encrypted**: blocks, verified-contact fingerprints and notification
   preferences. Trusted link domains and the key-change acknowledgement stay in your browser's storage.
 
+### Games in other languages
+
+Pick the entry file in the preview or the **Publish game** dialog. Every file that can run is listed with its
+language; files that another file imports (a module, a `.py` you `import`, a `.lua` you `require`) are not.
+
+| Entry | How it runs |
+|---|---|
+| `.html` | As before: scripts, styles, ES modules, npm imports and data files of the workspace are inlined. |
+| `.js`, `.mjs` | On a page with a full-size `<canvas id="game">` and an on-screen console. Plain scripts stay classic (top-level functions are global); files that `import`/`export` run as ES modules. |
+| `.ts`, `.tsx`, `.jsx` | The same page. Each module is compiled in your browser with TypeScript 6.0.3 (`transpileModule`: no type checking). `tsconfig.json` `jsx`, `jsxFactory`, `jsxImportSource` and `experimentalDecorators` are honoured. The compiler (about 1 MB gzipped) loads only when you preview or publish TypeScript/JSX. |
+| `.py` | Python 3.14 on Pyodide 314.0.7 from `cdn.jsdelivr.net/pyodide/`. `print` and errors go to an on-screen console, `input()` reads from a text box, and `import pygame` loads pygame-ce. Also `import turtle` (a canvas version) and `from js import document`. All `.py` files and text data files (`.json`, `.txt`, `.csv` …) are in the working directory, so `import helpers` and `open("level.txt")` work. |
+| `.lua` | Lua 5.4 on wasmoon 1.16.0 from jsDelivr. `print`, `input()`, `sleep(s)`, `frame()`, `keydown(key)`, `canvas`/`ctx` and `require` of workspace files. |
+
+Templates: **Python game** (Coin Rush, pygame-ce) and **TypeScript game** (Brick Breaker, typed modules).
+
+**Limits.**
+
+- **C, C++, Rust, Java and Kotlin can't run on Codehub.** Their compilers are far too large for a browser tab
+  (clang alone is about 100 MB). Write the game in JavaScript, TypeScript, Python or Lua, or compile it on your
+  computer to a single-file JavaScript/WebAssembly HTML page and publish that.
+- **Python's first load is big:** about 6 MB (pygame games about 7.5 MB), then the browser cache serves it.
+  Startup takes 2 to 3 seconds, longer on a slow connection.
+- Python's `input()`, `time.sleep()` and pygame loops need **WebAssembly JSPI**: current Chrome and Edge (137+) and
+  Firefox have it. In a browser without it, Python still runs, but those calls stop with a message saying so.
+  Safari on iOS hasn't been tested.
+- Python gets the standard library and the packages that ship with Pyodide (pygame-ce, numpy …). pip and PyPI
+  aren't reachable.
+- A Python loop gives the browser a frame at least every 50 ms, so it can't freeze Codehub; tight loops run 3 to 5
+  times slower because of it. A Lua loop that runs 4 seconds without `frame()`, `sleep()` or `input()` is stopped.
+- Workspaces hold text files only, so games draw their graphics in code (or use SVG). There are no image or sound
+  files.
+- Published games are at most 256 K characters, like HTML games.
+
 ### Games and live preview are sandboxed
 
-Games and the live preview run in an `<iframe sandbox="allow-scripts">` with an opaque origin and a strict
-Content-Security-Policy (`connect-src 'none'`, no external scripts, styles, images or fonts).
+Arcade games, the live preview and the chat **Run** button run code in an `<iframe sandbox>` **without**
+`allow-same-origin`. The frame gets an opaque origin and a strict Content-Security-Policy:
 
-- Code in the frame can't read your login session, your encryption keys, your messages or the Codehub page.
-- It can't make network requests.
-- Popups, forms, dialogs (`alert`) and top-level navigation are blocked.
-- The preview console only displays text.
-- Nothing runs until you press Play, and game code is fetched only then.
+- Code in the frame can't read your login session, your encryption keys, your messages, the Codehub page or
+  Codehub's own storage.
+- Popups, forms, nested frames, WebRTC and top-level navigation are blocked.
+- Chat **Run** snippets also can't go full screen or lock the pointer (the code can come from anyone in a chat).
+- Native dialogs are blocked too (see below).
+- Console output and error reports are shown as plain text.
+- Nothing runs until you press Play or Run, and game code is fetched only then.
 
-Two gaps remain:
+**What network is allowed.** Games need libraries, so the sandbox may load scripts, styles, fonts, images and
+media from exactly these path prefixes:
+
+- `cdn.jsdelivr.net/npm/` (and `/pyodide/` for Python runtimes)
+- `cdnjs.cloudflare.com/ajax/libs/`
+- `unpkg.com/`
+- Google Fonts (`fonts.googleapis.com/css`, `/css2`, `fonts.gstatic.com/s/`)
+
+These hosts serve fixed package files and can't fetch an arbitrary URL for the game. Everything else is
+refused, including jsDelivr's `/gh/` (any GitHub repo), esm.sh and Skypack (they build code from any source),
+your own servers and WebSockets. The bundler rewrites esm.sh, Skypack, code.jquery.com and Tailwind Play CDN
+(`cdn.tailwindcss.com`) links to the same package on jsDelivr. The exact policies are in [docs/features/games.md](docs/features/games.md).
+
+**What persists.**
+
+- A game gets a working `localStorage`, `sessionStorage` and `document.cookie`. A game may store up to
+  512 KB.
+- In the **Arcade**, what a game keeps in `localStorage` (and files a Python game writes in its folder, such as
+  `open('best.txt', 'w')`) is saved per game and per account **on this device only** (IndexedDB, 8 M characters for all games, least recently used dropped first). Restart, reloading
+  Codehub and the next visit continue from it.
+- "Clear saved data" in the player removes it, and deleting your account removes all of it.
+- The preview, the publish test run and chat Run start empty every time.
+- `indexedDB` is not available to games.
+
+**Dialogs behave differently.** Real browser dialogs would let a game draw a fake password prompt over Codehub,
+so the sandbox doesn't allow them. Instead:
+
+- `alert()` shows a short notice inside the game and returns at once;
+- `confirm()` shows a notice and returns `true` (OK);
+- `prompt()` shows a notice and returns its default value, or an empty string.
+
+A game that waits for a dialog therefore keeps running, and it can't ask you for text with `prompt`.
+
+**Add-ons** keep the original, stricter policy: no network at all (`connect-src 'none'`), no eval, no runtime.
+
+Gaps that remain:
 
 - A game can still navigate *its own frame* to an external page (for example a fake "sign in again" screen shown
   inside Codehub). That page has no access to anything of yours, but never enter a password inside a game frame.
-- `connect-src 'none'` does not cover **WebRTC** in Chromium-based browsers, so a game can open a peer connection
-  through a STUN/TURN server. That can reveal your IP address and send out anything you type into the game.
+- `connect-src` does not cover **WebRTC**. Games, previews and chat snippets have it removed (and nested frames,
+  which would bring it back, are removed as they are added), but a determined page can hide a nested frame in a
+  closed shadow root. Like self-navigation, that could send out what you type into the game.
+- Loading a library tells that CDN your IP address, as any web page does. jsDelivr's public download statistics
+  are a slow, aggregate side channel a game author could watch.
 
 Treat anything you type into a game as public.
 
@@ -533,8 +617,9 @@ Deny by default, then:
   everyone. Set up **usage alerts** in the Firebase console (Usage and billing → Realtime Database), and delete the
   offender's data and Auth account in the console if it happens.
 - **Zip export is an unencrypted download** of the decrypted files. The UI says so.
-- **Games have no network access.** CDN scripts and fonts won't load, and imports between ES modules in workspace
-  files aren't bundled.
+- **Games only reach a few public CDNs.** Libraries must come from jsDelivr (`/npm/`), cdnjs, unpkg or Google Fonts;
+  games can't call your own APIs, use WebSockets or `indexedDB`, and native dialogs are replaced by notices. The
+  workspace holds text files only, so images and sounds must be SVG, generated in code or loaded from those CDNs.
 - **No key rotation on kick or ban.** A removed member loses database access immediately, but they
   may already have the server key. If they ever regain the ciphertext (for example through a
   leaked backup or a compromised Firebase project), they can decrypt **past and future** messages
