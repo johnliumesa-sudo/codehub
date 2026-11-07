@@ -3,6 +3,7 @@
 // taking the chat or the workspace down.
 import { Component, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { reportLoadError } from '../../lib/appVersion.js';
 
 export class ExtBoundary extends Component {
   constructor(props) {
@@ -16,6 +17,7 @@ export class ExtBoundary extends Component {
 
   componentDidCatch(error) {
     console.error(`[ext] ${this.props.label || 'extension'} failed`, error);
+    reportLoadError(error); // lazy feature chunk missing after a deploy: offer the reload
   }
 
   componentDidUpdate(prev) {

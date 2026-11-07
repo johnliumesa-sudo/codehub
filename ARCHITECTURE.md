@@ -703,3 +703,20 @@ only ever stops processes listening on its own block. `npm run test:rules -- tes
 `npm run test:e2e -- 40-ext` run a subset. In dev and emulator builds `window.__codehubTestExt`
 (`{ register, unregister, list, h }`, h = `React.createElement`) lets browser tests register throwaway entries; production builds
 don't include it.
+
+### Update notice (`src/lib/appVersion.js`, `src/components/common/UpdateBanner.jsx`)
+A small plugin in `vite.config.js` gives each build an id `{ v, t }` (git short sha, else `GITHUB_SHA`, else a time
+id; build time as ISO): it writes `dist/version.json`, defines the same object as `__CODEHUB_BUILD__`, and the dev
+server answers `/version.json` too. `startUpdateWatch()` (main.jsx) fetches `version.json` resolved against
+`document.baseURI` (so the `/codehub/` sub-path is kept) with `cache: 'no-store'` and a `?t=` query, on start, every
+5 minutes while visible, and on `visibilitychange`/`online`. A different `v` (unless its `t` is older than the
+running build's: a stale CDN copy) shows the banner "Codehub has been updated…" with Reload and Later; Later hides it
+until another id appears. The banner is mounted next to `<App />`, so it also shows on the sign-in screen; it never
+reloads by itself and never takes focus.
+A deploy removes the old hashed chunks, so an old tab's lazy views fail. `vite:preloadError`, unhandled
+dynamic-import rejections and the layout/extension error boundaries (`reportLoadError`) report them; the tab then
+reloads once by itself only if nothing could be lost (no focused editable, no visible field with text, no files in
+an attachment tray, no active call, online) and the guard in `sessionStorage['codehub.autoReload']` (`{ from, at }`)
+allows it: never again from the same build and never within 5 minutes of the last one. Otherwise the banner says a
+part of the app couldn't load, and the view's error boundary shows a Reload button instead of "Try again".
+Tests: `tests/unit/update.test.mjs`, `tests/e2e/50-update.spec.mjs`.
