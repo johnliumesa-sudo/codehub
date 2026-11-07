@@ -297,15 +297,46 @@ Round 3 opened the catalog to every signed-in user and added creator earnings; d
   One wallet write is a claim, a purchase or a collect, never two.
 
 ## Sandbox: games and live preview (F4, F7)
-- `src/lib/sandbox.js` + `SandboxFrame`: `<iframe sandbox="allow-scripts" srcdoc referrerPolicy="no-referrer" allow="">`.
-  - It never gets allow-same-origin, allow-popups, allow-top-navigation, allow-forms or allow-modals.
-  - `buildSrcdoc` prepends a CSP meta: `default-src 'none'; script-src 'unsafe-inline' blob: data:; style-src 'unsafe-inline';
-    img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'`.
-- Console bridge (preview mode only):
-  - The frame posts `{__sbx: token, level, args}`. The parent accepts a message only if `e.source === iframe.contentWindow`
-    and the token matches; the token is fresh for every render.
-  - Output is text only, capped at 200 lines.
-- Bundling inlines workspace-relative CSS, JS and SVG. Size limits: preview ≤ 2 MB, game ≤ 262144 chars.
+- `src/lib/sandbox.js` + `SandboxFrame`: `<iframe sandbox=… srcdoc referrerPolicy="no-referrer" allow=…>` with a CSP
+  `<meta>` first in the document. Neither profile ever gets allow-same-origin, allow-popups, allow-top-navigation,
+  allow-forms or allow-modals. Details and the full policies: [docs/features/games.md](docs/features/games.md).
+- **Two profiles** (`profile` prop / `buildSrcdoc` option; `frameAttrs(profile)`):
+  - `strict` (default; add-ons, `AddonFrame` passes it explicitly): exactly the original sandbox. `sandbox="allow-scripts"`,
+    `allow=""`, `STRICT_CSP` (= `GAME_CSP`): `default-src 'none'; script-src 'unsafe-inline' blob: data:;
+    style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none';
+    form-action 'none'; base-uri 'none'`. The add-on Worker inherits this CSP; never loosen it.
+  - `play` (Arcade player and publish test run, live preview, chat Run): `sandbox="allow-scripts allow-pointer-lock"`,
+    `allow="fullscreen *; gamepad *; autoplay *"`, `PLAY_CSP` (`src/lib/sandboxPlay.js`):
+    - `'unsafe-eval' 'wasm-unsafe-eval'`;
+    - `data:`/`blob:` everywhere;
+    - scripts, styles, images, fonts, media and fetch from `https://cdn.jsdelivr.net/npm/`,
+      `https://cdnjs.cloudflare.com/ajax/libs/`, `https://unpkg.com/` (plus `https://cdn.jsdelivr.net/pyodide/` for
+      scripts and fetch, Google Fonts for styles and fonts);
+    - `worker-src blob: data:`; `frame-src`, `object-src`, `form-action` and `base-uri` `'none'`.
+- **Play runtime** (`playRuntimeScript`, injected before any user markup, after the console bridge):
+  - in-memory `localStorage`/`sessionStorage` (Storage API plus named properties, 512 KB per game) and `document.cookie`;
+  - `alert` → in-frame notice, `confirm` → `true`, `prompt` → its default or `""`;
+  - error and CSP-violation reports;
+  - `window.__codehub = { version, persistent, notice }`.
+- **Frame → parent messages** carry `__sbx: token` and are accepted only from that frame's window with that render's
+  token (fresh per render). Payloads are validated by `readRuntimeMessage` and rendered as text.
+  - Console lines: `{level, args}`, preview mode only, capped at 200 lines.
+  - Runtime messages: `{kind: 'hello' | 'storage' | 'error' | 'blocked', …}`, play profile only.
+  - Storage snapshots are accepted only when the host passes `storage.save` (the Arcade player). A second `hello`
+    (the document reloaded itself) re-renders the frame from the saved data.
+  - Strict frames that aren't in preview mode have no listener.
+- **Saved game data** (`src/lib/gameSaves.js`): IndexedDB `codehub-game-saves` / `saves`, key `<uid>/<gameId>`,
+  device-only and unencrypted (the game's own data). Total 8 M characters / 200 games, LRU eviction. Cleared per game
+  from the player and for all games by account deletion.
+- **Bundling** (`bundle()`):
+  - inlines workspace CSS (with `@import` and SVG `url()`), classic JS and SVG `<img>`;
+  - embeds ES module graphs (specifiers rewritten to `@codehub-ws/<path>` by `src/lib/esmScan.js`; a boot script makes
+    `blob:` URLs and installs one import map merged with the page's own);
+  - maps bare imports to `cdn.jsdelivr.net/npm/<pkg>@<package.json version>/+esm`;
+  - serves workspace text files named in code to `fetch`/XHR/`img.src`/`script.src`/`Worker`;
+  - rewrites esm.sh/Skypack/code.jquery.com URLs to jsDelivr, and reports external URLs with whether the CSP allows them.
+  - Options `html`, `transform`, `moduleExts` let language runtimes compile other module types.
+  - Size limits: preview ≤ 2 MB, game ≤ 262144 chars.
 - **Publish:** one update of `games/{id}`, `gameCode/{id}` and `publishLog/{me}`.
 - **Like:** one update of `gameLikes/{id}/{me}` and the like count ±1.
 - **Unpublish** (owner or app admin): one update nulls all three nodes.
@@ -384,7 +415,7 @@ Every navigation action clears `view`.
 - groups: `src/lib/groups.js`, `src/components/groups/*`, `src/components/common/UserPicker.jsx`
 - codespaces: `src/lib/collab/{space,read}.js`, `src/lib/codespaces.js`, `src/lib/codespaceTemplates.js`, `src/components/codespaces/*`
 - shop: `src/lib/shop.js`, `src/lib/addons/*`, `src/components/shop/*`
-- games: `src/lib/{games,sandbox}.js`, `src/components/{games,sandbox}/*`
+- games: `src/lib/{games,gameSaves,gameText,sandbox,sandboxPlay,esmScan}.js`, `src/components/{games,sandbox}/*`
 - roles: `src/lib/{roles,moderation}.js`, `src/components/roles/*`
 - admin: `src/lib/{admin,reports,announcements}.js`, `src/components/admin/*`
 - safety: `src/lib/{blocks,verify,linkguard,notify}.js`, `src/components/safety/*`

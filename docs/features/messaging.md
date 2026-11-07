@@ -93,9 +93,11 @@ Two pieces of glue are shared by several features:
   JS (end of `<body>`) blocks; otherwise each JavaScript block runs on its own. The output panel under the
   message shows console output as text (log/info/warn/error, uncaught errors with line numbers), the
   rendered page for HTML, and Stop / Clear / Run again / Close.
-- **Sandbox**: always `SandboxFrame` in preview mode: `sandbox="allow-scripts"` only (opaque origin, no
-  access to the app, its storage or keys), the CSP meta with `connect-src 'none'` (no network), and the
-  console bridge (token + `e.source` checked; text only, 200 lines). JavaScript runs in a Web Worker
+- **Sandbox**: always `SandboxFrame` with the **play** profile in preview mode (see [games.md](games.md)):
+  `sandbox="allow-scripts allow-pointer-lock"` (opaque origin, no access to the app, its storage or keys), the
+  play CSP (no network except the pinned public code CDNs; working `localStorage`, non-blocking
+  `alert`/`confirm`/`prompt`), and the console bridge (token + `e.source` checked; text only, 200 lines). A
+  message over 4,000 characters that is code is sent as a code snippet, so real-size games can be shared and run. JavaScript runs in a Web Worker
   started inside the frame (blob: URL, falling back to a data: URL, then to the page itself), so a busy loop
   never blocks the app: the frame terminates the worker after 5 s ("Stopped: still running after 5 s"), and
   the parent removes the frame if no end report arrives 1.5 s later. An HTML page sends a heartbeat every

@@ -24,8 +24,13 @@ End-to-end encrypted (the server only stores ciphertext):
 
 Other features:
 
-- **Live preview and run console** for HTML/CSS/JS/Markdown in a sandboxed iframe. It runs locally and nothing is uploaded.
+- **Live preview and run console** for HTML/CSS/JS (including ES modules and npm imports) and Markdown in a sandboxed
+  iframe. It runs locally and your files are never uploaded.
 - **Arcade**: publish a workspace as a **public** game that anyone signed in can play, like or report. Games are plaintext.
+  - Games can use libraries from jsDelivr, cdnjs and unpkg, Google Fonts, ES modules, `localStorage` high scores
+    (saved per game on your device), `alert`/`confirm`/`prompt`, full screen and gamepads.
+  - Titles and games can be in any language.
+  - See [docs/features/games.md](docs/features/games.md).
 - **Add-on shop**: daily coins, app themes, editor themes, editor add-ons, name colors and badges. Any member can publish
   themes, editor themes, badges and name colors, and collects the coins buyers pay. Data only, plaintext.
 - **App admins** (promo code), **global announcement banner**, and **reports** to app admins.
@@ -236,7 +241,9 @@ fake camera and microphone).
 Several checkouts can run tests at the same time on separate ports: set `CODEHUB_PORT_BASE` (default
 9000 = database 9000, auth 9099, Vite 5199). A base `B` such as 9100, 9200 … uses database `B`, auth
 `B+99`, Vite `B+80`, emulator hub `B+50` and logging `B+51`; the runner writes a gitignored
-`firebase.test-<B>.json` and only stops processes on its own ports. Pass files to run a subset:
+`firebase.test-<B>.json` and only stops processes on its own ports. `tests/e2e/49-games.spec.mjs` serves CDN
+libraries from a local cache (`CODEHUB_CDN_CACHE`, default `<tmp>/codehub-cdn-cache`), filled from the network the
+first time. Pass files to run a subset:
 
 ```bash
 CODEHUB_PORT_BASE=9300 npm run test:rules -- tests/rules/ext.test.mjs
@@ -365,21 +372,59 @@ with database access can read them.
 
 ### Games and live preview are sandboxed
 
-Games and the live preview run in an `<iframe sandbox="allow-scripts">` with an opaque origin and a strict
-Content-Security-Policy (`connect-src 'none'`, no external scripts, styles, images or fonts).
+Arcade games, the live preview and the chat **Run** button run code in an `<iframe sandbox>` **without**
+`allow-same-origin`. The frame gets an opaque origin and a strict Content-Security-Policy:
 
-- Code in the frame can't read your login session, your encryption keys, your messages or the Codehub page.
-- It can't make network requests.
-- Popups, forms, dialogs (`alert`) and top-level navigation are blocked.
-- The preview console only displays text.
-- Nothing runs until you press Play, and game code is fetched only then.
+- Code in the frame can't read your login session, your encryption keys, your messages, the Codehub page or
+  Codehub's own storage.
+- Popups, forms, nested frames and top-level navigation are blocked.
+- Native dialogs are blocked too (see below).
+- Console output and error reports are shown as plain text.
+- Nothing runs until you press Play or Run, and game code is fetched only then.
 
-Two gaps remain:
+**What network is allowed.** Games need libraries, so the sandbox may load scripts, styles, fonts, images and
+media from exactly these path prefixes:
+
+- `cdn.jsdelivr.net/npm/` (and `/pyodide/` for Python runtimes)
+- `cdnjs.cloudflare.com/ajax/libs/`
+- `unpkg.com/`
+- Google Fonts (`fonts.googleapis.com/css`, `/css2`, `fonts.gstatic.com/s/`)
+
+These hosts serve fixed package files and can't fetch an arbitrary URL for the game. Everything else is
+refused, including jsDelivr's `/gh/` (any GitHub repo), esm.sh and Skypack (they build code from any source),
+your own servers and WebSockets. The bundler rewrites esm.sh, Skypack and code.jquery.com links to the same
+package on jsDelivr. The exact policies are in [docs/features/games.md](docs/features/games.md).
+
+**What persists.**
+
+- A game gets a working `localStorage`, `sessionStorage` and `document.cookie`. A game may store up to
+  512 KB.
+- In the **Arcade**, what a game keeps in `localStorage` is saved per game and per account **on this device
+  only** (IndexedDB, 8 M characters for all games, least recently used dropped first). Restart, reloading
+  Codehub and the next visit continue from it.
+- "Clear saved data" in the player removes it, and deleting your account removes all of it.
+- The preview, the publish test run and chat Run start empty every time.
+- `indexedDB` is not available to games.
+
+**Dialogs behave differently.** Real browser dialogs would let a game draw a fake password prompt over Codehub,
+so the sandbox doesn't allow them. Instead:
+
+- `alert()` shows a short notice inside the game and returns at once;
+- `confirm()` shows a notice and returns `true` (OK);
+- `prompt()` shows a notice and returns its default value, or an empty string.
+
+A game that waits for a dialog therefore keeps running, and it can't ask you for text with `prompt`.
+
+**Add-ons** keep the original, stricter policy: no network at all (`connect-src 'none'`), no eval, no runtime.
+
+Gaps that remain:
 
 - A game can still navigate *its own frame* to an external page (for example a fake "sign in again" screen shown
   inside Codehub). That page has no access to anything of yours, but never enter a password inside a game frame.
-- `connect-src 'none'` does not cover **WebRTC** in Chromium-based browsers, so a game can open a peer connection
+- `connect-src` does not cover **WebRTC** in Chromium-based browsers, so a game can open a peer connection
   through a STUN/TURN server. That can reveal your IP address and send out anything you type into the game.
+- Loading a library tells that CDN your IP address, as any web page does. jsDelivr's public download statistics
+  are a slow, aggregate side channel a game author could watch.
 
 Treat anything you type into a game as public.
 
@@ -493,8 +538,9 @@ Deny by default, then:
   everyone. Set up **usage alerts** in the Firebase console (Usage and billing → Realtime Database), and delete the
   offender's data and Auth account in the console if it happens.
 - **Zip export is an unencrypted download** of the decrypted files. The UI says so.
-- **Games have no network access.** CDN scripts and fonts won't load, and imports between ES modules in workspace
-  files aren't bundled.
+- **Games only reach a few public CDNs.** Libraries must come from jsDelivr (`/npm/`), cdnjs, unpkg or Google Fonts;
+  games can't call your own APIs, use WebSockets or `indexedDB`, and native dialogs are replaced by notices. The
+  workspace holds text files only, so images and sounds must be SVG, generated in code or loaded from those CDNs.
 - **No key rotation on kick or ban.** A removed member loses database access immediately, but they
   may already have the server key. If they ever regain the ciphertext (for example through a
   leaked backup or a compromised Firebase project), they can decrypt **past and future** messages
