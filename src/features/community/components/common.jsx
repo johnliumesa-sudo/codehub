@@ -7,8 +7,8 @@ import { voiceScope } from '../../../lib/calls/core.js';
 import { Modal } from '../../../components/layout/ui.jsx';
 import { useLive } from '../lib/live.js';
 
-/** My member record and permissions in a server (raw roles: flags only, no names needed). */
-export function useMyServerPerms(sid, uid) {
+/** A member's record and permissions in a server (raw roles: flags only, no names needed). */
+export function useServerPerms(sid, uid) {
   const member = useLive(sid && uid ? `servers/${sid}/members/${uid}` : null);
   const roles = useLive(sid ? `servers/${sid}/roles` : null);
   return useMemo(() => {

@@ -98,7 +98,7 @@ export default function EventEditor({ req, onClose }) {
             <input className="input" type="datetime-local" value={start} onChange={(e) => changeStart(e.target.value)} required />
           </label>
           <label className="field">
-            Ends <span className="muted">(optional)</span>
+            <span className="cm-label">Ends <span className="muted">(optional)</span></span>
             <input className="input" type="datetime-local" value={end} min={start} onChange={(e) => setEnd(e.target.value)} />
           </label>
         </div>
@@ -126,7 +126,7 @@ export default function EventEditor({ req, onClose }) {
           )}
         </fieldset>
         <label className="field">
-          Description <span className="muted">(optional)</span>
+          <span className="cm-label">Description <span className="muted">(optional)</span></span>
           <textarea className="input cm-textarea" rows={4} value={desc} maxLength={EVENT_LIMITS.desc} onChange={(e) => setDesc(e.target.value)} />
         </label>
         <div className="ly-field">

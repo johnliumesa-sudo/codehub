@@ -10,7 +10,7 @@ import {
 } from '../lib/events.js';
 import { deleteEvent, saveEvent, setRsvp } from '../lib/data.js';
 import { openEventEditor } from '../lib/bus.js';
-import { downloadText, errText, joinVoiceChannel } from './common.jsx';
+import { downloadText, errText, joinVoiceChannel, useServerPerms } from './common.jsx';
 
 /** Re-render every `ms` (for "in 5 min" labels and the Join voice window). */
 export function useNow(ms = 30_000) {
@@ -40,6 +40,10 @@ export default function EventCard({ sid, ev, rsvps, me, perms, compact = false, 
   const mine = rsvps?.get(me.uid)?.s || null;
   const people = useProfiles(useMemo(() => [ev.by, ev.orig, ...tally.going, ...tally.maybe].filter(Boolean), [ev.by, ev.orig, tally]));
   const where = useWhere(sid, ev);
+  // `orig` (the organizer of an event a moderator edited) is only believed when the record's
+  // author really is a moderator; otherwise anyone could claim someone else organized their event.
+  const editorPerms = useServerPerms(ev.orig ? sid : null, ev.by);
+  const origTrusted = !!ev.orig && !!editorPerms.perms.manageMessages;
   const canModerate = !!perms?.manageMessages;
   const canEdit = ev.by === me.uid || canModerate;
   const live = isLive(ev, now);
@@ -67,8 +71,8 @@ export default function EventCard({ sid, ev, rsvps, me, perms, compact = false, 
   });
   const join = () => run(() => joinVoiceChannel(ws, sid, ev.loc.cid));
 
-  const organizer = people[ev.orig || ev.by]?.name || 'a member';
-  const editor = ev.orig ? people[ev.by]?.name || 'a moderator' : null;
+  const organizer = people[origTrusted ? ev.orig : ev.by]?.name || 'a member';
+  const editor = origTrusted ? people[ev.by]?.name || 'a moderator' : null;
 
   return (
     <article className={`cm-event${compact ? ' compact' : ''}${ev.cancelled ? ' cancelled' : ''}${past ? ' past' : ''}`} style={{ '--ev-color': ev.color }} aria-label={`Event: ${ev.title}`}>

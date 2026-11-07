@@ -6,6 +6,7 @@ import { register } from '../../lib/ext/registry.js';
 import { automodActive, checkMessage, isExempt } from './lib/automod.js';
 import { isGated } from './lib/welcome.js';
 import { loadAutomod, loadGate } from './lib/data.js';
+import { readOnce } from './lib/live.js';
 import { openDiscover, openEventEditor, openWelcome, requestEventsPanel } from './lib/bus.js';
 import CommunityHost from './components/CommunityHost.jsx';
 import { EventMessageCard, EventsPanel, EventsSidebar, isEventRef } from './components/EventsViews.jsx';
@@ -16,6 +17,15 @@ import { DiscoverRedirect, DiscoverySettings } from './components/Discovery.jsx'
 import './community.css';
 
 const inChannel = (ctx) => ctx?.conv?.kind === 'channel' && !!ctx.conv.sid;
+/** My built-in role in the conversation's server (ChatContext members may still be loading). */
+async function myRole(ctx) {
+  const uid = ctx.me?.uid;
+  const known = ctx.members?.[uid]?.role;
+  if (known) return known;
+  const v = await readOnce(`servers/${ctx.conv.sid}/members/${uid}/role`).catch(() => null);
+  return typeof v === 'string' ? v : 'member';
+}
+const isStaffRole = (r) => r === 'owner' || r === 'admin';
 const currentSid = (ws) => (ws?.nav && !ws.nav.view && ws.servers?.some((s) => s.sid === ws.nav.sid) ? ws.nav.sid : null);
 
 // ---------- app-wide host (modals, reminders, welcome screen) ----------
@@ -52,8 +62,8 @@ register('sendHooks', {
   async run(draft, ctx) {
     if (!inChannel(ctx)) return undefined;
     const uid = ctx.me?.uid;
-    const role = ctx.members?.[uid]?.role || 'member';
-    if (role === 'owner' || role === 'admin') return undefined;
+    const role = await myRole(ctx);
+    if (isStaffRole(role)) return undefined;
     const g = await loadGate(ctx.conv.sid, uid);
     if (!isGated({ req: g.req, myUid: uid, myRole: role, marker: g.marker })) return undefined;
     showGateNotice(ctx, ctx.conv.sid);
@@ -75,7 +85,7 @@ register('sendHooks', {
   async run(draft, ctx) {
     if (!inChannel(ctx)) return undefined;
     const cfg = await loadAutomod(ctx.conv.sid);
-    if (!automodActive(cfg) || isExempt(ctx.perms, cfg)) return undefined;
+    if (!automodActive(cfg) || isExempt(ctx.perms, cfg) || isStaffRole(await myRole(ctx))) return undefined;
     const v = checkMessage(draft, cfg);
     if (!v) return undefined;
     if (cfg.action === 'block') return { cancel: true, reason: `AutoMod blocked this message: ${v.reason}.` };

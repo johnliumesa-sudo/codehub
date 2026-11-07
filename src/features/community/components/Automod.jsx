@@ -87,7 +87,7 @@ export function AutomodSettings({ ctx }) {
       </div>
       {failed && <p className="error-text">The current settings could not be decrypted. Saving replaces them.</p>}
       <label className="field">
-        Blocked words and phrases <span className="muted">(one per line; * matches any letters, e.g. spam* or *coin)</span>
+        <span className="cm-label">Blocked words and phrases <span className="muted">(one per line; * matches any letters, e.g. spam* or *coin)</span></span>
         <textarea className="input cm-textarea" rows={5} value={form.words} onChange={(e) => set({ words: e.target.value })} />
       </label>
       <p className="muted cm-hint">{parseWordList(form.words).length} of {AUTOMOD_LIMITS.words} patterns. Matching ignores case and accents and only matches whole words.</p>
@@ -95,11 +95,11 @@ export function AutomodSettings({ ctx }) {
       <label className="cm-check"><input type="checkbox" checked={form.links} onChange={(e) => set({ links: e.target.checked })} /> Block all links</label>
       <div className="cm-row2">
         <label className="field">
-          Max mentions per message <span className="muted">(0 = off)</span>
+          <span className="cm-label">Max mentions per message <span className="muted">(0 = off)</span></span>
           <input className="input" type="number" min={0} max={AUTOMOD_LIMITS.maxMentions} value={form.maxMentions} onChange={(e) => set({ maxMentions: Math.max(0, Math.min(AUTOMOD_LIMITS.maxMentions, parseInt(e.target.value, 10) || 0)) })} />
         </label>
         <label className="field">
-          Max capital letters, % <span className="muted">(0 = off, 50–100)</span>
+          <span className="cm-label">Max capital letters, % <span className="muted">(0 = off, 50–100)</span></span>
           <input className="input" type="number" min={0} max={100} value={form.caps} onChange={(e) => { const n = parseInt(e.target.value, 10) || 0; set({ caps: n <= 0 ? 0 : Math.min(100, n) }); }} />
         </label>
       </div>

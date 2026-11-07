@@ -112,7 +112,8 @@ function EventReminders() {
       saveFired(fired);
       setActive((a) => [...a.filter((x) => !due.some((d) => d.ev.id === x.ev.id)), ...due].slice(-4));
       if (prefs.settings?.desktop) {
-        due.forEach((r) => showNotification(`Starting soon: ${r.ev.title}`, {
+        // Like message alerts, the (encrypted) title only shows when previews are on.
+        due.forEach((r) => showNotification(prefs.settings?.preview ? `Starting soon: ${r.ev.title}` : 'An event you’re going to starts soon', {
           body: fmtRange(r.ev),
           tag: `event-${r.ev.id}`,
           onClick: () => openEventDetail({ sid: r.sid, id: r.ev.id }),
@@ -123,7 +124,7 @@ function EventReminders() {
     // Re-check at the next due time, and every minute anyway (sleeping laptops skip timers).
     const t = setTimeout(() => setTick((n) => n + 1), Math.min(wait ?? 60_000, 60_000) + 50);
     return () => clearTimeout(t);
-  }, [list, going, tick, prefs.settings?.desktop]);
+  }, [list, going, tick, prefs.settings?.desktop, prefs.settings?.preview]);
 
   // Drop cards once their event is over or gone.
   const visible = active.filter((r) => list.some((x) => x.sid === r.sid && x.ev.id === r.ev.id && !x.ev.cancelled) && Date.now() < (r.ev.end || r.ev.start + 2 * 3600_000));

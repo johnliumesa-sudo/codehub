@@ -199,12 +199,12 @@ export function DiscoverySettings({ ctx }) {
         <textarea className="input cm-textarea" rows={3} maxLength={LISTING_LIMITS.desc} value={form.desc} onChange={(e) => setForm({ ...form, desc: e.target.value })} required />
       </label>
       <label className="field">
-        Tags <span className="muted">(comma separated, up to {LISTING_LIMITS.tags})</span>
+        <span className="cm-label">Tags <span className="muted">(comma separated, up to {LISTING_LIMITS.tags})</span></span>
         <input className="input" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="rust, game-dev, beginners" />
       </label>
       <div className="cm-row2">
         <label className="field">
-          Icon <span className="muted">(an emoji or letters)</span>
+          <span className="cm-label">Icon <span className="muted">(an emoji or letters)</span></span>
           <input className="input" value={form.glyph} maxLength={16} onChange={(e) => setForm({ ...form, glyph: e.target.value })} />
         </label>
         <div className="ly-field">

@@ -6,7 +6,7 @@ import { canJoinVoice, fmtRange, isLive, isEventId, nextEvent, relTime, splitEve
 import { useServerEvents, useServerRsvps, useWelcome } from '../lib/data.js';
 import { openEventDetail, openEventEditor, openWelcome, requestEventsPanel } from '../lib/bus.js';
 import EventCard, { useNow, useWhere } from './EventCard.jsx';
-import { PortalModal, errText, joinVoiceChannel, useMyServerPerms } from './common.jsx';
+import { PortalModal, errText, joinVoiceChannel, useServerPerms } from './common.jsx';
 
 /** chatPanels 'community.events': upcoming and past events of the current server. */
 export function EventsPanel({ ctx }) {
@@ -116,7 +116,7 @@ export function EventDetailModal({ req, onClose }) {
   const { sid, id } = req;
   const { events, loading } = useServerEvents(sid);
   const rsvps = useServerRsvps(sid);
-  const { perms } = useMyServerPerms(sid, ws?.me?.uid);
+  const { perms } = useServerPerms(sid, ws?.me?.uid);
   const ev = events.find((e) => e.id === id || e.rid === id);
   return (
     <PortalModal title={ev ? ev.title : 'Event'} onClose={onClose} className="cm-modal">

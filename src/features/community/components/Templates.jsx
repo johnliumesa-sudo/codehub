@@ -18,7 +18,11 @@ function TemplateOutline({ t }) {
     const byCat = new Map(t.categories.map((c) => [c.key, { name: c.name, list: [] }]));
     const loose = [];
     t.channels.forEach((c) => (c.cat && byCat.has(c.cat) ? byCat.get(c.cat).list : loose).push(c));
-    return [...(loose.length ? [{ name: null, list: loose }] : []), ...byCat.values()].filter((g) => g.list.length);
+    // Categorized channels first (as the sidebar shows them), then the rest by type.
+    const order = { text: 0, voice: 1, code: 2 };
+    loose.sort((x, y) => order[x.type] - order[y.type]);
+    const cats = [...byCat.values()].filter((g) => g.list.length);
+    return [...cats, ...(loose.length ? [{ name: cats.length ? 'Other channels' : null, list: loose }] : [])];
   }, [t]);
   return (
     <div className="cm-outline">

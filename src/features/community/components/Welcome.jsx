@@ -13,7 +13,7 @@ import {
 } from '../lib/data.js';
 import { useLive } from '../lib/live.js';
 import { closeWelcome, consumePanelRequest, openWelcome, useUi } from '../lib/bus.js';
-import { PortalModal, errText, useMyServerPerms } from './common.jsx';
+import { PortalModal, errText, useServerPerms } from './common.jsx';
 
 function WelcomeBody({ w }) {
   const html = useMemo(() => (w.text ? renderMarkdown(w.text, {}) : ''), [w.text]);
@@ -49,7 +49,7 @@ export function WelcomeHost() {
   const w = useWelcome(sid);
   const { marker, loading: mLoading } = useAcceptMarker(sid, uid);
   const { seenV, loading: sLoading } = useSeenWelcome(sid, uid);
-  const { role, loading: rLoading } = useMyServerPerms(sid, uid);
+  const { role, loading: rLoading } = useServerPerms(sid, uid);
   const meta = useServerMeta(sid, 0);
   const [dismissed, setDismissed] = useState(() => new Set()); // `${sid}:${v}` closed this session
   const [busy, setBusy] = useState(false);
@@ -228,11 +228,11 @@ export function WelcomeSettings({ ctx }) {
     <form className="cm-settings" onSubmit={save}>
       <p className="muted">New members see this when they first open the server. The text and rules are end-to-end encrypted like messages.</p>
       <label className="field">
-        Welcome message <span className="muted">(Markdown)</span>
+        <span className="cm-label">Welcome message <span className="muted">(Markdown)</span></span>
         <textarea className="input cm-textarea" rows={5} maxLength={WELCOME_LIMITS.text} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} placeholder="Say hello and point people to the right channels." />
       </label>
       <label className="field">
-        Rules <span className="muted">(one per line, up to {WELCOME_LIMITS.rules})</span>
+        <span className="cm-label">Rules <span className="muted">(one per line, up to {WELCOME_LIMITS.rules})</span></span>
         <textarea className="input cm-textarea" rows={5} value={form.rules} onChange={(e) => setForm({ ...form, rules: e.target.value })} placeholder={'Be kind\nNo spam'} />
       </label>
       <label className="cm-check">
