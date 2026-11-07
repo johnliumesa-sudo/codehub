@@ -8,6 +8,7 @@ import { db } from '../../../lib/firebase.js';
 import { createSharedStore, useShared } from '../../../lib/media/cache.js';
 import { myUid, pubRef, putPub, sconfRef, udataPath, updatePub } from '../../../lib/ext/store.js';
 import { decryptServerName } from '../../../lib/servers.js';
+import { onLock } from '../../../lib/keystore.js';
 import { BOT_LIMITS, cleanImg, parseInstalled, serializeBotDef } from './schema.js';
 
 export const PUB_KIND = 'bots';
@@ -115,19 +116,21 @@ export async function claimWelcome(sid, botId) {
 
 // ---------- server context ----------
 
-const serverNames = new Map(); // sid -> Promise<string>
+const NAME_TTL = 5 * 60 * 1000;
+const serverNames = new Map(); // sid -> { at, p: Promise<string> }
+onLock(() => serverNames.clear());
 
-/** The decrypted server name (cached; '' if it can't be read). */
+/** The decrypted server name (cached for a few minutes, cleared on lock; '' if it can't be read). */
 export function serverName(sid) {
   if (!sid) return Promise.resolve('');
-  if (!serverNames.has(sid)) {
-    const p = get(ref(db, `servers/${sid}/meta/nameEnc`))
-      .then((s) => (s.exists() ? decryptServerName(sid, s.val()) : ''))
-      .catch(() => '');
-    p.then((name) => { if (!name) serverNames.delete(sid); });
-    serverNames.set(sid, p);
-  }
-  return serverNames.get(sid);
+  const hit = serverNames.get(sid);
+  if (hit && Date.now() - hit.at < NAME_TTL) return hit.p;
+  const p = get(ref(db, `servers/${sid}/meta/nameEnc`))
+    .then((s) => (s.exists() ? decryptServerName(sid, s.val()) : ''))
+    .catch(() => '');
+  p.then((name) => { if (!name) serverNames.delete(sid); });
+  serverNames.set(sid, { at: Date.now(), p });
+  return p;
 }
 
 /** The server's first text channel (the one a new member lands in), by the sidebar's order. */

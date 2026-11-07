@@ -13,7 +13,8 @@ import './bots.css';
 
 const h = createElement;
 
-// 1. Built-in slash commands. /gif first checks that GIPHY is configured.
+// 1. Built-in slash commands (order 50: after /help and other features' commands in the "/" list,
+// which shows the first eight). /gif first checks that GIPHY is configured.
 for (const cmd of BUILTIN_COMMANDS) {
   const run = cmd.name !== 'gif'
     ? cmd.run
@@ -21,7 +22,7 @@ for (const cmd of BUILTIN_COMMANDS) {
       if (!(await gifsEnabled())) return { cancel: true, reason: 'GIFs are not set up on this Codehub (an app admin adds a GIPHY key).' };
       return cmd.run(args, ctx);
     };
-  register('slashCommands', { ...cmd, id: `bots.${cmd.name}`, run });
+  register('slashCommands', { ...cmd, id: `bots.${cmd.name}`, order: 50, run });
 }
 
 // Readers: the bot line in the message header, and the "used /roll" note under the body.

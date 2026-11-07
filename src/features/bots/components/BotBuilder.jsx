@@ -137,7 +137,7 @@ export default function BotBuilder({ entry, me, onDone, onCancel }) {
           <div className="bt-grid">
             <label className="bt-field">
               <span>Name</span>
-              <input className="input" value={form.name} maxLength={L.name} required onChange={(e) => set({ name: e.target.value })} placeholder="Helper" />
+              <input className="input" value={form.name} maxLength={L.name} aria-required="true" onChange={(e) => set({ name: e.target.value })} placeholder="Helper" />
             </label>
             <label className="bt-field bt-field-sm">
               <span>Icon (emoji)</span>

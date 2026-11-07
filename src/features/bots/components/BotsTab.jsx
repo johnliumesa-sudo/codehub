@@ -73,7 +73,8 @@ export default function BotsTab({ ctx }) {
 }
 
 function MyBots({ me, onEdit }) {
-  const { loading, error, entries } = useBotEntries({ by: me?.uid });
+  // Without a uid, an impossible publisher id keeps this list empty (never the whole directory).
+  const { loading, error, entries } = useBotEntries({ by: me?.uid || '-' });
   const [err, setErr] = useState('');
   const full = entries.length >= BOT_LIMITS.perUser;
   return (

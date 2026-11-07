@@ -9,7 +9,11 @@ import { answeredRecently, findTrigger } from './triggers.js';
 import { renderTemplate, usesCount } from './template.js';
 import { DEFAULT_GLYPH } from './schema.js';
 import { bumpCount, coolingLocally, markCooldown, peekInstalled, serverName } from './store.js';
-import { queueReply } from './pending.js';
+import { clearPending, queueReply } from './pending.js';
+import { onLock } from '../../../lib/keystore.js';
+
+// Queued replies hold decrypted text: drop them when the vault locks.
+onLock(() => clearPending());
 
 /** Slowmode seconds per channel scope, kept by the mounted host (trigger replies skip slowmode channels). */
 export const slowmodes = new Map();

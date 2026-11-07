@@ -4,7 +4,7 @@
 // Single pass: substituted values are never scanned again, so input such as "{random:…}" typed by a
 // member stays literal. Everything a member typed (names, channel/server names, arguments) is
 // markdown-escaped; the bot author's own text ({random:…} choices and the template) is not.
-// Unknown placeholders are kept as written.
+// Unknown placeholders are kept as written. @everyone / @here in a template are escaped (no mass pings).
 import { cryptoUint32, pick, rollDice } from './dice.js';
 
 export const MAX_OUTPUT = 4000; // = messages.MAX_TEXT
@@ -78,7 +78,9 @@ export function renderTemplate(template, vars = {}, opts = {}) {
   const now = vars.now instanceof Date ? vars.now : new Date();
   const locale = typeof vars.locale === 'string' ? vars.locale : undefined;
   const argList = splitArgs(vars.args);
-  const out = String(template ?? '').replace(PH, (whole, name, randomArg, diceArg) => {
+  // A bot never pings everyone: @everyone / @here in the author's text are shown, not notified.
+  const tpl = String(template ?? '').replace(/(^|[\s(])@(everyone|here)(?![\p{L}\p{N}_-])/giu, '$1\\@$2');
+  const out = tpl.replace(PH, (whole, name, randomArg, diceArg) => {
     if (randomArg !== undefined) return pick(randomArg.split('|'), u32) ?? '';
     if (diceArg !== undefined) {
       const r = rollDice(diceArg, u32);

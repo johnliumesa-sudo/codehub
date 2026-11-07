@@ -67,7 +67,7 @@ export const BUILTIN_COMMANDS = Object.freeze([
   {
     name: 'roll',
     args: '[NdM]',
-    description: `Roll dice (default 1d6; up to ${DICE_LIMITS.maxDice} dice with up to ${DICE_LIMITS.maxSides} sides, e.g. 2d6+1)`,
+    description: 'Roll dice, e.g. 2d6 or d20+3 (default 1d6)',
     run: (args) => {
       const t = rollText(args);
       if (!t) return usage(`/roll [NdM], e.g. /roll 2d6 (1–${DICE_LIMITS.maxDice} dice, ${DICE_LIMITS.minSides}–${DICE_LIMITS.maxSides} sides)`);

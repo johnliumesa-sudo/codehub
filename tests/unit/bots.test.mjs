@@ -122,6 +122,8 @@ test('renderTemplate substitutes every placeholder in one pass, escaping what me
   assert.equal(long.length, MAX_OUTPUT);
   assert.ok(long.endsWith('…'));
   assert.equal(renderTemplate('   '), '');
+  // Bots never mass-ping: @everyone / @here in the template are escaped; other mentions stay.
+  assert.equal(renderTemplate('@everyone look, (@here) @Ada @everyoneElse'), '\\@everyone look, (\\@here) @Ada @everyoneElse');
   assert.equal(usesCount('n={count}'), true);
   assert.equal(usesCount('n'), false);
 });
