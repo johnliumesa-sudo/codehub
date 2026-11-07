@@ -84,7 +84,10 @@ Decisions, Questions for me, Mentions of me.
   answer has **Share to #channel**, which sends a normal message `**Asked Claude:** <question>` +
   answer (shortened to the 4,000-character message limit) with body extra
   `assistant: { v: 1, model }`. Readers see an **AI** badge (`messageBadges` `assistant.ai`, with a
-  `groupKey` so the shared answer starts its own header).
+  `groupKey` so the shared answer starts its own header). The panel follows the open conversation, so
+  Share appears only while the conversation the question was asked in is open; elsewhere the answer
+  says "Asked in #general: open it to share this answer there." (round 3 security review a6: an answer
+  can quote the conversation it was asked in, and must not leak into another one).
 
 ## Data paths
 
@@ -117,8 +120,11 @@ Reads: the open conversation's decrypted messages through `ChatContext`, and `re
 - **Prompt injection**: chat content is wrapped in `<transcript>`/`<message>`/`<text>` tags, and the
   system prompt tells Claude to treat it as material, never as instructions. Tag look-alikes in message
   text are neutralised (`<` → `‹`) and continuation lines are indented, so a message can't close the
-  section or forge a "[time] Name:" line. Claude has no tools: the worst a hostile message can do is
-  skew the reply the user reads.
+  section or forge a "[time] Name:" line. Display names, forwarded-from names and conversation names
+  are untrusted too (anyone picks their own): `promptName()` makes them one line (control characters and
+  line breaks become spaces), neutralises the tags the same way, drops a "(me)" look-alike (only the
+  transcript adds "(me)", to my own lines) and caps them at 64 characters (round 3 security review a6).
+  Claude has no tools: the worst a hostile message can do is skew the reply the user reads.
 - **Rendering**: replies and translations render through `renderMarkdown` (DOMPurify, raw HTML shown as
   text, remote images become links). The `assistant` body extra is validated (`v === 1`, model id
   pattern) and rendered as React text.

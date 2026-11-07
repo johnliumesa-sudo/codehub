@@ -6,11 +6,17 @@
 //   sconf/{sid}/{feat}/{key}[/{f}]     server config; members read; owner/admin/manageApps write (<= 20000)
 //   sitems/{sid}/{feat}/{id}/{f}       member-created items { by, ...leaf fields }; members read; author
 //                                      creates/updates (not while timed out); author or owner/admin/
-//                                      manageMessages deletes; `by` never changes (<= 20000)
+//                                      manageMessages deletes; `by` never changes. Fields: by iv ct s v ts
+//                                      only (SITEM_FIELDS); `ct` <= 20000 chars, the others <= 200
 //   pub/{kind}/{id}/{f}                public catalogs, kind: bots | addons | addonCode | servers;
 //                                      signed-in read; { by, ts (= now on every write), ...leaf fields };
-//                                      strings <= 20000, field `code` <= 65536; only `by` updates/deletes,
-//                                      app admins delete; pub/servers/{sid}: only that server's owner writes
+//                                      only the fields in PUB_FIELDS; `code` <= 65536, `def`/`img` <= 20000,
+//                                      the others <= 1000; only `by` updates/deletes, app admins delete;
+//                                      pub/servers/{sid}: only that server's owner writes. A CREATE must
+//                                      stamp publishLog/{me} (one per minute, shared with games and shop
+//                                      items) and udata/{me}/pub/last = {id} in the same update (putPub
+//                                      and pubCreateStamp do this); app admins are exempt
+// udata/{uid} and upub/{uid} are always objects (a bare leaf there is refused).
 // feat: /^[a-z][a-zA-Z0-9]{0,23}$/ · key/id: <= 128 chars · field names <= 64 chars · values are
 // numbers, booleans or strings; {key} may be one leaf or an object of leaves, nothing deeper.
 //
@@ -25,7 +31,19 @@ import { currentUid, getServerKey, vaultDecryptJSON, vaultEncryptJSON } from '..
 
 export const FEAT_RE = /^[a-z][a-zA-Z0-9]{0,23}$/;
 export const PUB_KINDS = Object.freeze(['bots', 'addons', 'addonCode', 'servers']);
-export const LIMITS = Object.freeze({ key: 128, field: 64, udata: 20000, upub: 2000, sconf: 20000, sitems: 20000, pub: 20000, pubCode: 65536 });
+export const LIMITS = Object.freeze({ key: 128, field: 64, udata: 20000, upub: 2000, sconf: 20000, sitems: 20000, sitemsSmall: 200, pub: 20000, pubSmall: 1000, pubCode: 65536 });
+/** The only field names the rules accept in a sitems item (`ct` up to 20000 chars, the rest up to 200). */
+export const SITEM_FIELDS = Object.freeze(['by', 'iv', 'ct', 's', 'v', 'ts']);
+/**
+ * The only field names the rules accept in a pub entry (`code` up to 65536 chars, `def` and `img` up to
+ * 20000, the rest up to 1000). A feature that needs another field adds it here and to the rules' list.
+ */
+export const PUB_FIELDS = Object.freeze([
+  'by', 'ts', 'name', 'desc', 'glyph', 'def', 'img', 'imgType', 'ver', 'created', 'icon', 'version', 'sha', 'size',
+  'perms', 'seed', 'rt', 'code', 'tags', 'color', 'members', 'iid', 'k',
+]);
+/** One new pub entry per minute per account, shared with games and community shop items (publishLog). */
+export const PUBLISH_WINDOW_MS = 60_000;
 
 const BAD_KEY = /[.#$[\]/]/;
 
@@ -113,14 +131,66 @@ export function updateSitem(sid, feat, id, fields) {
   return update(sitemsRef(sid, feat, id), { ...fields, by: myUid() });
 }
 
+// ---------- pub creates: the shared one-per-minute publish window ----------
+
+let lastPubCreate = 0;
+const isDenied = (e) => /permission[_ ]denied/i.test(String(e?.code || e?.message || e));
+
+/** Milliseconds until this tab may create another pub entry (best effort; the rules decide). */
+export function pubCreateWaitLeft() {
+  return Math.max(0, lastPubCreate + PUBLISH_WINDOW_MS - Date.now());
+}
+
+/** The "wait a minute" message for a too-early create (`ms` left, when known) or a refused one. */
+export function pubWaitText(ms) {
+  const base = 'You can publish one new bot, add-on, server listing, game or shop item per minute.';
+  if (!(ms > 0)) return `${base} Wait a minute and try again.`;
+  const s = Math.max(1, Math.ceil(ms / 1000));
+  return `${base} Try again in ${s} second${s === 1 ? '' : 's'}.`;
+}
+
+/**
+ * The paths a create of pub/{kind}/{id} needs in the same multi-path update: publishLog/{me} = now
+ * (the rules' 60 s window) and udata/{me}/pub/last = id (so one stamp creates entries with one id only;
+ * add-ons create pub/addons/{id} and pub/addonCode/{id} together).
+ */
+export function pubCreateStamp(id) {
+  const uid = myUid();
+  checkKey(id, 'catalog id');
+  return { [`publishLog/${uid}`]: serverTimestamp(), [udataPath(uid, 'pub', 'last')]: id };
+}
+
+/**
+ * Write a multi-path update that creates pub entries. With the stamp (pubCreateStamp) in it, it refuses
+ * early when this tab created one less than a minute ago. A refusal becomes the "wait a minute" message
+ * (the window is shared with games and shop items, which this tab can't see). App admins may create
+ * without the stamp (the first-party add-on examples).
+ */
+export async function commitPubCreate(patch) {
+  const stamped = Object.keys(patch).some((k) => k.startsWith('publishLog/'));
+  const wait = pubCreateWaitLeft();
+  if (stamped && wait > 0) throw new Error(pubWaitText(wait));
+  try {
+    await update(ref(db), patch);
+  } catch (e) {
+    if (isDenied(e)) throw new Error(`Codehub refused to publish this. ${pubWaitText()}`);
+    throw e;
+  }
+  if (stamped) lastPubCreate = Date.now();
+}
+
 /**
  * Create or replace a catalog entry pub/{kind}/{id} (id defaults to a fresh push id; for `servers`
  * it must be the server id). Sets `by` = me and `ts` = server time. Resolves to the id.
+ * opts.create (default: no id given) stamps the publish window, as the rules require for a new entry;
+ * pass `create: false` only when replacing an entry that exists.
  */
-export async function putPub(kind, id, fields) {
-  const r = id ? pubRef(kind, id) : push(pubRef(kind));
-  await set(r, { ...fields, by: myUid(), ts: serverTimestamp() });
-  return r.key;
+export async function putPub(kind, id, fields, { create = !id } = {}) {
+  const key = id || push(pubRef(kind)).key;
+  const entry = { ...fields, by: myUid(), ts: serverTimestamp() };
+  if (create) await commitPubCreate({ [pubPath(kind, key)]: entry, ...pubCreateStamp(key) });
+  else await set(pubRef(kind, key), entry);
+  return key;
 }
 
 /** Change some fields of my catalog entry (ts is refreshed, as the rules require). */

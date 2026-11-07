@@ -1,5 +1,5 @@
 // Server discovery: the public "Discover" view and the owner's "Discovery" settings tab.
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useWorkspaceCtx } from '../../../lib/ext/workspaceContext.js';
 import { useIsAppAdmin } from '../../../lib/admin.js';
 import { ConfirmButton } from '../../../components/layout/ui.jsx';
@@ -119,6 +119,45 @@ export function DiscoverRedirect({ ctx, open }) {
   return <p className="muted">Opening Discover…</p>;
 }
 
+/**
+ * The unlist confirmation: says plainly that unlisting doesn't take the key back. Focus starts on
+ * Cancel (the safe choice); Esc cancels.
+ */
+function UnlistConfirm({ busy, onCancel, onConfirm }) {
+  const cancelRef = useRef(null);
+  const titleId = useId();
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
+  return (
+    <div
+      className="cm-warn cm-unlist"
+      role="alertdialog"
+      aria-labelledby={titleId}
+      aria-describedby={`${titleId}-d`}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
+    >
+      <strong id={titleId}>Unlist this server?</strong>
+      <p id={`${titleId}-d`}>
+        Unlisting removes the listing and revokes its public invite, so nobody new can join through it. It does not make the
+        server private again: everyone who read the listing has the server&apos;s key and can read its past and future messages,
+        and people who joined stay members. Codehub can&apos;t change a server&apos;s key; to be private again, create a new server.
+      </p>
+      <div className="ly-form-actions">
+        <button type="button" className="btn" ref={cancelRef} onClick={onCancel} disabled={busy}>Cancel</button>
+        <button type="button" className="btn danger" onClick={onConfirm} disabled={busy}>
+          {busy ? <span className="spinner ly-spinner-sm" /> : 'Unlist anyway'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** serverSettingsTabs 'community.discovery': list / update / unlist (owner only). */
 export function DiscoverySettings({ ctx }) {
   const { sid, server } = ctx;
@@ -128,9 +167,18 @@ export function DiscoverySettings({ ctx }) {
   const memberCount = server?.members?.length || 0;
   const [form, setForm] = useState(null);
   const [agree, setAgree] = useState(false);
+  const [confirmUnlist, setConfirmUnlist] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const uid = useId();
+  const unlistRef = useRef(null);
+  const wasConfirming = useRef(false);
+
+  // Closing the unlist confirmation (Cancel / Esc) puts focus back on the Unlist button.
+  useEffect(() => {
+    if (wasConfirming.current && !confirmUnlist) unlistRef.current?.focus();
+    wasConfirming.current = confirmUnlist;
+  }, [confirmUnlist]);
 
   useEffect(() => {
     if (loading || form) return;
@@ -180,9 +228,11 @@ export function DiscoverySettings({ ctx }) {
   return (
     <form className="cm-settings" onSubmit={submit}>
       <div className="cm-warn" role="note">
-        <strong>Listing publishes an invite.</strong> Anyone signed in to Codehub can find this server, join it and read every
-        message, including older ones. The name, description and tags below are public and not encrypted. Unlisting revokes that
-        invite, but people who already joined stay members.
+        <strong>Listing publishes an invite, including this server&apos;s encryption key.</strong> Anyone signed in to Codehub can
+        find this server and join it, and anyone who reads the listing gets the key: they can read this server&apos;s past and
+        future messages. The name, description and tags below are public and not encrypted. Unlisting revokes the invite, but
+        it does not make the server private again: people who joined stay members, and everyone who read the listing keeps the
+        key. Codehub can&apos;t change a server&apos;s key, so only a new server would be private.
       </div>
       {listing && (
         <p className="cm-stat">
@@ -229,15 +279,26 @@ export function DiscoverySettings({ ctx }) {
       {!listing && (
         <label className="cm-check">
           <input id={`${uid}-agree`} type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
-          I understand that anyone can join this server and read all of its messages.
+          I understand that anyone can join this server and read all of its messages, past and future, and that unlisting
+          later won&apos;t make it private again.
         </label>
       )}
       {msg && <p className={msg.ok ? 'cm-ok' : 'error-text'} role="status">{msg.text}</p>}
+      {listing && confirmUnlist && (
+        <UnlistConfirm
+          busy={busy}
+          onCancel={() => setConfirmUnlist(false)}
+          onConfirm={() => act(async () => {
+            await unlistServer(sid, listing);
+            setConfirmUnlist(false);
+          }, 'Unlisted. The public invite was revoked; the server is not private again (see above).')}
+        />
+      )}
       <div className="ly-form-actions">
-        {listing && (
-          <ConfirmButton className="btn danger" confirmLabel="Really unlist?" onConfirm={() => act(() => unlistServer(sid, listing), 'Unlisted. The public invite was revoked.')} disabled={busy}>
+        {listing && !confirmUnlist && (
+          <button type="button" className="btn danger" ref={unlistRef} onClick={() => setConfirmUnlist(true)} disabled={busy}>
             Unlist
-          </ConfirmButton>
+          </button>
         )}
         {listing && inviteGone ? (
           <button type="button" className="btn primary" disabled={busy || !preview} onClick={() => act(() => publishListing(sid, { ...form, members: memberCount }, { current: listing, newInvite: true }), 'New public invite created')}>

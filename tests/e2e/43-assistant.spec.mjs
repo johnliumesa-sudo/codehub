@@ -219,6 +219,9 @@ test('setup, streaming panel, context, catch me up, /ask + share, workspace togg
   await expect(alice.locator('.chat-title-text')).toHaveText('random');
   await expect(panelOf(alice)).toBeVisible();
   await expect(panelOf(alice).locator('.asst-turn.bot.done')).toHaveCount(4); // same conversation, kept in memory
+  // The /ask answer from #general can't be shared into #random (it may quote #general's messages).
+  await expect(panelOf(alice).getByRole('button', { name: /^Share to/ })).toHaveCount(0);
+  await expect(panelOf(alice).locator('.asst-share-note')).toHaveText('Asked in #general: open it to share this answer there.');
   await sideToggle.click();
   await expect(panelOf(alice)).toHaveCount(0);
   await expect(sideToggle).toHaveAttribute('aria-pressed', 'false');

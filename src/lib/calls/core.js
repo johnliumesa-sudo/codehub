@@ -3,8 +3,9 @@
 // DB layout (see ARCHITECTURE.md "Calls"); voice channels use vcalls/{sid}/{cid} and
 // vsignal/{sid}/{cid}/... instead (same shapes) because rules cannot parse `vc_{sid}_{cid}`:
 //   calls/{scope}            = { id, startedBy, ts, kind: 'audio'|'video', slots: { 0..5: slot } }
-//   calls/{scope}/slots/{i}  = { uid, joinedAt, mic, cam, screen, hb }   hb: heartbeat (server time, every
-//                              15 s; the server sets it to 0 when the owner's connection drops)
+//   calls/{scope}/slots/{i}  = { uid, joinedAt, mic, cam, screen, hb, away? }   hb: heartbeat (server time,
+//                              every 15 s); when the owner's connection drops the server stamps hb with
+//                              that time and sets away = true (onDisconnect), so others wait 45 s to prune
 //   signal/{scope}/{to}/{from}/{pushId} = { iv, ct, ts, epoch? }   AAD `call:{scope}/{callId}/{from}->{to}`
 // Scopes: dm_{dmId} | grp_{gid} | vc_{sid}_{cid}. Server and channel ids are 20-char push keys.
 import { get, onDisconnect, onValue, push, ref, remove, runTransaction, serverTimestamp, update } from 'firebase/database';
@@ -13,7 +14,7 @@ import { decryptJSON, encryptJSON, randomId } from '../crypto.js';
 import { getDmKey, getServerKey } from '../keystore.js';
 import { getGroupKey } from '../groups.js';
 import { peerFromDmId } from '../servers.js';
-import { STUN_URLS, buildIceServers, slotLiveness } from './health.js';
+import { STUN_URLS, buildIceServers, canPruneSlot } from './health.js';
 
 export const MAX_CALL = 6;
 export const STALE_MS = 60_000;
@@ -120,16 +121,17 @@ const isLive = (meta, now = Date.now()) =>
   !!meta?.id && (!!meta.slots || (typeof meta.ts === 'number' && now - meta.ts < STALE_MS));
 
 /**
- * Remove slots whose owner is gone: no heartbeat for 45 s, or offline (hb = 0). The rules allow any
- * member to do this (and the owner to drop their own). Returns the slots that are left.
+ * Remove slots whose owner is gone: no heartbeat for 45 s (the rules let any member remove those), or
+ * my own slot left away by a crashed tab. Someone else's away slot (a short network blip) is kept: it
+ * only becomes removable once its heartbeat is 45 s old. Returns the slots that are left.
  */
-export async function pruneGhostSlots(scope) {
+export async function pruneGhostSlots(scope, me) {
   const slots = (await get(ref(db, slotsPath(scope)))).val() || {};
   const now = serverNow();
   const left = {};
   for (const [i, s] of Object.entries(slots)) {
     if (!s) continue;
-    if (slotLiveness(s, now) !== 'live') {
+    if (canPruneSlot(s, now, me)) {
       const ok = await remove(ref(db, `${slotsPath(scope)}/${i}`)).then(() => true, () => false);
       if (ok) continue;
     }
@@ -141,7 +143,7 @@ export async function pruneGhostSlots(scope) {
 /** Join the active call in `scope`, or start one. Returns `{ callId, kind, started }`. */
 export async function ensureCall(scope, me, kind) {
   // A call whose only slots are ghosts (crashed tabs) is over: clear them so a new call rings again.
-  await pruneGhostSlots(scope).catch(() => {});
+  await pruneGhostSlots(scope, me).catch(() => {});
   const meta = (await get(ref(db, callPath(scope)))).val();
   if (isLive(meta)) return { callId: meta.id, kind: meta.kind === 'video' ? 'video' : 'audio', started: false };
   const id = randomId(12);
@@ -151,13 +153,13 @@ export async function ensureCall(scope, me, kind) {
 
 /**
  * Claim the first free slot with a transaction per slot. Throws when all 6 are taken or when I
- * already hold a live slot (another tab). Ghost slots (no heartbeat for 45 s, or offline) are removed
- * first, my own included. The slot carries a heartbeat (`hb`), and the server sets `hb` to 0 if this
- * connection drops (the slot stays, so a short network blip doesn't end anyone's call). Returns
- * `{ index, joinedAt }` with the server-stored joinedAt.
+ * already hold a live slot (another tab). Ghost slots (no heartbeat for 45 s, or my own away slot) are
+ * removed first. The slot carries a heartbeat (`hb`); if this connection drops, the server stamps `hb`
+ * with that time and sets `away` (the slot stays for 45 s, so a short network blip doesn't end anyone's
+ * call). Returns `{ index, joinedAt }` with the server-stored joinedAt.
  */
 export async function claimSlot(scope, me, flags) {
-  const existing = await pruneGhostSlots(scope);
+  const existing = await pruneGhostSlots(scope, me);
   if (Object.values(existing).some((s) => s?.uid === me)) {
     throw new Error('You are already in this call in another tab. If that tab was closed, try again in a minute.');
   }
@@ -188,15 +190,16 @@ export async function claimSlot(scope, me, flags) {
 }
 
 /**
- * When this connection drops, the server marks my slot offline (`hb` = 0). Registered again after
- * every reconnect (a disconnect consumes it). Harmless once the slot is gone or someone else's: the
- * server checks the rules again when it runs, and a bare `hb` fails validation.
+ * When this connection drops, the server marks my slot away: `hb` = the disconnect time (server clock),
+ * `away` = true. Others may remove it only once that is 45 s old. Registered again after every
+ * reconnect (a disconnect consumes it). Harmless once the slot is gone or someone else's: the server
+ * checks the rules again when it runs, and a slot without uid fails validation.
  */
 export function armSlotDisconnect(scope, index) {
-  return onDisconnect(ref(db, `${slotsPath(scope)}/${index}/hb`)).set(0).catch(() => {});
+  return onDisconnect(ref(db, `${slotsPath(scope)}/${index}`)).update({ hb: serverTimestamp(), away: true }).catch(() => {});
 }
 
-/** Remove another member's ghost slot (the rules allow it once its heartbeat is 45 s old or 0). */
+/** Remove another member's ghost slot (the rules allow it once its heartbeat is 45 s old). */
 export function removeSlot(scope, index) {
   return remove(ref(db, `${slotsPath(scope)}/${index}`));
 }

@@ -6,7 +6,7 @@
 //   the reply always comes after it);
 // - welcome messages: BotsHost posts them from the new member's browser (once, tracked in udata).
 import { answeredRecently, findTrigger } from './triggers.js';
-import { renderTemplate, usesCount } from './template.js';
+import { escapeMentions, renderTemplate, usesCount } from './template.js';
 import { DEFAULT_GLYPH } from './schema.js';
 import { bumpCount, coolingLocally, markCooldown, peekInstalled, serverName } from './store.js';
 import { clearPending, queueReply } from './pending.js';
@@ -49,9 +49,13 @@ export async function triggerDraft(bot, trigger, ctx) {
   return text ? { text, extra: { bot: botTag(bot, 'trigger', trigger.id) } } : null;
 }
 
-/** Draft for a bot's welcome message. */
+/**
+ * Draft for a bot's welcome message. It is posted automatically from the newcomer's own account, so
+ * it never mentions (notifies) anyone, the newcomer included: every @mention is escaped. Readers see
+ * it marked as an automatic bot welcome (the `bot` tag with via 'welcome').
+ */
 export async function welcomeDraft(bot, ctx) {
-  const text = await render(bot.def.welcome, ctx, bot);
+  const text = escapeMentions(await render(bot.def.welcome, ctx, bot));
   return text ? { text, extra: { bot: botTag(bot, 'welcome') } } : null;
 }
 

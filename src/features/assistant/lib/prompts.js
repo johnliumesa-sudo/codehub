@@ -4,6 +4,8 @@
 // Chat content is untrusted: it is wrapped in <transcript>/<message>/<text> tags, the system prompt
 // tells the model to treat it as material and never as instructions, tag look-alikes inside it are
 // neutralised, and continuation lines are indented so nobody can forge a "[time] Name:" line.
+// Display names and conversation names are untrusted too (anyone picks their own): promptName() keeps
+// them to one short line without tag look-alikes or a fake "(me)" marker.
 import { MAX_MESSAGE_CHARS, MAX_SUMMARY_MESSAGES, MAX_TRANSCRIPT_CHARS } from './config.js';
 
 /** Codehub's message text limit (src/lib/messages.js MAX_TEXT); kept here so this file stays pure. */
@@ -15,6 +17,24 @@ const TAG_RE = new RegExp(`<(/?)(${TAGS})(?=[\\s>/]|$)`, 'gi');
 /** Neutralise our delimiter tags inside untrusted text so it can't close or open a section. */
 export function neutralize(text) {
   return String(text ?? '').replace(TAG_RE, '‹$1$2');
+}
+
+const CTRL_RE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g; // eslint-disable-line no-control-regex
+
+/**
+ * A display or conversation name for prompts: one line (control characters and line breaks become
+ * spaces), our delimiter tags neutralised, no "(me)" marker (only the transcript adds that, for me),
+ * at most 64 characters; `fallback` when nothing is left.
+ */
+export function promptName(name, fallback = 'Unknown') {
+  const s = String(name ?? '')
+    .replace(CTRL_RE, ' ')
+    .replace(/\(\s*me\s*\)/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 64)
+    .trim();
+  return s ? neutralize(s) : fallback;
 }
 
 /** A Markdown code fence longer than any backtick run inside `code`. */
@@ -45,7 +65,7 @@ export function messageText(m) {
   const b = m?.body;
   if (!b || typeof b !== 'object') return '';
   const parts = [];
-  if (b.fwd && typeof b.fwd === 'object') parts.push(`(forwarded from ${String(b.fwd.from || 'someone').slice(0, 64)})`);
+  if (b.fwd && typeof b.fwd === 'object') parts.push(`(forwarded from ${promptName(b.fwd.from, 'someone')})`);
   if (typeof b.text === 'string' && b.text.trim()) parts.push(b.text.trim());
   if (b.code && typeof b.code === 'object' && typeof b.code.content === 'string' && b.code.content) {
     const name = typeof b.code.filename === 'string' && b.code.filename ? ` ${b.code.filename.slice(0, 120)}` : '';
@@ -67,7 +87,7 @@ export function messageText(m) {
 
 /** How the conversation is named inside prompts. */
 export function convLabel(conv) {
-  const name = String(conv?.name || conv?.title || '').trim();
+  const name = promptName(conv?.name || conv?.title, '');
   if (conv?.kind === 'dm') return name ? `my direct messages with ${name}` : 'a direct message conversation';
   if (conv?.kind === 'group') return name ? `the group chat "${name}"` : 'a group chat';
   return name ? `the #${name} channel` : 'this channel';
@@ -89,7 +109,7 @@ export function convShort(conv) {
 export function buildTranscript(messages, { profiles = {}, meUid = '', maxChars = MAX_TRANSCRIPT_CHARS, maxMessageChars = MAX_MESSAGE_CHARS } = {}) {
   const list = (Array.isArray(messages) ? messages : []).filter(isReadable);
   const byMid = new Map(list.map((m) => [m.mid, m]));
-  const nameOf = (uid) => String(profiles?.[uid]?.name || 'Unknown').replace(/[\r\n]+/g, ' ').slice(0, 64);
+  const nameOf = (uid) => promptName(profiles?.[uid]?.name);
   const lines = [];
   for (const m of list) {
     const body = messageText(m);
@@ -117,7 +137,7 @@ function transcriptBlock(t, label) {
 
 /** The system prompt every assistant request starts with. */
 export function systemPrompt({ meName = '', extra = '' } = {}) {
-  const who = String(meName || '').trim().slice(0, 64) || 'the user';
+  const who = promptName(meName, 'the user');
   return [
     `You are the assistant built into Codehub, an end-to-end encrypted chat app for programmers. You are helping ${who}, who connected you with their own Anthropic API key.`,
     'Write Markdown that reads well in a narrow chat panel: short paragraphs, lists where they help, and fenced code blocks with a language tag for code. Be direct and concise.',
@@ -159,7 +179,7 @@ export function catchUpSelection(messages, { mode = 'unread', since = 0, meUid =
 
 /** "Catch me up": key points, decisions, questions for me, mentions of me. */
 export function buildCatchUp({ transcript, conv, meName = '', note = '' }) {
-  const me = String(meName || '').trim().slice(0, 64) || 'me';
+  const me = promptName(meName, 'me');
   return [
     `Catch me up on ${convLabel(conv)}. ${note}`.trim(),
     transcriptBlock(transcript, convLabel(conv)),
@@ -207,7 +227,7 @@ export function buildExplainCode({ m, conv, authorName = 'Someone' }) {
   if (!found) throw new Error('This message has no code to explain.');
   const lang = found.lang || 'the';
   const text = typeof m.body?.text === 'string' && m.body.code ? m.body.text.trim() : '';
-  const author = String(authorName || 'Someone').slice(0, 64);
+  const author = promptName(authorName, 'Someone');
   return [
     `Explain ${found.lang ? `this ${lang}` : 'this'} code that ${author} posted in ${convLabel(conv)}: what it does, how it works step by step, and anything that looks wrong, risky or worth improving.`,
     `<message>\n${text ? `${neutralize(clip(text, MAX_MESSAGE_CHARS))}\n\n` : ''}${neutralize(fence(clip(found.code, 60_000), found.lang))}\n</message>`,
@@ -303,7 +323,7 @@ export function buildWritingHelp({ mode, draft = '', transcript, conv, meName })
   if (!w) throw new Error('Unknown writing mode.');
   const d = String(draft ?? '').trim();
   if (w.needsDraft && !d) throw new Error('Write something in the message box first.');
-  const me = String(meName || '').trim().slice(0, 64) || 'me';
+  const me = promptName(meName, 'me');
   const system = systemPrompt({
     meName,
     extra: `You are helping ${me} write a chat message they are about to send. Reply with the message text only: no preamble, no explanation, no quotation marks around it. Keep Markdown, code, URLs and @mentions intact, and stay well under ${CHAT_TEXT_MAX} characters.`,

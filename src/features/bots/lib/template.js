@@ -51,6 +51,24 @@ export function mentionFor(name) {
   return tok && MENTION_TOKEN.test(tok) ? `@${tok}` : escapeMarkdown(name);
 }
 
+const CODE_SPLIT = /(```[\s\S]*?(?:```|$)|`[^`\n]*`)/;
+
+/**
+ * Escape every @mention in markdown text (outside code), so it renders as plain text and notifies
+ * nobody: "@name" -> "\\@name" wherever the chat would read a mention (after a start, a space or any
+ * other non-word character). Already escaped ones and e-mail-like "a@b" stay as they are.
+ */
+export function escapeMentions(text) {
+  return String(text ?? '')
+    .split(CODE_SPLIT)
+    .map((part, i) => (i % 2 ? part : part.replace(/(\\*)@(?=[\p{L}\p{N}_-])/gu, (m, bs, at, whole) => {
+      if (bs.length % 2) return m; // escaped already
+      if (at > 0 && /[\p{L}\p{N}]/u.test(whole[at - 1]) && !bs) return m; // a@b: never a mention
+      return `${bs}\\@`;
+    })))
+    .join('');
+}
+
 /** Split command arguments on whitespace; "double quotes" group words. */
 export function splitArgs(args) {
   const out = [];

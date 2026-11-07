@@ -40,15 +40,22 @@ instead of sitting at "Connecting…".
   (retries continue). The people list shows the same.
 - **ICE servers**: `stun:stun.l.google.com:19302` and `stun1`..`stun4` (one entry), plus up to 4 TURN
   entries from `appConfig/turn` (admin panel), validated (`stun:`/`turn:`/`turns:` URLs only).
-- **Heartbeat**: my slot's `hb` is set to server time when I join and every 15 s. When my database
-  connection drops, the server sets `hb` to 0 (`onDisconnect`) instead of deleting the slot, so a short
-  network blip no longer ends anyone's call; on reconnect the client re-arms it and beats at once.
-- **Ghost slots**: a slot whose `hb` is more than 45 s old (frozen or crashed tab whose connection the
-  server still thinks is open), or that is offline (`hb` = 0) while nobody has a working media path to
-  it for 6 s, is treated as gone: peers close it, hide the tile and remove the slot (the rules allow any
-  member of the conversation to remove such a slot). The participant lists in headers and voice
-  channels also hide and remove slots with an old heartbeat, and offline ones after 20 s. Joining or
-  starting a call first removes ghost slots, so a call left behind by crashed tabs rings again. A
+- **Heartbeat**: my slot's `hb` is set to server time when I join and every 15 s (each beat also clears
+  `away`). When my database connection drops, the server runs my `onDisconnect`, which stamps `hb` with
+  the disconnect time (server clock) and sets `away: true` instead of deleting the slot, so a short
+  network blip never ends anyone's call; on reconnect the client re-arms it and beats at once.
+  (Round 3 security fix a4: the `onDisconnect` used to set `hb` to 0, which the 45 s rule read as
+  "ancient", so anyone could prune a member right after a blip.)
+- **Ghost slots**: a slot whose `hb` is more than 45 s old (frozen or crashed tab, or away for 45 s) is
+  gone: peers close it, hide the tile and remove the slot (the rules allow any member of the
+  conversation to remove it once `hb < now - 45000`). An away slot (`away: true`, younger than 45 s)
+  is never removed by others: peers with no working media path to it for 6 s close the connection and
+  hide the tile, and the participant lists in headers and voice channels hide it after 20 s, but it
+  reappears as soon as the owner beats again (`slotLiveness`, `canPruneSlot` in `health.js`). Joining
+  or starting a call first removes stale slots and my own away slot (a crashed tab of mine; owners may
+  always delete their own slot), so a call left behind by crashed tabs rings again. A tab that is
+  closed removes its own slot on `pagehide`; if that write doesn't reach the server before the tab is
+  gone, the server can't tell it from a blip, so the slot is hidden at once and removed after 45 s. A
   client never judges others while its own copy may be out of date: not while it is offline, and not
   for 5 s after reconnecting or after its own tab was stalled (the rules would refuse a wrong removal
   anyway, since they compare `hb` with the server clock).
@@ -64,16 +71,22 @@ instead of sitting at "Connecting…".
   during a blip are still there afterwards; leftovers are cleared on the next join or leave and are
   ignored anyway (older than the sender's slot, or addressed to an older slot).
 
-**Data paths.** `calls/{scope}/slots/{i}/hb` and `vcalls/{sid}/{cid}/slots/{i}/hb`: number, server
-time (`now`) or `0`. Optional, so slots of older clients (no `hb`) stay valid; they are never treated
-as ghosts and others can't remove them (their `onDisconnect` still removes them).
+**Data paths.** `calls/{scope}/slots/{i}/hb` and `vcalls/{sid}/{cid}/slots/{i}/hb`: number, always the
+server time of the write (`now`; the heartbeat or the `onDisconnect`). `.../slots/{i}/away`: `true` while
+the owner's connection is down (set by `onDisconnect`, removed by the next beat). Both optional, so
+slots of older clients (no `hb`) stay valid; they are never treated as ghosts and others can't remove
+them (their `onDisconnect` still removes them). A legacy `hb` of 0 counts as stale.
 
-**Rules.** In both slot blocks: `hb` validates as `now` or `0`; a member of the conversation (DM/group
-member, server member for voice channels) may delete another member's slot when its `hb < now - 45000`
-(0 included). The new clause comes last in the delete condition, so a slot without `hb` behaves exactly
-as before. A dangling `onDisconnect` (`hb` = 0) after the slot was removed or taken over by someone
-else is refused when it runs (a bare `hb` fails validation; tested). Rule bytes: +184 (minified total
-98,341 of 102,400).
+**Rules.** In both slot blocks: `hb` validates as `now` (0 is refused since the a4 fix), `away` as
+`true`; a member of the conversation (DM/group member, server member for voice channels) may delete
+another member's slot when its `hb < now - 45000`. The new clause comes last in the delete condition, so
+a slot without `hb` behaves exactly as before. A dangling `onDisconnect` after the slot was removed or
+taken over by someone else is refused when it runs (a slot without `uid` fails validation; tested).
+Tests: `tests/rules/calls.test.mjs` ("heartbeat and ghost slots": an away slot 1 s and 40 s old can't be
+pruned, 46 s can; a real `onDisconnect` stamps the server time and `away`), `tests/unit/calls.test.mjs`,
+`tests/unit/sec-misc.test.mjs`, and `tests/e2e/44-calls.spec.mjs` (a crashed tab is hidden at once and
+its slot removed only after the 45 s grace). Rule bytes: +184 originally (minified total 98,341 of
+102,400); the a4 fix (`away`, no `0`) adds 50.
 
 ## 12. Device settings & test
 

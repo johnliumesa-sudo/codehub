@@ -28,6 +28,7 @@
 .bt-badge-warn { color: var(--warn-text, var(--warn)); font-size: 11.5px; }
 
 .bt-cmd-note { font-size: 11.5px; color: var(--text-faint); }
+.bt-cmd-note.auto { color: var(--text-dim); font-style: italic; }
 .bt-cmd-note code { font-size: 11px; padding: 0 3px; border-radius: 4px; background: var(--code-inline-bg); border: 1px solid var(--code-inline-border); color: var(--text-dim); }
 
 /* ---------- composer tools ---------- */

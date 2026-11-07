@@ -2,7 +2,7 @@
 // permissions the feature relies on: the public directory (pub/bots), server installs
 // (sconf/{sid}/bots, "Manage apps") and the per-member welcome markers (udata/{uid}/botWelcome).
 import { describe, it, before, after, beforeEach } from 'node:test';
-import { getEnv, cleanup, reset, db, box, TS, assertFails, assertSucceeds } from './helpers.mjs';
+import { getEnv, cleanup, reset, db, box, TS, pubStamp, assertFails, assertSucceeds } from './helpers.mjs';
 
 const ok = assertSucceeds, deny = assertFails;
 const big = (n, ch = 'x') => ch.repeat(n);
@@ -12,11 +12,14 @@ const entry = (by, patch = {}) => ({ def: def(), name: 'Helper', desc: '', glyph
 // A server install exactly as installBot writes it.
 const install = (author, patch = {}) => ({ def: def(), ver: 1, by: 'dave', author, at: TS, ...patch });
 const appsRole = { nameEnc: box, color: '#00ff00', position: 40, perms: { manageApps: true }, createdAt: 1 };
+// publishBot: a new entry is created together with the shared publish-window stamp.
+const create = (uid, id, e) => db(uid).ref().update({ [`pub/bots/${id}`]: e, ...pubStamp(uid, id) });
 
 const seed = (w) => {
   w.servers.s1.roles.rApps = appsRole;
   w.servers.s1.members.erin.roleId = 'rApps';
   w.pub = { bots: { b1: { ...entry('dave'), created: 1, ts: 1 } } };
+  w.publishLog.erin = Date.now() - 120000; // outside the one-per-minute publish window
   w.sconf = { s1: { bots: { b1: { ...install('alice'), at: 1 } } } };
 };
 
@@ -28,16 +31,17 @@ describe('bots: generic blocks as used by the bots feature', () => {
   describe('pub/bots (public directory)', () => {
     it('ALLOW any signed-in user to publish a full-size definition and image', async () => {
       const fullDef = def(big(20000 - def('').length));
-      await ok(db('erin').ref('pub/bots/b2').set(entry('erin', { def: fullDef, img: big(20000, 'A'), imgType: 'image/webp' })));
-      await ok(db('mallory').ref('pub/bots/b3').set(entry('mallory')));
+      await ok(create('erin', 'b2', entry('erin', { def: fullDef, img: big(20000, 'A'), imgType: 'image/webp' })));
+      await ok(create('mallory', 'b3', entry('mallory')));
     });
     it('DENY definitions or images over one 20000-character leaf, nested values, forged by and stale ts', async () => {
-      await deny(db('erin').ref('pub/bots/b2').set(entry('erin', { def: def(big(20001)) })));
-      await deny(db('erin').ref('pub/bots/b2').set(entry('erin', { img: big(20001, 'A') })));
-      await deny(db('erin').ref('pub/bots/b2').set(entry('erin', { commands: { hello: 'x' } })));
-      await deny(db('erin').ref('pub/bots/b2').set(entry('dave')));
-      await deny(db('erin').ref('pub/bots/b2').set(entry('erin', { ts: 5 })));
+      await deny(create('erin', 'b2', entry('erin', { def: def(big(20001)) })));
+      await deny(create('erin', 'b2', entry('erin', { img: big(20001, 'A') })));
+      await deny(create('erin', 'b2', entry('erin', { commands: { hello: 'x' } })));
+      await deny(create('erin', 'b2', entry('dave')));
+      await deny(create('erin', 'b2', entry('erin', { ts: 5 })));
       await deny(db(null).ref('pub/bots/b2').set(entry('erin')));
+      await deny(db('erin').ref('pub/bots/b2').set(entry('erin')), 'a create must stamp the publish window');
     });
     it('ALLOW reading the directory by update time and by publisher; DENY signed-out reads', async () => {
       await ok(db('mallory').ref('pub/bots').orderByChild('ts').limitToLast(60).get());

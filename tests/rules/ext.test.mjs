@@ -3,7 +3,7 @@
 // blocks rely on (== vs ===, short-circuiting, errors denying).
 import { describe, it, before, after, beforeEach } from 'node:test';
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { getEnv, cleanup, reset, db, admin, box, TS, assertFails, assertSucceeds } from './helpers.mjs';
+import { getEnv, cleanup, reset, db, admin, box, TS, pubStamp, assertFails, assertSucceeds } from './helpers.mjs';
 
 const ok = assertSucceeds, deny = assertFails;
 const big = (n) => 'x'.repeat(n);
@@ -13,7 +13,7 @@ const seed = (w) => {
   w.servers.s1.roles.rApps = appsRole;
   w.servers.s1.members.erin.roleId = 'rApps';
   w.servers.s1.timeouts = { frank: Date.now() + 60_000 };
-  w.sitems = { s1: { notes: { i1: { by: 'dave', title: 'hello', n: 1 } } } };
+  w.sitems = { s1: { notes: { i1: { by: 'dave', ct: 'hello', v: 1 } } } };
   w.sconf = { s1: { automod: { rules: { on: true } } } };
   w.pub = { bots: { b1: { by: 'dave', ts: 1, name: 'Echo' } }, servers: {} };
 };
@@ -112,27 +112,27 @@ describe('round 3 generic blocks', () => {
       await deny(db('mallory').ref('sitems/s1/notes').get());
     });
     it('ALLOW a member to create with by = self, and the author to update', async () => {
-      await ok(db('erin').ref('sitems/s1/notes/i2').set({ by: 'erin', title: 'mine', at: TS }));
-      await ok(db('dave').ref('sitems/s1/notes/i1/title').set('edited'));
-      await ok(db('dave').ref('sitems/s1/notes/i1').update({ title: 'again', n: 2 }));
-      await ok(db('dave').ref('sitems/s1/notes/i1').set({ by: 'dave', title: 'replaced' }));
+      await ok(db('erin').ref('sitems/s1/notes/i2').set({ by: 'erin', ct: 'mine', ts: TS }));
+      await ok(db('dave').ref('sitems/s1/notes/i1/ct').set('edited'));
+      await ok(db('dave').ref('sitems/s1/notes/i1').update({ ct: 'again', v: 2 }));
+      await ok(db('dave').ref('sitems/s1/notes/i1').set({ by: 'dave', ct: 'replaced' }));
     });
     it('DENY by = someone else, non-members, timed-out members, items without by', async () => {
-      await deny(db('erin').ref('sitems/s1/notes/i3').set({ by: 'dave', title: 'forged' }));
-      await deny(db('mallory').ref('sitems/s1/notes/i3').set({ by: 'mallory', title: 'x' }));
-      await deny(db('frank').ref('sitems/s1/notes/i3').set({ by: 'frank', title: 'x' }));
-      await deny(db('erin').ref('sitems/s1/notes/i3').set({ title: 'no author' }));
+      await deny(db('erin').ref('sitems/s1/notes/i3').set({ by: 'dave', ct: 'forged' }));
+      await deny(db('mallory').ref('sitems/s1/notes/i3').set({ by: 'mallory', ct: 'x' }));
+      await deny(db('frank').ref('sitems/s1/notes/i3').set({ by: 'frank', ct: 'x' }));
+      await deny(db('erin').ref('sitems/s1/notes/i3').set({ ct: 'no author' }));
       await deny(db('erin').ref('sitems/s1/notes/i3').set('leaf'));
     });
     it('DENY other members editing, and changing by', async () => {
-      await deny(db('erin').ref('sitems/s1/notes/i1/title').set('mine now'));
-      await deny(db('erin').ref('sitems/s1/notes/i1').set({ by: 'erin', title: 'taken' }));
+      await deny(db('erin').ref('sitems/s1/notes/i1/ct').set('mine now'));
+      await deny(db('erin').ref('sitems/s1/notes/i1').set({ by: 'erin', ct: 'taken' }));
       await deny(db('dave').ref('sitems/s1/notes/i1/by').set('erin'));
-      await deny(db('alice').ref('sitems/s1/notes/i1/title').set('owner edit')); // moderators delete, never edit
+      await deny(db('alice').ref('sitems/s1/notes/i1/ct').set('owner edit')); // moderators delete, never edit
     });
     it('DENY a timed-out author updating; ALLOW them to delete their own', async () => {
-      await admin((d) => d.ref('sitems/s1/notes/i9').set({ by: 'frank', title: 'old' }));
-      await deny(db('frank').ref('sitems/s1/notes/i9/title').set('x'));
+      await admin((d) => d.ref('sitems/s1/notes/i9').set({ by: 'frank', ct: 'old' }));
+      await deny(db('frank').ref('sitems/s1/notes/i9/ct').set('x'));
       await ok(db('frank').ref('sitems/s1/notes/i9').remove());
     });
     it('ALLOW delete by the author, owner, admin and manageMessages; DENY other members', async () => {
@@ -146,14 +146,17 @@ describe('round 3 generic blocks', () => {
       await reset(seed);
       await ok(db('dave').ref('sitems/s1/notes/i1').remove());
     });
-    it('DENY size, depth, id length and feature-name violations', async () => {
-      await deny(db('dave').ref('sitems/s1/notes/i4').set({ by: 'dave', body: big(20001) }));
-      await ok(db('dave').ref('sitems/s1/notes/i4').set({ by: 'dave', body: big(20000) }));
-      await deny(db('dave').ref('sitems/s1/notes/i5').set({ by: 'dave', body: { nested: 1 } }));
+    it('DENY size, depth, id length, field-name and feature-name violations', async () => {
+      await deny(db('dave').ref('sitems/s1/notes/i4').set({ by: 'dave', ct: big(20001) }));
+      await ok(db('dave').ref('sitems/s1/notes/i4').set({ by: 'dave', ct: big(20000), iv: big(200) }));
+      await deny(db('dave').ref('sitems/s1/notes/i4').set({ by: 'dave', iv: big(201) }));
+      await deny(db('dave').ref('sitems/s1/notes/i4').set({ by: 'dave', title: 'not an allowed field' }));
+      await deny(db('dave').ref('sitems/s1/notes/i5').set({ by: 'dave', ct: { nested: 1 } }));
       await deny(db('dave').ref(`sitems/s1/notes/${big(129)}`).set({ by: 'dave' }));
       await ok(db('dave').ref(`sitems/s1/notes/${big(128)}`).set({ by: 'dave' }));
       await deny(db('dave').ref('sitems/s1/Notes/i6').set({ by: 'dave' }));
       await deny(db('dave').ref(`sitems/s1/notes/i7/${big(65)}`).set(1));
+      await deny(db('dave').ref('sitems/s1/notes/i7/body').set('x'));
     });
     it('garbage: sitems/{sid} is removable only once the server is gone', async () => {
       await deny(db('alice').ref('sitems/s1').remove());
@@ -165,19 +168,20 @@ describe('round 3 generic blocks', () => {
 
   describe('pub (public catalogs)', () => {
     const bot = (by, extra = {}) => ({ by, ts: TS, name: 'Bot', ...extra });
+    const create = (uid, path, value, id = path.split('/').pop()) => db(uid).ref().update({ [path]: value, ...pubStamp(uid, id) });
     it('ALLOW any signed-in user to read; DENY unauthenticated', async () => {
       await ok(db('mallory').ref('pub/bots').get());
       await ok(db('mallory').ref('pub/bots').orderByChild('by').equalTo('dave').get());
       await deny(db(null).ref('pub/bots').get());
     });
     it('ALLOW create with by = self and ts = now; DENY forged by, stale or missing ts, unknown kinds', async () => {
-      await ok(db('erin').ref('pub/bots/b2').set(bot('erin')));
-      await ok(db('erin').ref('pub/addons/a1').set(bot('erin', { desc: 'x' })));
-      await ok(db('erin').ref('pub/addonCode/a1').set({ by: 'erin', ts: TS, code: big(65536) }));
-      await deny(db('erin').ref('pub/bots/b3').set(bot('dave')));
-      await deny(db('erin').ref('pub/bots/b3').set({ by: 'erin', ts: 5, name: 'old' }));
-      await deny(db('erin').ref('pub/bots/b3').set({ by: 'erin', name: 'no ts' }));
-      await deny(db('erin').ref('pub/games/g1').set(bot('erin')));
+      await ok(create('zoe', 'pub/bots/b2', bot('zoe')));
+      await ok(create('mallory', 'pub/addons/a1', bot('mallory', { desc: 'x' })));
+      await ok(create('dave', 'pub/addonCode/a1', { by: 'dave', ts: TS, code: big(65536) }));
+      await deny(create('hank', 'pub/bots/b3', bot('dave')));
+      await deny(create('hank', 'pub/bots/b3', { by: 'hank', ts: 5, name: 'old' }));
+      await deny(create('hank', 'pub/bots/b3', { by: 'hank', name: 'no ts' }));
+      await deny(create('hank', 'pub/games/g1', bot('hank')));
       await deny(db(null).ref('pub/bots/b3').set(bot('erin')));
     });
     it('ALLOW updates by the publisher with a fresh ts; DENY others, changing by, updates without ts', async () => {
@@ -194,17 +198,20 @@ describe('round 3 generic blocks', () => {
       await reset(seed);
       await ok(db('dave').ref('pub/bots/b1').remove());
     });
-    it('DENY sizes: fields over 20000 (code up to 65536), nested fields', async () => {
-      await deny(db('erin').ref('pub/bots/b4').set(bot('erin', { desc: big(20001) })));
-      await deny(db('erin').ref('pub/addonCode/a2').set({ by: 'erin', ts: TS, code: big(65537) }));
-      await deny(db('erin').ref('pub/bots/b4').set(bot('erin', { cfg: { a: 1 } })));
+    it('DENY sizes: code over 65536, def/img over 20000, other fields over 1000; nested or unknown fields', async () => {
+      await deny(create('zoe', 'pub/bots/b4', bot('zoe', { desc: big(1001) })));
+      await deny(create('zoe', 'pub/bots/b4', bot('zoe', { def: big(20001) })));
+      await deny(create('zoe', 'pub/addonCode/a2', { by: 'zoe', ts: TS, code: big(65537) }));
+      await deny(create('zoe', 'pub/bots/b4', bot('zoe', { glyph: { a: 1 } })));
+      await deny(create('zoe', 'pub/bots/b4', bot('zoe', { cfg: 'not an allowed field' })));
+      await ok(create('zoe', 'pub/bots/b4', bot('zoe', { desc: big(1000), def: big(20000), img: big(20000) })));
     });
     it('servers: only that server\'s owner lists it', async () => {
-      await ok(db('alice').ref('pub/servers/s1').set({ by: 'alice', ts: TS, name: 'Lobby', members: 7 }));
+      await ok(create('alice', 'pub/servers/s1', { by: 'alice', ts: TS, name: 'Lobby', members: 7 }));
       await ok(db('alice').ref('pub/servers/s1').update({ members: 8, ts: TS }));
       await deny(db('bob').ref('pub/servers/s1').update({ members: 9, ts: TS })); // admin, not owner/publisher
-      await deny(db('dave').ref('pub/servers/s1b').set({ by: 'dave', ts: TS }));
-      await deny(db('alice').ref('pub/servers/s404').set({ by: 'alice', ts: TS }));
+      await deny(create('dave', 'pub/servers/s1b', { by: 'dave', ts: TS }));
+      await deny(create('bob', 'pub/servers/s404', { by: 'bob', ts: TS }));
       await ok(db('alice').ref('pub/servers/s1').remove());
     });
   });

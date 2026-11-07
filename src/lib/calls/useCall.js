@@ -135,8 +135,9 @@ const ghostTried = new Set();
 
 /**
  * Live call meta for a scope: `{ id, kind, ts, startedBy, participants: [slot…] }` or null.
- * Participants whose slot has no heartbeat for 45 s, or that have been offline (hb = 0) for 20 s while
- * this list was showing, are left out and removed (crashed or frozen tabs).
+ * Participants whose slot has no heartbeat for 45 s are left out and removed (crashed or frozen tabs);
+ * those away (connection dropped) for 20 s while this list was showing are left out but not removed:
+ * the rules give them 45 s to come back.
  */
 export function useCallMeta(scope) {
   const [raw, setRaw] = useState(null);
@@ -166,10 +167,7 @@ export function useCallMeta(scope) {
       const key = `${i}:${x.uid}:${x.joinedAt}:${x.hb}`;
       if (live === 'away') {
         if (!awaySeen.current.has(key)) awaySeen.current.set(key, local);
-        if (local - awaySeen.current.get(key) >= VIEWER_AWAY_MS) {
-          ghostList.push({ index: Number(i), key });
-          continue;
-        }
+        if (local - awaySeen.current.get(key) >= VIEWER_AWAY_MS) continue; // hidden, not removed
       } else if (live === 'stale') {
         ghostList.push({ index: Number(i), key });
         continue;

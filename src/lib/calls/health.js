@@ -1,7 +1,7 @@
 // Call health: pure logic with no browser or Firebase imports (unit-tested in tests/unit/calls.test.mjs).
 //
-//  - Slot liveness from the heartbeat (`hb`, a server timestamp refreshed every 15 s, set to 0 by the
-//    server when the owner's database connection drops).
+//  - Slot liveness from the heartbeat (`hb`, a server timestamp refreshed every 15 s; when the owner's
+//    database connection drops, the server stamps `hb` with the disconnect time and sets `away`).
 //  - The per-peer recovery state machine: ICE restart on `failed` (at once) or after 4 s of
 //    `disconnected`, a fresh RTCPeerConnection when restarts don't help or the connection object died,
 //    a 20 s "couldn't connect" timeout, capped exponential backoff, and never giving up while both
@@ -10,9 +10,9 @@
 //  - The ICE server list (several public STUN servers plus admin TURN).
 
 export const HB_MS = 15_000; // heartbeat interval
-export const HB_STALE_MS = 45_000; // a slot without a heartbeat for this long is gone (rules agree)
-export const AWAY_GRACE_MS = 6_000; // hb = 0 (owner offline) and no working media path for this long: gone
-export const VIEWER_AWAY_MS = 20_000; // the same for people who only see the participant list
+export const HB_STALE_MS = 45_000; // a slot without a heartbeat for this long is gone (rules agree): removable
+export const AWAY_GRACE_MS = 6_000; // away (owner offline) and no working media path for this long: hidden in the call
+export const VIEWER_AWAY_MS = 20_000; // away this long: hidden from people who only see the participant list
 export const DISCONNECT_GRACE_MS = 4_000; // `disconnected` for longer than this: restart ICE
 export const FIRST_CONNECT_PATIENCE_MS = 12_000; // never connected (or stuck negotiating): try again
 export const CONNECT_TIMEOUT_MS = 20_000; // show "couldn't connect" (and keep retrying)
@@ -40,12 +40,21 @@ export const STATUS_TEXT = Object.freeze({
 /**
  * 'live' | 'away' | 'stale' for a slot at server time `serverNow`. Slots written by older clients have
  * no `hb`; they are trusted (their onDisconnect removes them), and the rules never let others delete them.
+ * 'away': the owner's connection dropped (`away` = true, `hb` = when) less than 45 s ago. Only 'stale'
+ * slots (no heartbeat for 45 s, which the rules also check) may be removed by others; an away slot is
+ * at most hidden, so a short network blip never drops anyone from the call.
  */
 export function slotLiveness(slot, serverNow) {
   if (!slot || typeof slot.uid !== 'string' || !slot.uid) return 'stale';
   if (typeof slot.hb !== 'number') return 'live';
-  if (slot.hb === 0) return 'away';
-  return serverNow - slot.hb > HB_STALE_MS ? 'stale' : 'live';
+  if (serverNow - slot.hb > HB_STALE_MS) return 'stale';
+  return slot.away === true ? 'away' : 'live';
+}
+
+/** Whether a client may try to remove a slot: stale ones (anyone), or my own away one (a crashed tab of mine). */
+export function canPruneSlot(slot, serverNow, me) {
+  const live = slotLiveness(slot, serverNow);
+  return live === 'stale' || (live === 'away' && !!me && slot.uid === me);
 }
 
 // ---------- ICE servers ----------

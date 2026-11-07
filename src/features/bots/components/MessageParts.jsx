@@ -36,16 +36,22 @@ export function BotBadge({ m, ctx }) {
   );
 }
 
-/** messageExtras: a small note saying which command (or bot event) produced the message. */
-export function CommandNote({ m }) {
+/**
+ * messageExtras: a small note saying which command (or bot event) produced the message. A welcome
+ * message is posted automatically from the newcomer's own account, so it says so plainly.
+ */
+export function CommandNote({ m, ctx }) {
   const cmd = cleanCmd(m.body?.cmd);
   const tag = cleanBotTag(m.body?.bot);
   let note = null;
   if (cmd) note = <>used <code>/{cmd}</code></>;
   else if (tag?.via === 'trigger') note = 'replied to a keyword';
-  else if (tag?.via === 'welcome') note = 'welcome message';
+  else if (tag?.via === 'welcome') {
+    const who = ctx?.profiles?.[m.uid]?.name || 'a new member';
+    note = `Automatic bot welcome, posted from ${who}'s account when they joined. They didn't write it.`;
+  }
   if (!note) return null;
-  return <div className="bt-cmd-note">{note}</div>;
+  return <div className={`bt-cmd-note${tag?.via === 'welcome' && !cmd ? ' auto' : ''}`}>{note}</div>;
 }
 
 /** groupKey for messageBadges: bot messages and /me actions start their own header. */

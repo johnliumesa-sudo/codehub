@@ -10,7 +10,7 @@ import {
   splitEvents, tallyRsvps, toIcs, toLocalInput,
 } from '../../src/features/community/lib/events.js';
 import {
-  automodAad, automodActive, checkMessage, cleanAutomod, isExempt, normalizeText, parseWordList, patternRegExp,
+  automodAad, automodActive, checkMessage, cleanAutomod, isExempt, normalizeText, parseWordList, patternMatches,
 } from '../../src/features/community/lib/automod.js';
 import { cleanWelcome, isGated, parseRules, welcomeAad, welcomeState } from '../../src/features/community/lib/welcome.js';
 import {
@@ -147,7 +147,7 @@ test('automod: patterns are whole-word, case/accent-insensitive, with * wildcard
   assert.match(checkMessage({ text: 'spam' }, cfg).reason, /blocks/);
   assert.doesNotMatch(checkMessage({ text: 'spam' }, cfg).reason, /spam/, 'the notice never repeats the word');
   assert.equal(checkMessage({ text: 'ok', poll: { q: 'spam?', options: ['a', 'b'] } }, cfg)?.rule, 'words', 'polls are checked');
-  assert.ok(patternRegExp('*bad*').test('verybadthing'));
+  assert.ok(patternMatches('*bad*', 'verybadthing'));
 });
 
 test('automod: invites, links, mentions and capitals', () => {

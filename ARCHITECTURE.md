@@ -563,11 +563,15 @@ The only core command is `/help` (local-only list of the commands available here
 | `udata/{uid}/{feat}/{key}[/{f}]` | owner | owner | leaf or object of leaves; strings ≤ 20000 |
 | `upub/{uid}/{feat}/{key}[/{f}]` | signed in | owner | as udata; strings ≤ 2000 |
 | `sconf/{sid}/{feat}/{key}[/{f}]` | members | owner, admins, custom role with `manageApps` (per `{feat}`) | as udata; strings ≤ 20000. All of `sconf/{sid}` can be removed once the server is gone (or in the update that deletes it) |
-| `sitems/{sid}/{feat}/{id}/{f}` | members | create: member, not timed out, `by` = me; update: the author (member, not timed out); delete: the author, owner, admins, `manageMessages` | object of leaves with `by` (never changes); `{id}` ≤ 128; strings ≤ 20000. Garbage once the server is gone |
-| `pub/{kind}/{id}/{f}`, kind `bots` `addons` `addonCode` `servers` | signed in (`.indexOn: by, ts`) | create: `by` = me; update/delete: `by` only; app admins delete; `pub/servers/{sid}` only by that server's owner | object of leaves with `by` and `ts` = server now on **every** write; strings ≤ 20000, field `code` ≤ 65536 |
+| `sitems/{sid}/{feat}/{id}/{f}` | members | create: member, not timed out, `by` = me; update: the author (member, not timed out); delete: the author, owner, admins, `manageMessages` | object of leaves with `by` (never changes); `{id}` ≤ 128; fields `by iv ct s v ts` only, `ct` ≤ 20000, the others ≤ 200. Garbage once the server is gone |
+| `pub/{kind}/{id}/{f}`, kind `bots` `addons` `addonCode` `servers` | signed in (`.indexOn: by, ts`) | create: `by` = me, in the same update as `publishLog/{me}` = now (one create per minute, shared with games and shop items) and `udata/{me}/pub/last` = `{id}`; app admins create without them; update/delete: `by` only; app admins delete; `pub/servers/{sid}` only by that server's owner | object of leaves with `by` and `ts` = server now on **every** write; only the field names in `PUB_FIELDS` (`store.js`); `code` ≤ 65536, `def` and `img` ≤ 20000, the others ≤ 1000 |
 
 `{feat}` matches `/^[a-z][a-zA-Z0-9]{0,23}$/`, `{key}` ≤ 128 chars, field names ≤ 64, values are numbers,
-booleans or strings, nothing deeper than `{f}`. Writes go per item (`{key}`/`{id}` or deeper; a
+booleans or strings, nothing deeper than `{f}`; `udata/{uid}` and `upub/{uid}` themselves must be objects.
+The `sitems` and `pub` field allowlists (round 3 security fix R1, `docs/features/sec-misc.md`) bound every
+item: a feature that needs a new field there adds it to the rules' list (and `SITEM_FIELDS` / `PUB_FIELDS`).
+`putPub` stamps creates itself; a hand-written multi-path create adds `pubCreateStamp(id)` and goes
+through `commitPubCreate` (friendly "try again in N seconds" error). Writes go per item (`{key}`/`{id}` or deeper; a
 multi-path update of several items is fine). `deleteServer` clears `sconf/{sid}` and `sitems/{sid}` in its
 update and then removes `pub/servers/{sid}`; account deletion removes `udata/{uid}`, `upub/{uid}` and every
 `pub` entry the user published. The rules cannot count children: per-user or per-server caps are the

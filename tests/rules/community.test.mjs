@@ -2,7 +2,7 @@
 // sitems accepted marker), RSVP/accepted keys bound to their author, events (author edits,
 // moderator replacement), welcome/AutoMod config, discovery listings and saved templates.
 import { describe, it, before, after, beforeEach } from 'node:test';
-import { getEnv, cleanup, reset, db, admin, box, TS, assertFails, assertSucceeds } from './helpers.mjs';
+import { getEnv, cleanup, reset, db, admin, box, TS, pubStamp, assertFails, assertSucceeds } from './helpers.mjs';
 
 const ok = assertSucceeds, deny = assertFails;
 const appsRole = { nameEnc: box, color: '#00ff00', position: 40, perms: { manageApps: true }, createdAt: 1 };
@@ -151,7 +151,9 @@ describe('community rules', () => {
       await ok(db('alice').ref().update({
         'servers/s1/invites/pubInv': { createdBy: 'alice', createdAt: TS, expiresAt: 0, maxUses: 0, uses: 0 },
       }));
-      await ok(db('alice').ref('pub/servers/s1').set(listing('alice')));
+      await deny(db('alice').ref('pub/servers/s1').set(listing('alice')), 'a new listing must stamp the publish window');
+      await ok(db('alice').ref().update({ 'pub/servers/s1': listing('alice'), ...pubStamp('alice', 's1') }));
+      await ok(db('alice').ref('pub/servers/s1').set(listing('alice')), 'replacing it (new invite) needs no stamp');
       await ok(db('alice').ref('sconf/s1/discovery/listing').set({ iid: 'pubInv' }));
       await ok(db('alice').ref('pub/servers/s1').update({ members: 8, ts: TS, by: 'alice' }));
       await ok(db('mallory').ref('pub/servers').get());
@@ -159,10 +161,8 @@ describe('community rules', () => {
       await ok(db('alice').ref().update({ 'pub/servers/s1': null, 'servers/s1/invites/pubInv': null, 'sconf/s1/discovery': null }));
     });
     it('DENY admins, members and outsiders listing someone else\'s server', async () => {
-      await deny(db('bob').ref('pub/servers/s1').set(listing('bob')));
-      await deny(db('erin').ref('pub/servers/s1').set(listing('erin')));
-      await deny(db('mallory').ref('pub/servers/s1').set(listing('mallory')));
-      await deny(db('mallory').ref('pub/servers/s1').set(listing('alice')));
+      for (const u of ['bob', 'erin', 'mallory']) await deny(db(u).ref().update({ 'pub/servers/s1': listing(u), ...pubStamp(u, 's1') }));
+      await deny(db('mallory').ref().update({ 'pub/servers/s1': listing('alice'), ...pubStamp('mallory', 's1') }));
     });
     it('ALLOW an app admin to remove a listing; DENY other users', async () => {
       await admin((d) => d.ref('pub/servers/s1').set({ ...listing('alice'), ts: 1 }));

@@ -6,7 +6,7 @@ import { processImage } from '../../../lib/media/image.js';
 import {
   BOT_LIMITS, DEF_VERSION, DEFAULT_GLYPH, IMG_TYPES, emptyDef, newTriggerId, serializeBotDef, validateBotDef,
 } from '../lib/schema.js';
-import { PLACEHOLDERS, renderTemplate } from '../lib/template.js';
+import { PLACEHOLDERS, escapeMentions, renderTemplate } from '../lib/template.js';
 import { RESERVED_NAMES } from '../lib/builtins.js';
 import { publishBot, saveBotVersion } from '../lib/store.js';
 import BotAvatar from './BotAvatar.jsx';
@@ -65,18 +65,19 @@ export default function BotBuilder({ entry, me, onDone, onCancel }) {
   const sources = useMemo(() => [
     ...form.commands.map((c, i) => ({ id: `c${i}`, label: `/${c.name || `command ${i + 1}`}`, template: c.response, args: true })),
     ...form.triggers.map((t, i) => ({ id: `t${i}`, label: `Trigger “${t.match || i + 1}”`, template: t.response })),
-    ...(form.welcome.trim() ? [{ id: 'w', label: 'Welcome message', template: form.welcome }] : []),
+    ...(form.welcome.trim() ? [{ id: 'w', label: 'Welcome message', template: form.welcome, welcome: true }] : []),
   ], [form]);
   const src = sources.find((s) => s.id === previewSrc) || sources[0] || null;
   const previewHtml = useMemo(() => {
     if (!src?.template?.trim()) return '';
-    const text = renderTemplate(src.template, {
+    const out = renderTemplate(src.template, {
       user: me?.name || 'You',
       channel: 'general',
       server: 'My server',
       args: src.args ? previewArgs : '',
       count: 1,
     });
+    const text = src.welcome ? escapeMentions(out) : out; // as welcomeDraft posts it: no mentions
     return renderMarkdown(text, { selfName: me?.name || '' });
   }, [src, previewArgs, me?.name]);
 
@@ -243,7 +244,7 @@ export default function BotBuilder({ entry, me, onDone, onCancel }) {
       <section className="bt-card" aria-labelledby={f('wel-h')}>
         <h4 id={f('wel-h')}>Welcome message</h4>
         <label className="bt-field">
-          <span>Posted once for each new member, in the server&apos;s first text channel (optional)</span>
+          <span>Posted automatically once for each new member, from their own account, in the server&apos;s first text channel. It never mentions or notifies anyone, and readers see it marked as an automatic bot welcome (optional)</span>
           <textarea className="input bt-mono" rows={2} value={form.welcome} maxLength={L.welcome} onChange={(e) => set({ welcome: e.target.value })} placeholder="Welcome to {server}, {mention}!" />
         </label>
       </section>

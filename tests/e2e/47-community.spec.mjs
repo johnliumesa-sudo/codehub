@@ -179,7 +179,8 @@ test('AutoMod blocks and hides; discovery lists, joins through the invite flow a
   expect(JSON.stringify(await adminGet('sconf'))).not.toContain('spam');
 
   await alice.getByRole('tab', { name: /Discovery/ }).click();
-  await expect(alice.getByText('Listing publishes an invite.')).toBeVisible();
+  await expect(alice.getByText("Listing publishes an invite, including this server's encryption key.")).toBeVisible();
+  await expect(alice.locator('.cm-warn')).toContainText('does not make the server private again');
   await alice.getByLabel('Description').fill('A friendly lounge for night owls');
   await alice.getByLabel(/Tags/).fill('chat, Night Owls');
   const listBtn = alice.getByRole('button', { name: 'List in Discover' });
@@ -233,8 +234,17 @@ test('AutoMod blocks and hides; discovery lists, joins through the invite flow a
   const iid = pub[sid].iid;
   expect((await adminGet(`servers/${sid}/invites`))[iid]).toBeTruthy();
   await openServerSettings(alice, 'Discovery');
-  await alice.getByRole('button', { name: 'Unlist' }).click();
-  await alice.getByRole('button', { name: 'Really unlist?' }).click();
+  await alice.getByRole('button', { name: 'Unlist', exact: true }).click();
+  // The confirmation says plainly that unlisting doesn't make the server private again.
+  const confirm = alice.getByRole('alertdialog', { name: 'Unlist this server?' });
+  await expect(confirm).toContainText('does not make the server private again');
+  await expect(confirm).toContainText('past and future messages');
+  await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await alice.keyboard.press('Escape'); // closes only the confirmation, focus back on Unlist
+  await expect(confirm).toHaveCount(0);
+  await expect(alice.getByRole('button', { name: 'Unlist', exact: true })).toBeFocused();
+  await alice.getByRole('button', { name: 'Unlist', exact: true }).click();
+  await confirm.getByRole('button', { name: 'Unlist anyway' }).click();
   await expect(alice.getByText(/Unlisted/)).toBeVisible();
   expect(await adminGet(`pub/servers/${sid}`)).toBeNull();
   expect((await adminGet(`servers/${sid}/invites`) || {})[iid]).toBeUndefined();
