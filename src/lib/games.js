@@ -24,13 +24,12 @@ import {
 import { db } from './firebase.js';
 import { MAX_GAME_CHARS } from './sandbox.js';
 import { deliverNotif } from './notifSend.js';
+import { clearGameSaves } from './gameSaves.js';
 
-export const TITLE_MAX = 80;
-export const DESC_MAX = 500;
+import { DESC_MAX, PUBLISH_COOLDOWN_MS, TITLE_MAX, isDenied, publishRefusal } from './gameText.js';
+
+export { DESC_MAX, PUBLISH_COOLDOWN_MS, TITLE_MAX, clipChars, coverLetter, titleFromHtml } from './gameText.js';
 export const CODE_MAX = MAX_GAME_CHARS;
-export const PUBLISH_COOLDOWN_MS = 60_000;
-
-const isDenied = (e) => /permission[_ ]denied/i.test(String(e?.code || e?.message || e));
 
 // Last successful publish from this tab (publishLog is write-only, so we can't read the server's).
 let lastPublishAt = 0;
@@ -57,12 +56,7 @@ function checkHtml(html) {
 }
 
 function publishError(err) {
-  if (isDenied(err)) {
-    const e = new Error('Publishing was refused. You can publish or update at most once a minute. Wait a moment and try again.');
-    e.code = 'PERMISSION_DENIED';
-    return e;
-  }
-  return err;
+  return publishRefusal(err, { lastAt: lastPublishAt });
 }
 
 /**
@@ -278,6 +272,7 @@ export function useGame(gameId) {
 export async function deleteMyGames(uid, onStep) {
   if (!uid) return;
   onStep?.('Removing your public games…');
+  await clearGameSaves(uid).catch(() => {}); // saved game data on this device
   const mine = await get(query(ref(db, 'games'), orderByChild('ownerId'), equalTo(uid)));
   const ids = Object.keys(mine.val() || {});
   for (const id of ids) await deleteGame(id);

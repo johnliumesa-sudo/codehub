@@ -2,12 +2,14 @@
 // Props: { ctx, onClose, onPublished?(gameId) }
 //   ctx: the CollabView extras contract ({ space, key, me, files, activePath, provider, … }).
 // All workspace files are decrypted locally (loadWorkspaceFiles), the chosen .html entry is
-// bundled with its scripts/styles (bundle()), and the result is written as plaintext to
-// games/{id} + gameCode/{id} + publishLog/{me} in ONE update after an explicit confirmation.
-import { useEffect, useMemo, useState } from 'react';
+// bundled with everything it uses from the workspace (scripts, styles, ES modules, data files;
+// bundle()), and the result is written as plaintext to games/{id} + gameCode/{id} + publishLog/{me}
+// in ONE update after an explicit confirmation. "Test run" plays exactly that bundle in the same
+// sandbox profile as the Arcade (without saving its data).
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { loadWorkspaceFiles } from '../../lib/collab/read.js';
-import { CODE_MAX, DESC_MAX, TITLE_MAX, publishCooldownLeft, publishGame, updateGame, useGames } from '../../lib/games.js';
+import { CODE_MAX, DESC_MAX, TITLE_MAX, publishCooldownLeft, publishGame, titleFromHtml, updateGame, useGames } from '../../lib/games.js';
 import { bundle, cleanPath, formatSize, isHtmlPath } from '../../lib/sandbox.js';
 import SandboxFrame from '../sandbox/SandboxFrame.jsx';
 import { Icon } from '../sandbox/icons.jsx';
@@ -15,11 +17,7 @@ import './games.css';
 
 const CONFIRM_TEXT = 'This decrypts your code and publishes it as PUBLIC PLAINTEXT. Anyone signed in can read and run it.';
 
-function titleFromHtml(html) {
-  const m = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html || '');
-  if (!m) return '';
-  return m[1].replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX);
-}
+const CDN_NOTE = 'When it runs it can load scripts, styles and fonts from cdn.jsdelivr.net/npm, cdnjs, unpkg and Google Fonts; nothing else on the network.';
 
 function useCooldown() {
   const [left, setLeft] = useState(() => publishCooldownLeft());
@@ -86,6 +84,11 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
   const [titleTouched, setTitleTouched] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testIssues, setTestIssues] = useState([]);
+  const onTestRuntime = useCallback((ev) => {
+    if (ev.kind === 'start') return;
+    setTestIssues((list) => (list.length >= 6 || list.some((x) => x.message === ev.message) ? list : [...list, ev]));
+  }, []);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [done, setDone] = useState(null); // { gameId, updated }
@@ -96,7 +99,7 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
     try {
       return { ...bundle(entry, load.files), error: null };
     } catch (ex) {
-      return { html: '', missing: [], inlined: [], error: ex?.message || String(ex) };
+      return { html: '', missing: [], inlined: [], external: [], unpinned: [], modules: [], errors: [], error: ex?.message || String(ex) };
     }
   }, [entry, load.status, load.files]);
 
@@ -124,6 +127,7 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
     if (target !== 'new' && !myGames.some((g) => g.id === target)) setTarget('new');
   }, [myGames, target]);
 
+  const blockedUrls = (built?.external || []).filter((x) => !x.allowed).map((x) => x.url);
   const size = built?.html?.length || 0;
   const ratio = Math.min(1, size / CODE_MAX);
   const tooBig = size > CODE_MAX;
@@ -238,11 +242,12 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
                   setTitleTouched(true);
                 }}
                 placeholder="Snake, but faster"
+                dir="auto"
               />
             </label>
             <label className="field">
               Description
-              <textarea className="input gm-textarea" rows={3} value={desc} maxLength={DESC_MAX} onChange={(e) => setDesc(e.target.value)} placeholder="How to play, controls, credits…" />
+              <textarea className="input gm-textarea" rows={3} value={desc} maxLength={DESC_MAX} onChange={(e) => setDesc(e.target.value)} placeholder="How to play, controls, credits…" dir="auto" />
               <span className="gm-counter">{desc.length}/{DESC_MAX}</span>
             </label>
 
@@ -261,22 +266,52 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
                 <p className="muted gm-small">
                   {built.inlined.length ? `Inlined ${built.inlined.length} file${built.inlined.length === 1 ? '' : 's'}: ${built.inlined.slice(0, 4).join(', ')}${built.inlined.length > 4 ? '…' : ''}.` : 'No linked workspace files.'}
                   {built.missing.length > 0 && <span className="gm-warn"> Not found: {built.missing.slice(0, 3).join(', ')}{built.missing.length > 3 ? '…' : ''}.</span>}
-                  {' '}No network access when it runs: external scripts, fonts and images won’t load.
+                  {' '}{CDN_NOTE}
                 </p>
               )}
+              {blockedUrls.length > 0 && (
+                <p className="gm-warn gm-small" role="note">
+                  Won’t load in the sandbox: {blockedUrls.slice(0, 3).join(', ')}{blockedUrls.length > 3 ? ` +${blockedUrls.length - 3} more` : ''}. Load it from
+                  jsDelivr (cdn.jsdelivr.net/npm/…), cdnjs or unpkg instead, or copy it into the workspace.
+                </p>
+              )}
+              {built?.unpinned?.length > 0 && (
+                <p className="muted gm-small">
+                  Unpinned packages (latest version at play time): {built.unpinned.slice(0, 4).join(', ')}{built.unpinned.length > 4 ? '…' : ''}. Add them with a
+                  version to a <code>package.json</code> to pin them.
+                </p>
+              )}
+              {built?.errors?.length > 0 && <p className="error-text gm-small">{built.errors.slice(0, 3).join(' · ')}</p>}
               {tooBig && <p className="error-text gm-small">Too large to publish. Trim assets or code below {formatSize(CODE_MAX)}.</p>}
             </div>
 
             <div className="gm-test">
-              <button type="button" className="btn sm" onClick={() => setTesting((t) => !t)} disabled={!built || !!built.error || !size}>
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => {
+                  setTestIssues([]);
+                  setTesting((t) => !t);
+                }}
+                disabled={!built || !!built.error || !size}
+              >
                 <Icon name={testing ? 'stop' : 'play'} size={11} fill="currentColor" /> {testing ? 'Stop test' : 'Test run'}
               </button>
               <span className="muted gm-small">Runs exactly what will be published, in the same sandbox.</span>
             </div>
             {testing && built?.html && (
               <div className="gm-test-stage">
-                <SandboxFrame html={built.html} mode="game" title="Game test run" />
+                <SandboxFrame html={built.html} profile="play" mode="game" onRuntime={onTestRuntime} title="Game test run" />
               </div>
+            )}
+            {testing && testIssues.length > 0 && (
+              <ul className="gm-test-issues" role="alert" aria-label="Test run problems">
+                {testIssues.map((x, i) => (
+                  <li key={i}>
+                    <code>{x.message}</code>
+                  </li>
+                ))}
+              </ul>
             )}
 
             <label className={`gm-confirm ${confirmed ? 'on' : ''}`}>

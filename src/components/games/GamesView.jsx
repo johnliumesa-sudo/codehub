@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useProfiles } from '../../lib/profiles.js';
 import { useIsAppAdmin } from '../../lib/admin.js';
-import { DESC_MAX, TITLE_MAX, deleteGame, updateGame, useGames } from '../../lib/games.js';
+import { DESC_MAX, TITLE_MAX, coverLetter, deleteGame, updateGame, useGames } from '../../lib/games.js';
 import ReportButton from '../admin/ReportButton.jsx';
 import { Icon } from '../sandbox/icons.jsx';
 import GamePlayer, { LikeButton } from './GamePlayer.jsx';
@@ -74,11 +74,11 @@ function EditGameModal({ game, me, onClose }) {
         </div>
         <label className="field">
           Title
-          <input className="input" value={title} maxLength={TITLE_MAX} onChange={(e) => setTitle(e.target.value)} autoFocus />
+          <input className="input" value={title} maxLength={TITLE_MAX} onChange={(e) => setTitle(e.target.value)} autoFocus dir="auto" />
         </label>
         <label className="field">
           Description
-          <textarea className="input gm-textarea" value={desc} maxLength={DESC_MAX} rows={4} onChange={(e) => setDesc(e.target.value)} />
+          <textarea className="input gm-textarea" value={desc} maxLength={DESC_MAX} rows={4} onChange={(e) => setDesc(e.target.value)} dir="auto" />
           <span className="gm-counter">{desc.length}/{DESC_MAX}</span>
         </label>
         <p className="muted gm-small">To change the code, open the workspace and use Publish → Update an existing game. Saving counts toward the one-publish-per-minute limit.</p>
@@ -128,13 +128,13 @@ function GameCard({ game, owner, me, isAdmin, onPlay, onEdit }) {
         onClick={() => onPlay(game.id)}
         aria-label={`Play ${game.title}`}
       >
-        <span className="gm-cover-letter">{(game.title.trim()[0] || '?').toUpperCase()}</span>
+        <span className="gm-cover-letter" aria-hidden="true">{coverLetter(game.title)}</span>
         <span className="gm-cover-play">
           <Icon name="play" size={18} fill="currentColor" /> Play
         </span>
       </button>
       <div className="gm-card-body">
-        <h3 className="gm-card-title" title={game.title}>{game.title}</h3>
+        <h3 className="gm-card-title" title={game.title} dir="auto">{game.title}</h3>
         <div className="gm-card-meta">
           <span className="gm-owner" style={{ color: owner?.color }}>{owner?.name || '…'}</span>
           <span className="gm-dot">·</span>
@@ -142,7 +142,7 @@ function GameCard({ game, owner, me, isAdmin, onPlay, onEdit }) {
             {relTime(game.createdAt)}
           </span>
         </div>
-        {game.desc ? <p className="gm-card-desc">{game.desc}</p> : <p className="gm-card-desc empty">No description.</p>}
+        {game.desc ? <p className="gm-card-desc" dir="auto">{game.desc}</p> : <p className="gm-card-desc empty">No description.</p>}
         {err && <p className="error-text gm-small">{err}</p>}
       </div>
       <footer className="gm-card-foot">
