@@ -74,7 +74,7 @@ export function Avatar({ profile, size = 32, presence, ring }) {
   );
 }
 
-export const PRESENCE_LABEL = { online: 'Online', idle: 'Idle', offline: 'Offline' };
+export const PRESENCE_LABEL = { online: 'Online', idle: 'Idle', dnd: 'Do not disturb', offline: 'Offline' };
 
 // ---------- Modal ----------
 

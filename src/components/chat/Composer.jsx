@@ -10,6 +10,7 @@ import { AttachmentButton, AttachmentTray, useAttachmentDraft, usePasteFiles } f
 import { GifPicker, useGifEnabled } from '../media/GifPicker.jsx';
 import { uploadAttachments } from '../../lib/media/attachments.js';
 import { useRegistry } from '../../lib/ext/registry.js';
+import { MentionStatus } from '../../features/personal/components/StatusBits.jsx';
 import { commandsFor, matchCommands, parseSlash } from '../../lib/ext/send.js';
 import { ComposerExtButtons } from '../ext/ChatExt.jsx';
 
@@ -304,6 +305,7 @@ const Composer = forwardRef(function Composer(props, ref) {
             >
               {s.slash ? <span className="suggest-slash" aria-hidden="true">/</span> : s.img ? <img className="suggest-emoji md-emote" src={s.img} alt="" width={22} height={22} /> : s.icon ? <span className="suggest-emoji">{s.icon}</span> : s.profile ? <Avatar profile={s.profile} size={22} /> : <span className="suggest-at">@</span>}
               <span className="suggest-label">{s.label}</span>
+              {s.profile && <MentionStatus uid={s.id} />}
               {s.slash && s.args && <span className="suggest-args">{s.args}</span>}
               {s.hint && <span className={`suggest-hint${s.slash ? ' slash' : ''}`}>{s.hint}</span>}
             </button>

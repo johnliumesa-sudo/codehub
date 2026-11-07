@@ -1,11 +1,13 @@
-import { usePresence } from '../../lib/presence.js';
-import { Avatar, Icon, PRESENCE_LABEL } from './ui.jsx';
+import { Avatar, Icon, useToast } from './ui.jsx';
 import { CosmeticBadge, useNameColor } from '../shop/Cosmetics.jsx';
 import AdminBadge, { AdminShieldButton } from '../admin/AdminBadge.jsx';
+import { MyStatusLine, StatusButton, useMyDisplayPresence } from '../../features/personal/components/StatusMenu.jsx';
 
 export default function UserPanel({ me, onSettings, onAdmin }) {
-  const presence = usePresence(me.uid);
+  // My own dot also shows my chosen mode (invisible, do not disturb).
+  const presence = useMyDisplayPresence(me.uid);
   const nameColor = useNameColor(me.uid);
+  const toast = useToast();
   return (
     <div className="ly-userpanel">
       <button className="ly-user-main" onClick={onSettings} title="Profile & settings">
@@ -16,9 +18,10 @@ export default function UserPanel({ me, onSettings, onAdmin }) {
             <CosmeticBadge uid={me.uid} />
             <AdminBadge uid={me.uid} size={12} />
           </span>
-          <span className="ly-user-status">{me.status || PRESENCE_LABEL[presence]}</span>
+          <span className="ly-user-status"><MyStatusLine me={me} display={presence} /></span>
         </span>
       </button>
+      <StatusButton me={me} onError={(t) => toast(t, 'error')} />
       {onAdmin && <AdminShieldButton onOpen={onAdmin} />}
       <button className="btn ghost sm ly-icon-btn" onClick={onSettings} title="Settings" aria-label="Settings">
         <Icon name="gear" size={17} />
