@@ -8,7 +8,7 @@ import { packChunks } from '../../src/features/addons/lib/chunks.js';
 const ok = assertSucceeds, deny = assertFails;
 const SHA = 'ab'.repeat(32);
 const SHA2 = 'cd'.repeat(32);
-const manifest = (by, extra = {}) => ({ name: 'Timer', icon: '⏱', version: '1.0.0', perms: 'storage', sha: SHA, size: 10, by, ts: TS, ...extra });
+const manifest = (by, extra = {}) => ({ name: 'Timer', icon: '⏱', version: '1.0.0', perms: 'storage', sha: SHA, size: 10, rt: 2, by, ts: TS, ...extra });
 const codeRec = (by, code = '<p>hi</p>', sha = SHA) => ({ code, sha, by, ts: TS });
 const publish = (uid, id, m = manifest(uid), c = codeRec(uid)) => db(uid).ref().update({ [`pub/addons/${id}`]: m, [`pub/addonCode/${id}`]: c });
 const appsRole = { nameEnc: box, color: '#00ff00', position: 40, perms: { manageApps: true }, createdAt: 1 };
@@ -35,6 +35,15 @@ describe('add-ons', () => {
       await ok(db('mallory').ref('pub/addons').orderByChild('ts').limitToLast(100).get());
       await ok(db('mallory').ref('pub/addons').orderByChild('by').equalTo('erin').get());
       await ok(db('mallory').ref('pub/addonCode/a1').get());
+    });
+    it('ALLOW the runtime version field (rt) the builder stamps on every publish', async () => {
+      await ok(publish('erin', 'a4', manifest('erin', { rt: 2, perms: 'context,readMessages' })));
+      await ok(db('mallory').ref('pub/addons/a4/rt').get());
+    });
+    it('DENY re-creating a removed add-on id with someone else as publisher while the old entry exists', async () => {
+      // pub/addons/a1 belongs to dave: nobody else can take the id over (the runner also refuses
+      // a listing whose publisher differs from the approved copy's, in case it was removed first).
+      await deny(publish('mallory', 'a1', manifest('mallory', { sha: SHA2 }), codeRec('mallory', 'evil()', SHA2)));
     });
     it('DENY reading signed out, forged publisher, stale ts, code over 65536 chars, nested fields', async () => {
       await deny(db(null).ref('pub/addons').get());
@@ -65,7 +74,7 @@ describe('add-ons', () => {
     const pin = packChunks('é'.repeat(16000) + '😀'.repeat(8000) + 'x'.repeat(16000) + 'y'.repeat(1000), { sha: SHA });
     it('ALLOW install + pinned copy in one update (16000-char chunks, multi-byte text)', async () => {
       await ok(db('dave').ref().update({
-        'udata/dave/addons/a1': { sha: SHA, perms: 'storage', at: 1, v: '1.0.0', name: 'Clock', icon: '🕐' },
+        'udata/dave/addons/a1': { sha: SHA, perms: 'context,storage', at: 1, v: '1.0.0', name: 'Clock', icon: '🕐', publisher: 'dave', rt: 2 },
         'udata/dave/addonPin/a1': pin,
       }));
       await ok(db('dave').ref('udata/dave/addons/a1').update({ auto: true }));
@@ -89,7 +98,7 @@ describe('add-ons', () => {
 
   describe('server installs (sconf/{sid}/addons, addonPin)', () => {
     const install = (by) => ({
-      'sconf/s1/addons/a2': { sha: SHA, perms: 'readMessages', by, at: 1, v: '1.0.0', name: 'Cloud', icon: '☁️' },
+      'sconf/s1/addons/a2': { sha: SHA, perms: 'readMessages', by, at: 1, v: '1.0.0', name: 'Cloud', icon: '☁️', publisher: 'dave', rt: 2 },
       'sconf/s1/addonPin/a2': packChunks('<p>cloud</p>', { sha: SHA }),
     });
     it('ALLOW the owner, admins and manageApps roles to install, update and uninstall', async () => {

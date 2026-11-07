@@ -1,16 +1,20 @@
-// Runs one add-on document in SandboxFrame and serves the codehub bridge (see lib/bridge.js).
+// Runs one add-on in SandboxFrame and serves the codehub bridge (see lib/runtime.js, lib/bridge.js).
 //
 // Security: SandboxFrame keeps the existing model (sandbox="allow-scripts", no same-origin, CSP with
-// connect-src 'none'). The bridge only binds the port from the FIRST hello that comes from this
-// exact iframe's window with this render's token; nothing else on the window is listened to. Every
-// call is permission-checked, validated and rate-limited by createBridgeHost. If the frame ever
-// loads a second document (it navigated itself), the port is closed and the frame is removed.
+// connect-src 'none'). The frame document holds only our host script and DOMPurify (pinned by hash
+// in a second CSP); the add-on's code runs in a Worker the host starts, which inherits the CSP, has
+// no DOM and cannot navigate. The bridge only binds the port from the FIRST hello that comes from
+// this exact iframe's window with this render's token; nothing else on the window is listened to.
+// Every call is permission-checked, validated and rate-limited by createBridgeHost. If the frame
+// ever loads a second document anyway, the port is closed and the frame is removed.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import SandboxFrame from '../../../components/sandbox/SandboxFrame.jsx';
 import { newToken } from '../../../lib/sandbox.js';
 import { onThemeChange } from '../../../lib/theme.js';
-import { addonDocument, createBridgeHost, isHello, readTheme } from '../lib/bridge.js';
+import { createBridgeHost, initPayload, isHello, readTheme } from '../lib/bridge.js';
 import { normalizePerms } from '../lib/manifest.js';
+import purifySource from '../lib/purify-source.js';
+import { frameDocument, peekRuntimeAssets, runtimeAssets, workerSource } from '../lib/runtime.js';
 
 export function currentTheme() {
   if (typeof document === 'undefined') return readTheme(() => '', 'dark');
@@ -19,13 +23,32 @@ export function currentTheme() {
   return readTheme((n) => cs.getPropertyValue(n), root.getAttribute('data-theme'));
 }
 
+/** The frame's inlined scripts and CSP (hashed once per page load). */
+function useRuntimeAssets() {
+  const [assets, setAssets] = useState(peekRuntimeAssets);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (assets) return undefined;
+    let off = false;
+    runtimeAssets(purifySource).then(
+      (a) => !off && setAssets(a),
+      (e) => !off && setError(String(e?.message || e)),
+    );
+    return () => {
+      off = true;
+    };
+  }, [assets]);
+  return { assets, error };
+}
+
 /**
  * Props:
- *   code       the add-on's HTML document
+ *   code       the add-on's JavaScript (runs in the worker)
  *   perms      granted permissions
- *   handlers   { ready?, context(), messages(n), insertText(t), sendMessage(t), storage(op, key, value) }
+ *   handlers   { ready?, messages(n), insertText(t), sendMessage(t), storage(op, key, value) }
  *              (read through a ref: may change every render)
- *   context    the current { kind, name, me, scope }; changes are pushed as 'context' events
+ *   context    the current { kind, name, me, scope }; handed out only with the `context` permission
+ *              (getContext, ready(), 'context' events)
  *   messagesKey  changes when the conversation's messages change (pushed as a 'messages' event
  *              with { count } to add-ons holding readMessages)
  *   title      accessible name of the frame
@@ -34,18 +57,22 @@ export function currentTheme() {
  */
 export default function AddonFrame({ code, perms, handlers, context, messagesKey, messagesCount = 0, title, preview = false, onConsole, onStopped, runKey = 0 }) {
   const permsKey = normalizePerms(perms).join(',');
-  // A fresh token (and frame) for every document, permission set or restart.
+  // A fresh token (and frame) for every code, permission set or restart.
   const token = useMemo(() => newToken(), [code, runKey, permsKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const html = useMemo(() => addonDocument(code, token, { console: preview }), [code, token, preview]);
+  const { assets, error: assetsError } = useRuntimeAssets();
+  const html = useMemo(() => (assets ? frameDocument(assets, token) : null), [assets, token]);
   const frameRef = useRef(null);
   const portRef = useRef(null);
   const [stoppedFor, setStoppedFor] = useState(null);
   const stopped = stoppedFor === token;
 
   const live = useRef({});
-  live.current = { handlers, context, onConsole, onStopped, preview, perms: normalizePerms(perms) };
+  live.current = { code, handlers, context, onConsole, onStopped, preview, perms: normalizePerms(perms) };
+  const canContext = live.current.perms.includes('context');
+  const canRead = live.current.perms.includes('readMessages');
 
   useLayoutEffect(() => {
+    if (!html) return undefined;
     let dead = false;
     let port = null;
     let loads = 0;
@@ -89,7 +116,9 @@ export default function AddonFrame({ code, perms, handlers, context, messagesKey
           }
         }
       };
-      p.postMessage({ event: 'init', data: { perms: live.current.perms, theme: currentTheme(), context: live.current.context, scope: live.current.context?.scope || '' } });
+      const { src, offset } = workerSource(live.current.code, { console: live.current.preview });
+      p.postMessage({ event: 'start', src, offset });
+      p.postMessage({ event: 'init', data: initPayload({ perms: live.current.perms, theme: currentTheme(), context: live.current.context }) });
     };
 
     const onLoad = () => {
@@ -120,7 +149,7 @@ export default function AddonFrame({ code, perms, handlers, context, messagesKey
       }
       portRef.current = null;
     };
-  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, html]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const post = (msg) => {
     try {
@@ -162,10 +191,9 @@ export default function AddonFrame({ code, perms, handlers, context, messagesKey
       firstContext.current = false;
       return;
     }
-    post({ event: 'context', data: context });
+    if (canContext) post({ event: 'context', data: context });
   }, [contextKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canRead = live.current.perms.includes('readMessages');
   useEffect(() => {
     if (canRead && messagesKey !== undefined) post({ event: 'messages', data: { count: messagesCount } });
   }, [messagesKey, canRead]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -174,9 +202,11 @@ export default function AddonFrame({ code, perms, handlers, context, messagesKey
     return (
       <div className="ad-stopped" role="alert">
         <strong>Stopped</strong>
-        <span>This add-on tried to load another page, so Codehub closed it. Add-ons must stay inside their sandbox.</span>
+        <span>This add-on’s frame tried to load another page, so Codehub closed it.</span>
       </div>
     );
   }
+  if (assetsError) return <p className="error-text" role="alert">Add-ons can’t start here: {assetsError}</p>;
+  if (!html) return <div className="ad-center"><div className="spinner" aria-label="Starting the add-on" /></div>;
   return <SandboxFrame key={token} ref={frameRef} html={html} mode="game" title={title} className="ad-frame" />;
 }

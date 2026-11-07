@@ -2,21 +2,29 @@
 //
 // Published add-ons live in two public catalog entries (pub/{kind}/{id}, see ARCHITECTURE.md
 // "Generic rules blocks"):
-//   pub/addons/{id}     { name, desc, icon, version, perms, sha, size, by, ts, seed? }
+//   pub/addons/{id}     { name, desc, icon, version, perms, sha, size, rt, by, ts, seed? }
 //   pub/addonCode/{id}  { code, sha, by, ts }
 // Everything read from the database is untrusted: parse it with these functions before use and
 // render the strings as React text only.
 
+/** The add-on runtime this build runs (lib/runtime.js); bumped when older add-on code can't run any more. */
+export const RUNTIME_VERSION = 2;
+
 /** The fixed permission list an add-on may request. */
-export const ADDON_PERMS = Object.freeze(['readMessages', 'composer', 'send', 'storage']);
+export const ADDON_PERMS = Object.freeze(['context', 'readMessages', 'composer', 'send', 'storage']);
 
 /** What each permission lets an add-on do, in the words shown before install and on consent. */
 export const PERM_INFO = Object.freeze({
+  context: {
+    label: 'See where it’s open',
+    detail: 'Know the name of the conversation it is open in (channel, DM or group) and your display name.',
+    risk: false,
+  },
   readMessages: {
     label: 'Read messages',
     detail:
-      'See up to the last 100 messages (author name, text, time) of the conversation where you open it. ' +
-      'Codehub blocks its network access, but only grant this to add-ons you trust with what you read.',
+      'See the last 100 messages (author names, text, times) of the conversation where you open it, decrypted. ' +
+      'Add-on code has no network access, so it can only show them to you, or post them if you also allow “Send messages as you”.',
     risk: true,
   },
   composer: {
@@ -26,7 +34,9 @@ export const PERM_INFO = Object.freeze({
   },
   send: {
     label: 'Send messages as you',
-    detail: 'Post messages in the conversation where it is open. Codehub asks you before every message unless you allow it to send without asking.',
+    detail:
+      'Post messages in the conversation where it is open. Codehub shows you the full text and asks before every message ' +
+      'unless you allow it to send without asking.',
     risk: true,
   },
   storage: {
@@ -106,6 +116,11 @@ export function utf8Length(str) {
 
 const clean = (v) => (typeof v === 'string' ? v.trim() : '');
 
+/** Runtime version field -> a small positive integer (1 = the old document model). */
+function runtimeOf(v) {
+  return Number.isInteger(v) && v > 0 && v < 1000 ? v : 1;
+}
+
 /**
  * Check what the builder is about to publish. Returns { ok, errors: { field: message }, value }
  * where value = { name, desc, icon, version, perms: [..], code }.
@@ -134,19 +149,22 @@ export function validateDraft(draft = {}, { previousVersion } = {}) {
     errors.version = `Raise the version above ${previousVersion} when you publish an update.`;
   }
 
-  if (!code.trim()) errors.code = 'Write the add-on’s HTML/JS document.';
-  else if (utf8Length(code) > LIMITS.codeBytes) errors.code = `The code is ${utf8Length(code)} bytes; the limit is ${LIMITS.codeBytes} (64 KB).`;
+  if (!code.trim()) errors.code = 'Write the add-on’s JavaScript.';
+  else if (/^\s*<(?:!doctype|html|head|body|script|!--)/i.test(code)) {
+    errors.code = 'Add-on code is JavaScript that runs in a worker, not an HTML page. Draw your UI with codehub.ui.render(html).';
+  } else if (utf8Length(code) > LIMITS.codeBytes) errors.code = `The code is ${utf8Length(code)} bytes; the limit is ${LIMITS.codeBytes} (64 KB).`;
 
   return { ok: Object.keys(errors).length === 0, errors, value: { name, desc, icon, version, perms, code } };
 }
 
 /**
- * A pub/addons/{id} record -> { id, name, desc, icon, version, perms, sha, size, by, ts, seed } or null
- * when anything is missing or out of range.
+ * A pub/addons/{id} record -> { id, name, desc, icon, version, perms, sha, size, by, ts, seed, rt } or
+ * null when anything is missing or out of range. `rt` is the add-on runtime the code was written for
+ * (1 when the field is missing: the old document model).
  */
 export function parseManifest(id, raw) {
   if (!isAddonId(id) || !raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const { name, desc = '', icon, version, perms = '', sha, size, by, ts, seed } = raw;
+  const { name, desc = '', icon, version, perms = '', sha, size, by, ts, seed, rt } = raw;
   if (typeof name !== 'string' || !name.trim() || name.length > LIMITS.name || CTRL_RE.test(name)) return null;
   if (typeof desc !== 'string' || desc.length > LIMITS.desc) return null;
   if (typeof icon !== 'string' || !icon.trim() || icon.length > LIMITS.icon) return null;
@@ -171,6 +189,7 @@ export function parseManifest(id, raw) {
     by,
     ts,
     seed: typeof seed === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(seed) ? seed : null,
+    rt: runtimeOf(rt),
   };
 }
 
@@ -185,7 +204,8 @@ export function parseCodeRecord(raw) {
 
 /**
  * An install record (udata/{me}/addons/{id} or sconf/{sid}/addons/{id}) ->
- * { id, sha, perms, at, v, name, icon, auto, by } or null.
+ * { id, sha, perms, at, v, name, icon, auto, by, publisher, rt } or null. `by` is the server installer,
+ * `publisher` the account that published the pinned code, `rt` the runtime it was written for.
  */
 export function parseInstall(id, raw) {
   if (!isAddonId(id) || !raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -202,6 +222,8 @@ export function parseInstall(id, raw) {
     icon,
     auto: raw.auto === true,
     by: typeof raw.by === 'string' ? raw.by : '',
+    publisher: typeof raw.publisher === 'string' && raw.publisher.length <= 128 ? raw.publisher : '',
+    rt: runtimeOf(raw.rt),
   };
 }
 
@@ -212,6 +234,35 @@ export function parseInstalls(map) {
     .map(([id, raw]) => parseInstall(id, raw))
     .filter(Boolean)
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+/** True when a listing's code targets the current add-on runtime (so it may be installed and run). */
+export const isCurrentRuntime = (m) => !!m && m.rt === RUNTIME_VERSION;
+
+/**
+ * Why an installed add-on must not run, or null when it may. `manifest` is its live directory
+ * listing (parseManifest result, null when gone or invalid):
+ *   'removed'    no longer published (its publisher or an app admin removed it)
+ *   'runtime'    the approved copy was written for an older add-on runtime: needs an update
+ *   'publisher'  listed by a different account than the one whose code was approved
+ */
+export function runBlock(install, manifest) {
+  if (!install || !manifest) return 'removed';
+  if (install.rt !== RUNTIME_VERSION) return 'runtime';
+  if (!install.publisher || manifest.by !== install.publisher) return 'publisher';
+  return null;
+}
+
+/**
+ * Why a published update can't be accepted, or null: 'runtime' (still written for the old runtime)
+ * or 'publisher' (published by another account than the approved copy; installs from before the
+ * publisher was recorded can't be checked and are allowed).
+ */
+export function updateBlock(install, manifest) {
+  if (!manifest) return 'removed';
+  if (!isCurrentRuntime(manifest)) return 'runtime';
+  if (install?.publisher && manifest.by !== install.publisher) return 'publisher';
+  return null;
 }
 
 /** Consent key for a server add-on in udata/{me}/addonConsent: "{sid}~{id}". */

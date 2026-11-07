@@ -4,9 +4,14 @@
 import { useState } from 'react';
 import { useWorkspaceCtx } from '../../../lib/ext/workspaceContext.js';
 import { openHub } from '../lib/hub.js';
-import { usePersonalInstalls, useServerInstalls } from '../lib/store.js';
+import { useManifest, usePersonalInstalls, useServerInstalls } from '../lib/store.js';
 import AddonRunner from './AddonRunner.jsx';
-import { AddonIcon, PermChips } from './bits.jsx';
+import { AddonIcon, BlockChip, PermChips } from './bits.jsx';
+
+function RowStatus({ inst }) {
+  const { manifest, loading } = useManifest(inst.id);
+  return <BlockChip install={inst} manifest={manifest} loading={loading} />;
+}
 
 export function AddonsPanel({ ctx }) {
   const ws = useWorkspaceCtx();
@@ -38,6 +43,7 @@ export function AddonsPanel({ ctx }) {
       <div className="ad-row-main">
         <span className="ad-row-name">
           {inst.name} {inst.v && <span className="muted">v{inst.v}</span>}
+          <RowStatus inst={inst} />
         </span>
         <span className="ad-row-chips"><PermChips perms={inst.perms} /></span>
       </div>

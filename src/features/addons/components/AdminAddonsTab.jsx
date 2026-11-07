@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { ConfirmButton } from '../../../components/layout/ui.jsx';
 import { EXAMPLES } from '../examples/index.js';
 import { sha256Hex } from '../lib/hash.js';
-import { validateDraft } from '../lib/manifest.js';
+import { isCurrentRuntime, validateDraft } from '../lib/manifest.js';
 import { publishAddon, unpublishAddon, useDirectory, usePublishedBy } from '../lib/store.js';
-import { AddonIcon, PermChips, Publisher, errText, fmtDate } from './bits.jsx';
+import { AddonIcon, OldRuntimeChip, PermChips, Publisher, errText, fmtDate } from './bits.jsx';
 import '../addons.css';
 
 export default function AdminAddonsTab({ me }) {
@@ -48,8 +48,8 @@ export default function AdminAddonsTab({ me }) {
   return (
     <div className="adm-section ad-admin">
       <p className="adm-note">
-        Add-ons are public, sandboxed HTML apps anyone can publish. Removing one deletes its listing and code; people who
-        installed it keep their approved copy until they uninstall it.
+        Add-ons are public apps anyone can publish; their code runs in a sandboxed worker with no network access. Removing
+        one deletes its listing and code, and Codehub stops running it for everyone who installed it.
       </p>
 
       <h3 className="ad-h3">First-party examples</h3>
@@ -89,7 +89,7 @@ export default function AdminAddonsTab({ me }) {
             <li key={m.id} className="ad-row wrap">
               <AddonIcon icon={m.icon} />
               <div className="ad-row-main">
-                <span className="ad-row-name">{m.name} <span className="muted">v{m.version}</span></span>
+                <span className="ad-row-name">{m.name} <span className="muted">v{m.version}</span>{!isCurrentRuntime(m) && <OldRuntimeChip />}</span>
                 <span className="muted ad-hint">by <Publisher uid={m.by} /> · {fmtDate(m.ts)} · <code className="ad-code-inline">{m.id}</code></span>
                 <span className="ad-row-chips"><PermChips perms={m.perms} /></span>
               </div>

@@ -2,10 +2,14 @@
 // written, and pin exactly the code that was reviewed (its SHA-256).
 import { useEffect, useMemo, useState } from 'react';
 import { diffLines } from '../../../lib/collab/diff.js';
-import { normalizePerms, permDiff, PERM_INFO } from '../lib/manifest.js';
+import { isCurrentRuntime, normalizePerms, permDiff, PERM_INFO, updateBlock } from '../lib/manifest.js';
 import { installPersonal, installServer, loadAddon, loadPinnedCode, personalPinPath, serverPinPath } from '../lib/store.js';
 import Dialog from './Dialog.jsx';
-import { AddonIcon, PermPicker, errText } from './bits.jsx';
+import { AddonIcon, PermPicker, Publisher, errText } from './bits.jsx';
+
+/** Shown instead of Install / Accept when a listing can't be installed. */
+export const OLD_RUNTIME_TEXT =
+  'This add-on needs an update for the new add-on runtime: it was written for the old one, which let add-on code run in a web page. It can be installed once its publisher updates it.';
 
 const targetLabel = (target) => (target?.scope === 'server' ? `on ${target.serverName || 'this server'}` : 'for you');
 
@@ -13,10 +17,14 @@ function Note({ target }) {
   return target?.scope === 'server' ? (
     <p className="ad-hint muted">
       Every member can open it from the channel header. Each member sees these permissions and must accept them the first
-      time they open it. It runs in each member’s browser, in a sandbox with no network access.
+      time they open it. It runs in each member’s browser, in a sandbox with no network access, and stops running if it is
+      removed from the directory.
     </p>
   ) : (
-    <p className="ad-hint muted">It runs in a sandbox in your browser with no network access. Only you see it.</p>
+    <p className="ad-hint muted">
+      It runs in a sandbox in your browser with no network access. Only you see it. If it is removed from the directory, it stops
+      running.
+    </p>
   );
 }
 
@@ -75,14 +83,20 @@ export function InstallDialog({ id, target, onClose, onInstalled }) {
               <span className="muted">v{manifest.version} · checksum {manifest.sha.slice(0, 12)}</span>
             </div>
           </div>
-          <PermPicker requested={manifest.perms} value={perms} onChange={setPerms} />
-          <Note target={target} />
+          {isCurrentRuntime(manifest) ? (
+            <>
+              <PermPicker requested={manifest.perms} value={perms} onChange={setPerms} />
+              <Note target={target} />
+            </>
+          ) : (
+            <p className="ad-warn" role="note">{OLD_RUNTIME_TEXT}</p>
+          )}
           {err && <p className="error-text" role="alert">{err}</p>}
         </>
       )}
       <div className="ad-actions">
         <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
-        {manifest && (
+        {manifest && isCurrentRuntime(manifest) && (
           <button type="button" className="btn primary" disabled={busy} onClick={install}>
             {busy ? 'Installing…' : 'Install'}
           </button>
@@ -121,6 +135,7 @@ export function UpdateDialog({ install, target, onClose }) {
   }, [install.id, install.sha, target?.scope, target?.sid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { manifest, code, oldCode } = state;
+  const blocked = manifest ? updateBlock(install, manifest) : null;
   const changes = manifest ? permDiff(install.perms, manifest.perms) : { added: [], removed: [] };
   const diff = useMemo(() => (manifest && oldCode ? diffLines(oldCode, code, 2) : null), [manifest, oldCode, code]);
 
@@ -143,10 +158,19 @@ export function UpdateDialog({ install, target, onClose }) {
         <div className="ad-center"><div className="spinner" aria-label="Loading the update" /></div>
       ) : state.error ? (
         <p className="error-text" role="alert">{state.error}</p>
+      ) : blocked === 'publisher' ? (
+        <p className="error-text" role="alert">
+          This update was published by a different account (<Publisher uid={manifest.by} />) than the version that was approved, so
+          Codehub won’t apply it. Uninstall the add-on, and install it again only if you trust the new publisher.
+        </p>
+      ) : blocked === 'runtime' ? (
+        <p className="ad-warn" role="note">{OLD_RUNTIME_TEXT}</p>
       ) : (
         <>
           <p>
-            Version <strong>{install.v || '?'}</strong> → <strong>{manifest.version}</strong>. Until you accept, {target?.scope === 'server' ? 'members keep' : 'you keep'} running the version that was approved.
+            Version <strong>{install.v || '?'}</strong> → <strong>{manifest.version}</strong> by <Publisher uid={manifest.by} />. Until you
+            accept, {target?.scope === 'server' ? 'members keep' : 'you keep'}{' '}
+            {install.rt === manifest.rt ? 'running the version that was approved' : 'seeing “needs update” instead of the add-on'}.
           </p>
           {changes.added.length > 0 && (
             <div className="ad-warn" role="note">
@@ -186,7 +210,7 @@ export function UpdateDialog({ install, target, onClose }) {
       )}
       <div className="ad-actions">
         <button type="button" className="btn ghost" onClick={onClose}>Not now</button>
-        {manifest && (
+        {manifest && !blocked && (
           <button type="button" className="btn primary" disabled={busy} onClick={accept}>
             {busy ? 'Updating…' : 'Accept update'}
           </button>

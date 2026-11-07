@@ -6,7 +6,8 @@ import { uninstallServer, useManifest, useServerInstalls } from '../lib/store.js
 import Details, { BackButton } from './Details.jsx';
 import Directory from './Directory.jsx';
 import { UpdateDialog } from './InstallFlow.jsx';
-import { AddonIcon, PermChips, Publisher, errText, fmtDate } from './bits.jsx';
+import { AddonIcon, BlockChip, PermChips, Publisher, errText, fmtDate } from './bits.jsx';
+import { isCurrentRuntime } from '../lib/manifest.js';
 import { MAX_HEADER_ADDONS } from './ServerAddonMount.jsx';
 import '../addons.css';
 
@@ -39,8 +40,9 @@ export default function ServerAddonsTab({ ctx }) {
     <div className="ad-settings">
       <p className="muted">
         Add-ons installed here get a button in every channel’s header (the first {MAX_HEADER_ADDONS}; all of them are in
-        the “Add-ons” panel). They run in each member’s browser, in a sandbox with no network access, and every member
-        accepts their permissions the first time they open one.
+        the “Add-ons” panel). They run in each member’s browser, in a sandboxed worker with no network access, and every
+        member accepts their permissions the first time they open one. Codehub stops running an add-on that is removed
+        from the directory.
       </p>
       <div className="ad-actions left">
         <button type="button" className="btn primary sm" onClick={() => setView('browse')}>Install an add-on</button>
@@ -62,9 +64,9 @@ export default function ServerAddonsTab({ ctx }) {
 }
 
 function ServerRow({ sid, inst, target, onDetails, onError }) {
-  const { manifest } = useManifest(inst.id);
+  const { manifest, loading } = useManifest(inst.id);
   const [review, setReview] = useState(false);
-  const hasUpdate = manifest && manifest.sha !== inst.sha;
+  const hasUpdate = isCurrentRuntime(manifest) && manifest.sha !== inst.sha && (!inst.publisher || manifest.by === inst.publisher);
   return (
     <li className="ad-row wrap">
       <AddonIcon icon={inst.icon} />
@@ -72,7 +74,7 @@ function ServerRow({ sid, inst, target, onDetails, onError }) {
         <span className="ad-row-name">
           {inst.name} {inst.v && <span className="muted">v{inst.v}</span>}
           {hasUpdate && <span className="ad-chip warn">update: v{manifest.version}</span>}
-          {!manifest && <span className="ad-chip quiet">no longer in the directory</span>}
+          <BlockChip install={inst} manifest={manifest} loading={loading} />
         </span>
         <span className="ad-row-chips"><PermChips perms={inst.perms} /></span>
         {inst.by && (

@@ -88,7 +88,7 @@ export default function PreviewPane({ code, perms, meName, title = 'Add-on previ
             onConsole={(level, args) => add(level, args.join(' '))}
           />
         ) : (
-          <p className="muted ad-empty-text">Write some HTML to see it here.</p>
+          <p className="muted ad-empty-text">Write some code to see it here.</p>
         )}
       </div>
       <div className="ad-log" role="log" aria-label="Preview console" aria-live="polite">

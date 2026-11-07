@@ -1,8 +1,8 @@
 // The public add-on directory: search, sort (newest / name), cards with permissions.
 import { useMemo, useState } from 'react';
-import { filterManifests } from '../lib/manifest.js';
+import { filterManifests, isCurrentRuntime } from '../lib/manifest.js';
 import { useDirectory } from '../lib/store.js';
-import { AddonIcon, PermChips, Publisher } from './bits.jsx';
+import { AddonIcon, OldRuntimeChip, PermChips, Publisher } from './bits.jsx';
 
 /** Props: onOpen(id), installedIds? (Set), compact? */
 export default function Directory({ onOpen, installedIds, compact = false }) {
@@ -47,6 +47,7 @@ export default function Directory({ onOpen, installedIds, compact = false }) {
                   <span className="ad-card-name">
                     {m.name} <span className="muted">v{m.version}</span>
                     {installedIds?.has(m.id) && <span className="ad-chip ok">installed</span>}
+                    {!isCurrentRuntime(m) && <OldRuntimeChip />}
                   </span>
                   {m.desc && <span className="ad-card-desc">{m.desc}</span>}
                   <span className="ad-card-meta">

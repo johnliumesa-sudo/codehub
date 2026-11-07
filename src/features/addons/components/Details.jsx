@@ -4,9 +4,9 @@
 import { useState } from 'react';
 import { useIsAppAdmin } from '../../../lib/admin.js';
 import { ConfirmButton } from '../../../components/layout/ui.jsx';
-import { formatBytes } from '../lib/manifest.js';
+import { formatBytes, isCurrentRuntime } from '../lib/manifest.js';
 import { loadAddon, unpublishAddon, uninstallPersonal, uninstallServer, useManifest, usePersonalInstalls, useServerInstalls } from '../lib/store.js';
-import { InstallDialog, UpdateDialog } from './InstallFlow.jsx';
+import { InstallDialog, OLD_RUNTIME_TEXT, UpdateDialog } from './InstallFlow.jsx';
 import PreviewPane from './PreviewPane.jsx';
 import ReportAddon from './ReportAddon.jsx';
 import { AddonIcon, PermList, Publisher, errText, fmtDate } from './bits.jsx';
@@ -43,7 +43,8 @@ export default function Details({ id, me, onBack, onEdit, target = { scope: 'per
   }
 
   const mine = manifest.by === me?.uid;
-  const hasUpdate = installed && installed.sha !== manifest.sha;
+  const current = isCurrentRuntime(manifest);
+  const hasUpdate = installed && current && installed.sha !== manifest.sha;
   const where = target.scope === 'server' ? 'on this server' : '';
 
   const tryIt = async () => {
@@ -76,13 +77,21 @@ export default function Details({ id, me, onBack, onEdit, target = { scope: 'per
         <PermList perms={manifest.perms} />
       </section>
 
+      {!current && (
+        <p className="ad-warn" role="note">
+          {OLD_RUNTIME_TEXT}
+          {mine && ' Edit it to rewrite it for the new runtime.'}
+        </p>
+      )}
+
       <p className="ad-hint muted">
         Checksum <code className="ad-code-inline">{manifest.sha.slice(0, 16)}…</code>. Installing pins this exact code;
-        later changes by the publisher wait for {target.scope === 'server' ? 'a server manager' : 'you'} to review them.
+        later changes by the publisher wait for {target.scope === 'server' ? 'a server manager' : 'you'} to review them. If it
+        is removed from the directory, Codehub stops running it everywhere.
       </p>
 
       <div className="ad-actions left">
-        {!installed && (
+        {!installed && current && (
           <button type="button" className="btn primary" onClick={() => setDialog('install')}>
             {target.scope === 'server' ? 'Install on this server' : 'Install'}
           </button>
@@ -101,9 +110,11 @@ export default function Details({ id, me, onBack, onEdit, target = { scope: 'per
             Uninstall
           </ConfirmButton>
         )}
-        <button type="button" className="btn sm" onClick={tryIt} aria-expanded={!!trying}>
-          {trying ? 'Close preview' : 'Try with sample data'}
-        </button>
+        {current && (
+          <button type="button" className="btn sm" onClick={tryIt} aria-expanded={!!trying}>
+            {trying ? 'Close preview' : 'Try with sample data'}
+          </button>
+        )}
         {!mine && <ReportAddon addon={manifest} />}
         {mine && onEdit && <button type="button" className="btn sm" onClick={() => onEdit(id)}>Edit</button>}
         {mine && (
