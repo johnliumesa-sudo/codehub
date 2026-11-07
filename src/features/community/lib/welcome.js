@@ -5,7 +5,7 @@
 // sconf/{sid}/welcome/req   true | absent      "require acceptance": the database rules refuse channel
 //                                              messages from members (not owner/admin) without a marker
 // sitems/{sid}/accepted/{uid}  { by: uid, v, ts }  my acceptance (the rules check by === uid)
-// udata/{me}/welcome/{sid}  v                  the version I've seen (no acceptance needed)
+// udata/{me}/welcomeSeen/{sid}  v                  the version I've seen (no acceptance needed)
 
 export const WELCOME_LIMITS = Object.freeze({ text: 2000, rules: 25, rule: 300 });
 export const welcomeAad = (sid) => `welcome:${sid}/msg`;

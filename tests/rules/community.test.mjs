@@ -191,8 +191,8 @@ describe('community rules', () => {
       await ok(db('dave').ref('udata/dave/templates/t1').remove());
     });
     it('my welcome-seen marker is private too', async () => {
-      await ok(db('dave').ref('udata/dave/welcome/s1').set(1));
-      await deny(db('erin').ref('udata/dave/welcome/s1').get());
+      await ok(db('dave').ref('udata/dave/welcomeSeen/s1').set(1));
+      await deny(db('erin').ref('udata/dave/welcomeSeen/s1').get());
     });
   });
 });

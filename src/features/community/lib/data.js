@@ -171,7 +171,7 @@ export function useAcceptMarker(sid, uid) {
 
 /** The welcome version I've seen in a server (udata). */
 export function useSeenWelcome(sid, uid) {
-  const live = useLive(sid && uid ? `udata/${uid}/welcome/${sid}` : null);
+  const live = useLive(sid && uid ? `udata/${uid}/welcomeSeen/${sid}` : null);
   return { loading: live.loading, seenV: typeof live.value === 'number' ? live.value : 0 };
 }
 
@@ -194,12 +194,12 @@ export function acceptRules(sid, v) {
   const me = myUid();
   return update(ref(db), {
     [`sitems/${sid}/accepted/${me}`]: { by: me, v: v || 0, ts: Date.now() },
-    [`udata/${me}/welcome/${sid}`]: v || 0,
+    [`udata/${me}/welcomeSeen/${sid}`]: v || 0,
   });
 }
 
 /** Remember that I've seen this welcome version (no acceptance needed). */
-export const markWelcomeSeen = (sid, v) => set(ref(db, `udata/${myUid()}/welcome/${sid}`), v || 0);
+export const markWelcomeSeen = (sid, v) => set(ref(db, `udata/${myUid()}/welcomeSeen/${sid}`), v || 0);
 
 /** One-shot: am I gated in this server? (send hook; uses live snapshots when loaded). */
 export async function loadGate(sid, uid) {

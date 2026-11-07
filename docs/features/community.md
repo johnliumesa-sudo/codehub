@@ -126,7 +126,7 @@ re-prompt; the database still accepts their earlier marker).
 sconf/{sid}/welcome/msg         { iv, ct, v, by }   // v = version (ms), by = who saved it
 sconf/{sid}/welcome/req         true                // absent = not required
 sitems/{sid}/accepted/{uid}     { by: uid, v, ts }  // the marker the rules check
-udata/{uid}/welcome/{sid}       v                   // the version I've seen
+udata/{uid}/welcomeSeen/{sid}   v                   // the version I've seen
 ```
 
 **Security.** The text and rules are end-to-end encrypted. The gate itself is enforced by the database
@@ -199,6 +199,9 @@ collapsed).
 ---
 
 ## Notes for other workstreams
+- Generic-block feature names taken: `sconf` `welcome`, `automod`, `discovery`; `sitems` `events`,
+  `rsvp`, `accepted` (the last two are key-bound by the rules); `udata` `rsvp`, `welcomeSeen`,
+  `templates`; `pub` `servers`.
 - Body extra key used: `srvEvent` (`{ id }`), validated before rendering.
 - Send hooks: `community.gate` (order -1e8) and `community.automod` (order 1e6).
 - Event reminders call `showNotification` from `lib/notify.js` directly when desktop notifications are
