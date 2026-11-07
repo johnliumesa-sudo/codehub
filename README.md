@@ -146,6 +146,13 @@ that, so paste the minified copy instead:
 The minifier only strips whitespace and merges `.child()` chains. To check a minified copy, save it
 to a file and run `RULES_PATH=<file> npm run test:rules`.
 
+### Tests
+
+`npm test` runs everything against local emulators (needs Java, and Node 20 or 22 for the browser tests):
+`npm run test:unit` (pure helpers), `npm run test:rules` (security rules on the Database emulator) and
+`npm run test:e2e` (Playwright: real sign-ups, chat, and two- and three-browser voice/video calls with a
+fake camera and microphone).
+
 The console also has a **Rules Playground** for testing reads and writes as a specific uid.
 
 > Re-deploy the rules any time `database.rules.json` changes. The rules define indexes

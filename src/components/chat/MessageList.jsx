@@ -24,7 +24,7 @@ const MessageList = forwardRef(function MessageList(props, ref) {
   const {
     items, loading, error, hasMore, onLoadOlder, limitReached, me, profiles, conv, byMid, unreadSince,
     memberNames, editingMid, isAdmin, canPinAny, onReply, onEdit, onEditSave, onEditCancel, onDelete, onReact,
-    onOpenReactPicker, onPin, onJump, onCopied,
+    onOpenReactPicker, onPin, onJump, onCopied, emotes, onForward,
   } = props;
 
   const scrollRef = useRef(null);
@@ -240,6 +240,8 @@ const MessageList = forwardRef(function MessageList(props, ref) {
                 onPin={onPin}
                 onJump={onJump}
                 onCopied={onCopied}
+                emotes={emotes}
+                onForward={onForward}
               />
               </BlockedGate>
             );

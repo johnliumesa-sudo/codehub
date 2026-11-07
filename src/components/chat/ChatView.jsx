@@ -18,7 +18,7 @@ import {
   setTyping,
   subscribeMessages,
   subscribeTyping,
-  emojiKey,
+  reactionKey,
   typingPath,
   typingScope,
 } from '../../lib/messages.js';
@@ -42,10 +42,19 @@ import { isPermissionDenied } from '../layout/hooks.js';
 import './chat.css';
 import { deliverNotif, deliverNotifs } from '../../lib/notifications.js';
 import { mentionsName } from '../../lib/markdown.js';
+import { useServerEmotes } from '../media/EmoteText.jsx';
+import { DropZone } from '../media/Attachments.jsx';
+import ForwardModal from '../chatx/ForwardModal.jsx';
+import { deleteAttachments } from '../../lib/media/attachments.js';
+
+// Uploaded images of a message that never got stored would otherwise be left behind.
+const dropUploads = (conv, body) => {
+  if (body?.attachments?.length) deleteAttachments(conv, body.attachments).catch(() => {});
+};
 
 const MAX_LIMIT = 2000;
 
-export default function ChatView({ conv, me, onOpenGroupSettings }) {
+export default function ChatView({ conv, me, onOpenGroupSettings, forwardTargets }) {
   if (!conv) {
     return (
       <div className="chat-root">
@@ -62,10 +71,10 @@ export default function ChatView({ conv, me, onOpenGroupSettings }) {
     : conv.kind === 'group'
       ? `grp:${conv.gid}:${conv.epoch}`
       : `ch:${conv.sid}/${conv.cid}`;
-  return <ChatInner key={k} conv={conv} me={me} onOpenGroupSettings={onOpenGroupSettings} />;
+  return <ChatInner key={k} conv={conv} me={me} onOpenGroupSettings={onOpenGroupSettings} forwardTargets={forwardTargets} />;
 }
 
-function ChatInner({ conv, me, onOpenGroupSettings }) {
+function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
   const scope = typingScope(conv); // read-marker scope
   const tPath = typingPath(conv);
   const [key, setKey] = useState(null);
@@ -90,6 +99,7 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
   const [toast, setToast] = useState(null);
   const [pendingJump, setPendingJump] = useState(null);
   const [keyConfirm, setKeyConfirm] = useState(null); // body pending a key-change confirmation
+  const [forwarding, setForwarding] = useState(null); // { body, fromName }
   const listRef = useRef(null);
   const composerRef = useRef(null);
 
@@ -200,6 +210,9 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
     return [...s];
   }, [members, raw, me.uid]);
   const profiles = useProfiles(uids);
+  const profilesRef = useRef(profiles);
+  profilesRef.current = profiles;
+  const { list: emoteList, map: emoteMap } = useServerEmotes(conv.kind === 'channel' ? conv.sid : null);
 
   // Permissions: server channels use roles (owner/admin + custom-role manageMessages); the group
   // owner moderates a group; any DM/group member may pin.
@@ -276,6 +289,7 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
     }
     if (slow?.blocked) {
       flash(SLOWMODE_DENIED);
+      dropUploads(conv, body);
       return false;
     }
     const reply = replyTo;
@@ -287,15 +301,16 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
       slow?.markPosted?.();
     } catch (e) {
       setReplyTo(reply);
+      dropUploads(conv, body);
       flash(conv.kind === 'dm' && isPermissionDenied(e) ? "This person isn't accepting messages from you." : e?.message || 'Message failed to send');
       return false;
     }
     const { mid, done } = res;
     if (conv.kind === 'dm' && conv.peerUid) done.then(() => deliverNotif({ to: conv.peerUid, kind: 'dm', ref: { dmId: conv.dmId, mid } }), () => {});
-    if (conv.kind === 'channel') {
-      // Mention / reply notifications (server channels only; rules check both users are members).
+    if (conv.kind === 'channel' || conv.kind === 'group') {
+      // Mention / reply notifications (server channels and groups; rules check both users are members).
       const text = typeof body?.text === 'string' ? body.text : '';
-      const ref = { sid: conv.sid, cid: conv.cid, mid };
+      const ref = conv.kind === 'group' ? { gid: conv.gid, mid } : { sid: conv.sid, cid: conv.cid, mid };
       const replyUid = reply ? byMid[reply]?.uid : null;
       const mentioned = text.includes('@')
         ? Object.keys(members).filter((u) => u !== me.uid && u !== replyUid && mentionsName(text, profiles[u]?.name)).slice(0, 25)
@@ -314,6 +329,7 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
     });
     done.then(clear, (e) => {
       clear();
+      dropUploads(conv, body);
       if (conv.kind === 'dm' && isPermissionDenied(e)) {
         flash("This person isn't accepting messages from you.");
         return;
@@ -341,17 +357,22 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
 
   const handleDelete = useCallback(async (mid) => {
     setConfirmDelete(null);
+    const atts = byMid[mid]?.body?.attachments;
     try {
       await deleteMessage(conv, mid);
       if (replyTo === mid) setReplyTo(null);
     } catch (e) {
       flash(e?.message || 'Could not delete message');
+      return;
     }
-  }, [conv, replyTo, flash]);
+    // The images go with the message (author or moderator; the rules decide).
+    if (atts?.length) deleteAttachments(conv, atts).catch(() => flash('The message was deleted, but its images could not be removed.'));
+  }, [conv, replyTo, flash, byMid]);
 
-  const handleReact = useCallback(async (mid, native, on) => {
+  // `value` is a native emoji or a server emote as ":name:".
+  const handleReact = useCallback(async (mid, value, on) => {
     try {
-      await setReaction(conv, mid, emojiKey(native), me.uid, on);
+      await setReaction(conv, mid, reactionKey(value), me.uid, on);
     } catch (e) {
       flash(conv.kind === 'dm' && isPermissionDenied(e) ? "This person isn't accepting messages from you." : e?.message || 'Could not react');
     }
@@ -381,6 +402,7 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
   const onOpenReactPicker = useCallback((mid, rect) => setReactPicker({ mid, rect }), []);
   const closeReactPicker = useCallback(() => setReactPicker(null), []);
   const onCopied = useCallback((msg) => flash(typeof msg === 'string' ? msg : 'Copied to clipboard', 'ok'), [flash]);
+  const onForward = useCallback((m) => setForwarding({ body: m.body, fromName: profilesRef.current[m.uid]?.name || 'Unknown' }), []);
 
   const onTyping = useCallback(() => setTyping(tPath, me.uid, true), [tPath, me.uid]);
   const onStopTyping = useCallback(() => setTyping(tPath, me.uid, false), [tPath, me.uid]);
@@ -467,7 +489,11 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
       )}
 
       <div className="chat-body">
-        <div className="chat-main">
+        <DropZone
+          className="chat-main"
+          disabled={!!keyError || !key || timedOutUntil > 0 || iBlockedPeer}
+          onFiles={(files) => composerRef.current?.addFiles(files)}
+        >
           {keyError ? (
             <div className="chat-blocking">
               <div className="chat-blocking-card">
@@ -511,6 +537,8 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
               onPin={handlePin}
               onJump={jumpTo}
               onCopied={onCopied}
+              emotes={emoteMap}
+              onForward={forwardTargets?.length ? onForward : undefined}
             />
           )}
 
@@ -541,11 +569,12 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
                 allowEveryone={conv.kind !== 'dm'}
                 me={me}
                 onLongSnippet={(code, lang) => setShowSnippet({ content: code, lang })}
+                emotes={emoteList}
               />
               <TypingIndicator names={typingNames} />
             </div>
           )}
-        </div>
+        </DropZone>
 
         {panel && (
           <SidePanel
@@ -570,11 +599,11 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
         <EmojiPopover
           anchorRect={reactPicker.rect}
           onClose={closeReactPicker}
-          onSelect={(native) => {
+          emotes={emoteList}
+          onSelect={(value) => {
             const m = byMid[reactPicker.mid];
-            const k = emojiKey(native);
-            const already = !!m?.reactions?.[k]?.[me.uid];
-            if (!already) handleReact(reactPicker.mid, native, true);
+            const already = !!m?.reactions?.[reactionKey(value)]?.[me.uid];
+            if (!already) handleReact(reactPicker.mid, value, true);
             setReactPicker(null);
           }}
         />
@@ -598,7 +627,10 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
           title="Encryption key changed"
           confirmLabel="Send anyway"
           danger
-          onCancel={() => setKeyConfirm(null)}
+          onCancel={() => {
+            dropUploads(conv, keyConfirm);
+            setKeyConfirm(null);
+          }}
           onConfirm={() => {
             const b = keyConfirm;
             setKeyConfirm(null);
@@ -611,6 +643,19 @@ function ChatInner({ conv, me, onOpenGroupSettings }) {
             message is sensitive.
           </p>
         </ConfirmModal>
+      )}
+      {forwarding && (
+        <ForwardModal
+          body={forwarding.body}
+          fromName={forwarding.fromName}
+          me={me}
+          targets={forwardTargets || []}
+          onClose={() => setForwarding(null)}
+          onDone={(t, res) => {
+            if (t.kind === 'dm' && t.peerUid && res?.mid) deliverNotif({ to: t.peerUid, kind: 'dm', ref: { dmId: t.dmId, mid: res.mid } });
+            flash(`Forwarded to ${t.kind === 'channel' ? '#' : ''}${t.title || 'conversation'}`, 'ok');
+          }}
+        />
       )}
       {confirmDelete && (
         <ConfirmModal

@@ -25,7 +25,7 @@ function findTrigger(value, caret) {
 const Composer = forwardRef(function Composer(props, ref) {
   const {
     disabled, placeholder, onSend, onTyping, onStopTyping, replyItem, replyAuthor, onCancelReply,
-    onEditLast, onOpenSnippet, members, allowEveryone, me, onLongSnippet, conv,
+    onEditLast, onOpenSnippet, members, allowEveryone, me, onLongSnippet, conv, emotes,
   } = props;
   const draft = useAttachmentDraft();
   const onPasteFiles = usePasteFiles(draft.add);
@@ -63,7 +63,9 @@ const Composer = forwardRef(function Composer(props, ref) {
       el?.setSelectionRange(caret, caret);
     });
   }, []);
-  useImperativeHandle(ref, () => ({ focus: () => ta.current?.focus(), insert: insertBlock }), [insertBlock]);
+  // addFiles: images dropped anywhere on the chat pane (ChatView's DropZone) join the draft.
+  const addFiles = draft.add;
+  useImperativeHandle(ref, () => ({ focus: () => ta.current?.focus(), insert: insertBlock, addFiles: conv ? addFiles : () => {} }), [insertBlock, addFiles, conv]);
 
   // Autosize
   useEffect(() => {
@@ -80,7 +82,12 @@ const Composer = forwardRef(function Composer(props, ref) {
   const suggestions = useMemo(() => {
     if (!trigger) return [];
     if (trigger.kind === 'emoji') {
-      return searchEmoji(trigger.query, 8).map((e) => ({ id: e.id, label: `:${e.id}:`, icon: e.native, insert: e.native }));
+      // Server emotes first (inserted as :name:, rendered as images), then standard emoji.
+      const custom = (emotes || [])
+        .filter((e) => e.name.startsWith(trigger.query))
+        .slice(0, 4)
+        .map((e) => ({ id: `emote:${e.name}`, label: `:${e.name}:`, img: e.src, hint: 'Server emote', insert: `:${e.name}:` }));
+      return [...custom, ...searchEmoji(trigger.query, 8 - custom.length).map((e) => ({ id: e.id, label: `:${e.id}:`, icon: e.native, insert: e.native }))];
     }
     const q = trigger.query;
     const list = [];
@@ -94,7 +101,7 @@ const Composer = forwardRef(function Composer(props, ref) {
       if (list.length >= 8) break;
     }
     return list;
-  }, [trigger, members, allowEveryone]);
+  }, [trigger, members, allowEveryone, emotes]);
 
   useEffect(() => { setSel(0); }, [trigger?.kind, trigger?.query]);
 
@@ -231,7 +238,7 @@ const Composer = forwardRef(function Composer(props, ref) {
               onMouseEnter={() => setSel(i)}
               onMouseDown={(e) => { e.preventDefault(); applySuggestion(s); }}
             >
-              {s.icon ? <span className="suggest-emoji">{s.icon}</span> : s.profile ? <Avatar profile={s.profile} size={22} /> : <span className="suggest-at">@</span>}
+              {s.img ? <img className="suggest-emoji md-emote" src={s.img} alt="" width={22} height={22} /> : s.icon ? <span className="suggest-emoji">{s.icon}</span> : s.profile ? <Avatar profile={s.profile} size={22} /> : <span className="suggest-at">@</span>}
               <span className="suggest-label">{s.label}</span>
               {s.hint && <span className="suggest-hint">{s.hint}</span>}
             </button>
@@ -298,7 +305,7 @@ const Composer = forwardRef(function Composer(props, ref) {
           className="composer-send"
           title="Send (Enter)"
           onClick={submit}
-          disabled={disabled || sending || !value.trim() || over}
+          disabled={disabled || sending || (!value.trim() && !(conv && draft.files.length)) || over}
         >
           <SendIcon />
         </button>
@@ -311,7 +318,8 @@ const Composer = forwardRef(function Composer(props, ref) {
         <EmojiPopover
           anchorRect={pickerRect}
           onClose={() => { pickerClosedAt.current = Date.now(); setPickerRect(null); }}
-          onSelect={(native) => insertAtCaret(native)}
+          onSelect={(value) => insertAtCaret(value)}
+          emotes={emotes}
           keepOpen
         />
       )}

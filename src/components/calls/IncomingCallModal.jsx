@@ -56,15 +56,17 @@ function Ring({ me, ring, onAccepted, muted }) {
 
 /**
  * Props: `me` (uid), `onAccepted(scope)` (open the call view), `isBlocked(uid)` optional,
- * `muted` optional (silence the ringtone, e.g. do-not-disturb).
+ * `muted` optional: a boolean, or `(scope) => boolean` (e.g. the DM or group is muted in notification
+ * settings). A muted ring still shows Accept/Decline, without the ringtone.
  */
 export default function IncomingCallModal({ me, onAccepted, isBlocked, muted }) {
   const rings = useIncomingCalls(me).filter((r) => r.from !== me && !isBlocked?.(r.from));
   if (!rings.length) return null;
   const ring = rings[rings.length - 1];
+  const silent = typeof muted === 'function' ? !!muted(ring.scope) : !!muted;
   return (
     <div className="call-incoming-wrap">
-      <Ring key={ring.nid} me={me} ring={ring} onAccepted={onAccepted} muted={muted} />
+      <Ring key={ring.nid} me={me} ring={ring} onAccepted={onAccepted} muted={silent} />
     </div>
   );
 }

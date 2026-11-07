@@ -2,11 +2,12 @@
 //
 // There are no Cloud Functions, so the client does the cleanup while it is still signed in,
 // in an order the rules allow:
-//   1. servers I own are deleted outright; in other servers my messages are removed and I leave;
+//   1. servers I own are deleted outright; in other servers my messages (and the images attached to
+//      them) are removed and I leave; the same for groups; images I sent in DMs are removed;
 //   2. friend links (both sides) are removed;
 //   3. my profile is removed — the rules then let me wipe whole DM threads I'm in (both
 //      people's messages) and the peer's index entry for them;
-//   4. my private nodes (vault, presence, reads, indexes) are removed;
+//   4. my private nodes (vault, presence, reads, indexes, saved messages) are removed;
 //   5. the Firebase Auth user is deleted.
 // Each step tolerates data that is already gone, so a retry after a partial failure finishes the job.
 import {
@@ -73,6 +74,8 @@ async function wipeServer(sid, uid, onStep) {
   const channels = (await val(`servers/${sid}/channels`)) || {};
   for (const cid of Object.keys(channels)) {
     const mine = await get(query(ref(db, `messages/${sid}/${cid}`), orderByChild('uid'), equalTo(uid)));
+    const { purgeAttachments } = await import('./media/cleanup.js');
+    await purgeAttachments({ kind: 'channel', sid, cid }, mine.val(), { onlyUid: uid });
     await removePaths(Object.keys(mine.val() || {}).map((mid) => `messages/${sid}/${cid}/${mid}`));
   }
   await leaveServer(sid, uid);
@@ -103,6 +106,7 @@ export async function deleteAccount(onStep) {
   const user = auth.currentUser;
   if (!user) throw new Error('Not signed in');
   const uid = user.uid;
+  const { purgeConversationAttachments } = await import('./media/cleanup.js');
 
   onStep?.('Signing you out of presence…');
   await stopPresence();
@@ -118,6 +122,12 @@ export async function deleteAccount(onStep) {
   // Public games I published (and, best effort, my likes on other games).
   await deleteMyGames(uid, onStep);
 
+  // Images I sent in DMs, while my profile and keys still exist (the threads are wiped further down).
+  onStep?.('Removing images you sent in direct messages…');
+  for (const [dmId, d] of Object.entries((await val(`userDms/${uid}`)) || {})) {
+    const peer = d?.peer || peerFromDmId(dmId, uid);
+    if (peer) await purgeConversationAttachments({ kind: 'dm', dmId, peerUid: peer }, { onlyUid: uid });
+  }
   onStep?.('Removing friends…');
   const friends = Object.keys((await val(`friends/${uid}`)) || {});
   await removePaths(friends.flatMap((other) => [`friends/${uid}/${other}`, `friends/${other}/${uid}`]));
@@ -140,8 +150,9 @@ export async function deleteAccount(onStep) {
 
   onStep?.('Removing your keys and settings…');
   // userDms, userServers and friends were cleared entry by entry above (the rules only allow that).
-  // wallets/{uid}, inventory/{uid}, publishLog/{uid}, promoAttempts/{uid}, reportLog/{uid} and
-  // admins/{uid} are not deletable by any client, by design (see README).
+  // wallets/{uid}, inventory/{uid}, publishLog/{uid}, promoAttempts/{uid}, reportLog/{uid},
+  // attLog/{uid} (upload rate window) and admins/{uid} are not deletable by any client, by design
+  // (see README). Emotes I added stay with their server: they belong to it, not to me.
   await removePaths([
     `reads/${uid}`,
     `presence/${uid}`,
@@ -155,6 +166,7 @@ export async function deleteAccount(onStep) {
     `notifs/${uid}`,
     `notifLog/${uid}`,
     `avatars/${uid}`,
+    `bookmarks/${uid}`,
   ]);
   try {
     localStorage.removeItem('codehub.trustedDomains');

@@ -10,6 +10,7 @@ import { get, onValue, ref, serverTimestamp, update } from 'firebase/database';
 import { db } from './firebase.js';
 import { sendMessage } from './messages.js';
 import { createInvite, dmScope, inviteLink, openDm } from './servers.js';
+import { deliverNotif } from './notifSend.js';
 
 const pair = (me, other, mine, theirs) => {
   const ts = serverTimestamp();
@@ -29,6 +30,8 @@ export async function addFriend(me, other) {
     return 'friends';
   }
   await update(ref(db), pair(me, other, 'out', 'in'));
+  // Bell entry for them; the rules accept it only while their side reads 'in'.
+  deliverNotif({ to: other, kind: 'friendReq' });
   return 'out';
 }
 

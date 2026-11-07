@@ -144,7 +144,10 @@ export async function claimSlot(scope, me, flags) {
     }
     if (res.committed && res.snapshot.val()?.uid === me) {
       await onDisconnect(r).remove();
-      return { index: i, joinedAt: res.snapshot.val().joinedAt };
+      // A transaction resolves serverTimestamp() locally, so res.snapshot holds this client's estimate,
+      // while the server stored its own clock. Peers see (and match signals against) the stored value.
+      const stored = (await get(r).catch(() => null))?.val();
+      return { index: i, joinedAt: stored?.uid === me && typeof stored.joinedAt === 'number' ? stored.joinedAt : res.snapshot.val().joinedAt };
     }
   }
   throw new Error(`This call is full (${MAX_CALL} people max)`);
@@ -213,9 +216,25 @@ export function buildCallRingUpdate(me, toUid, scope, callId) {
   };
 }
 
+// The rules allow one notification per sender/recipient pair every 3 s (notifLog). A ring right after a
+// message or group-add notification to the same person is refused, so it is retried once after that.
+const RING_RETRY_MS = 3300;
+
+async function ringOne(me, to, scope, callId) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await update(ref(db), buildCallRingUpdate(me, to, scope, callId));
+      return true;
+    } catch {
+      if (attempt === 0) await new Promise((r) => setTimeout(r, RING_RETRY_MS));
+    }
+  }
+  return false; // blocked, or not allowed to ring this person
+}
+
 /** Ring every callee (one update each so a block or throttle on one does not stop the rest). */
 export async function ringCall(scope, me, callId) {
   const targets = await ringTargets(scope, me);
-  await Promise.all(targets.map((u) => update(ref(db), buildCallRingUpdate(me, u, scope, callId)).catch(() => {})));
+  await Promise.all(targets.map((u) => ringOne(me, u, scope, callId)));
   return targets.length;
 }

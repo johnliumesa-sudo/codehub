@@ -14,9 +14,9 @@ const P = {
   expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
 };
 
-export default function CallIcon({ name, size = 18, stroke = 1.8, title }) {
+export default function CallIcon({ name, size = 18, stroke = 1.8, title, className }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : true} role={title ? 'img' : undefined}>
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : true} role={title ? 'img' : undefined}>
       {title && <title>{title}</title>}
       <path d={P[name] || P.phone} />
     </svg>

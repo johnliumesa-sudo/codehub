@@ -1,8 +1,12 @@
 // Global admin announcement (F16). PLAINTEXT by design: announcements/current is readable by
 // every signed-in user and writable only by app admins (rules). Always render as text, never HTML.
 import { useEffect, useState } from 'react';
-import { onValue, ref, remove, serverTimestamp, set } from 'firebase/database';
+import { get, limitToFirst, onValue, orderByKey, query, ref, remove, serverTimestamp, set } from 'firebase/database';
 import { auth, db } from './firebase.js';
+import { deliverNotifs } from './notifSend.js';
+
+/** Most users an announcement bell notification is fanned out to (one write each, from the admin's browser). */
+export const ANN_NOTIFY_MAX = 1000;
 
 export const ANN_MAX = 280;
 export const ANN_LEVELS = ['info', 'warn'];
@@ -27,8 +31,12 @@ export function useAnnouncement() {
   return state;
 }
 
-/** Admin only: publish (replace) the announcement. */
-export async function setAnnouncement({ text, level }) {
+/**
+ * Admin only: publish (replace) the announcement. With `notify`, also put "posted an announcement" in
+ * the bell of up to ANN_NOTIFY_MAX users (ids only; the text stays in announcements/current).
+ * Resolves { notified } (number of bell entries written).
+ */
+export async function setAnnouncement({ text, level, notify = false }) {
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error('You are signed out.');
   const t = String(text || '').trim();
@@ -36,6 +44,11 @@ export async function setAnnouncement({ text, level }) {
   if (t.length > ANN_MAX) throw new Error(`Keep it under ${ANN_MAX} characters.`);
   if (!ANN_LEVELS.includes(level)) throw new Error('Unknown level.');
   await set(ref(db, 'announcements/current'), { text: t, level, ts: serverTimestamp(), by: uid });
+  if (!notify) return { notified: 0 };
+  const users = (await get(query(ref(db, 'users'), orderByKey(), limitToFirst(ANN_NOTIFY_MAX + 1)))).val() || {};
+  const ids = Object.keys(users).filter((u) => u !== uid).slice(0, ANN_NOTIFY_MAX);
+  const sent = await deliverNotifs(ids, { kind: 'announcement' });
+  return { notified: sent.filter(Boolean).length };
 }
 
 /** Admin only: clear the announcement. */

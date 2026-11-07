@@ -1,7 +1,8 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
+import { useTheme } from '../../lib/theme.js';
 
 const H = 435;
 const GAP = 8;
@@ -11,19 +12,21 @@ const CHROME = 28; // picker side padding + scrollbar
 const perLineFor = (vw) => Math.max(6, Math.min(9, Math.floor((vw - 2 * GAP - CHROME) / CELL)));
 const widthFor = (perLine) => perLine * CELL + CHROME;
 
-// emoji-mart's React wrapper builds the picker once; keep its props stable so it isn't re-rendered.
+// emoji-mart's React wrapper builds the picker once; keep its props stable so it isn't re-rendered
+// (EmojiPopover remounts it via `key` when the theme or the server's emote set changes).
 // Outside clicks are handled by EmojiPopover itself: emoji-mart's onClickOutside listens for
 // `click` on document and catches the very click that opened the picker, closing it at once.
-const StablePicker = memo(function StablePicker({ onSelectRef, perLine }) {
+const StablePicker = memo(function StablePicker({ onSelectRef, perLine, theme, custom }) {
   return (
     <Picker
       data={data}
-      theme="dark"
+      theme={theme}
       set="native"
       previewPosition="none"
       skinTonePosition="search"
       maxFrequentRows={2}
       perLine={perLine}
+      custom={custom}
       autoFocus
       onEmojiSelect={(e) => onSelectRef.current?.(e)}
     />
@@ -32,16 +35,26 @@ const StablePicker = memo(function StablePicker({ onSelectRef, perLine }) {
 
 /**
  * Floating emoji picker anchored to a DOMRect.
- * props: anchorRect, onSelect(native, emoji), onClose(), keepOpen (stay open after a pick; shift-pick always keeps open)
+ * props: anchorRect, onSelect(value, emoji), onClose(), keepOpen (stay open after a pick; shift-pick always keeps open),
+ *   emotes ([{ name, src }] of the current server; shown as a "Server" category and picked as ":name:").
  */
-export default function EmojiPopover({ anchorRect, onSelect, onClose, keepOpen = false }) {
+export default function EmojiPopover({ anchorRect, onSelect, onClose, keepOpen = false, emotes }) {
   const boxRef = useRef(null);
   const [pos, setPos] = useState(null);
   const onSelectRef = useRef(null);
   const [perLine] = useState(() => perLineFor(window.innerWidth));
+  const { resolved: theme } = useTheme();
+  const emoteSig = (emotes || []).map((e) => e.name).join(',');
+  const custom = useMemo(
+    () => (emotes?.length
+      ? [{ id: 'server', name: 'Server', emojis: emotes.map((e) => ({ id: e.name, name: e.name, keywords: [e.name], skins: [{ src: e.src }] })) }]
+      : []),
+    [emoteSig], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   onSelectRef.current = (e) => {
-    onSelect(e.native, e);
+    // Custom emotes have no native character; they are inserted / reacted with as ":name:".
+    onSelect(e.native || `:${e.id}:`, e);
     if (!keepOpen) onClose();
   };
 
@@ -82,7 +95,7 @@ export default function EmojiPopover({ anchorRect, onSelect, onClose, keepOpen =
       style={pos ? { left: pos.left, top: pos.top } : { visibility: 'hidden' }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <StablePicker onSelectRef={onSelectRef} perLine={perLine} />
+      <StablePicker key={`${theme}|${emoteSig}`} onSelectRef={onSelectRef} perLine={perLine} theme={theme} custom={custom} />
     </div>,
     document.body,
   );

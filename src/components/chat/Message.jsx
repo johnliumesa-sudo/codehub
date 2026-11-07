@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { initials } from '../../lib/profiles.js';
 import { isEmojiOnly, mentionsName, renderMarkdown } from '../../lib/markdown.js';
-import { QUICK_REACTIONS, emojiFromKey, emojiKey } from '../../lib/messages.js';
+import { QUICK_REACTIONS, emojiFromKey, emojiKey, emoteFromKey } from '../../lib/messages.js';
 import { parseInviteLink } from '../../lib/servers.js';
 import CodeSnippet from './CodeSnippet.jsx';
 import { CosmeticBadge, useNameColor } from '../shop/Cosmetics.jsx';
@@ -11,6 +11,7 @@ import { MessageAttachments } from '../media/Attachments.jsx';
 import { GifMessage } from '../media/GifPicker.jsx';
 import PollCard from '../chatx/PollCard.jsx';
 import ForwardedTag from '../chatx/ForwardedTag.jsx';
+import { Emote } from '../media/EmoteText.jsx';
 import { addBookmark } from '../../lib/chatx/bookmarks.js';
 
 function fmtTime(ts) {
@@ -69,16 +70,16 @@ function Message(props) {
   const {
     m, grouped, author, me, profiles, reply, replyAuthor, knownNames, editing, highlighted,
     canDelete, canEdit, canPin, onReply, onEdit, onEditSave, onEditCancel, onDelete, onReact,
-    onOpenReactPicker, onPin, onJump, onCopied, reportTarget, conv,
+    onOpenReactPicker, onPin, onJump, onCopied, reportTarget, conv, emotes, onForward,
   } = props;
   const nameColor = useNameColor(m.uid);
 
   const text = m.body?.text || '';
   const html = useMemo(
-    () => (text ? renderMarkdown(text, { selfName: me.name, knownNames }) : ''),
-    [text, me.name, knownNames],
+    () => (text ? renderMarkdown(text, { selfName: me.name, knownNames, emotes }) : ''),
+    [text, me.name, knownNames, emotes],
   );
-  const jumbo = useMemo(() => isEmojiOnly(text) && !m.body?.code, [text, m.body]);
+  const jumbo = useMemo(() => isEmojiOnly(text, emotes) && !m.body?.code, [text, m.body, emotes]);
   const invite = useMemo(() => parseInviteLink(text), [text]);
   const mentioned = useMemo(() => m.uid !== me.uid && mentionsName(text, me.name), [text, me.name, m.uid, me.uid]);
   const isReplyToMe = reply && !reply.missing && reply.uid === me.uid && m.uid !== me.uid;
@@ -86,7 +87,7 @@ function Message(props) {
   const reactions = useMemo(() => {
     const r = m.reactions || {};
     return Object.entries(r)
-      .map(([key, users]) => ({ key, native: emojiFromKey(key), uids: Object.keys(users || {}) }))
+      .map(([key, users]) => ({ key, native: emojiFromKey(key), emote: emoteFromKey(key), uids: Object.keys(users || {}) }))
       .filter((x) => x.uids.length > 0);
   }, [m.reactions]);
 
@@ -189,7 +190,9 @@ function Message(props) {
                     title={`${who.slice(0, 8).join(', ')}${who.length > 8 ? ` and ${who.length - 8} more` : ''}`}
                     onClick={() => onReact(m.mid, r.native, !mine)}
                   >
-                    <span className="reaction-emoji">{r.native}</span>
+                    <span className="reaction-emoji">
+                      {r.emote && emotes?.get(r.emote) ? <Emote name={r.emote} src={emotes.get(r.emote)} size={18} /> : r.native}
+                    </span>
                     <span className="reaction-count">{r.uids.length}</span>
                   </button>
                 );
@@ -224,6 +227,11 @@ function Message(props) {
           <button type="button" className="tb-btn" title="Reply" onClick={() => onReply(m.mid)}>
             <ReplyIcon />
           </button>
+          {onForward && (text || m.body?.code || m.body?.gif) && (
+            <button type="button" className="tb-btn" title="Forward" onClick={() => onForward(m)}>
+              <ForwardIcon />
+            </button>
+          )}
           {conv && (
             <button
               type="button"
@@ -337,6 +345,13 @@ function ReplyIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v4" />
+    </svg>
+  );
+}
+function ForwardIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m15 14 5-5-5-5" /><path d="M20 9H10a6 6 0 0 0-6 6v4" />
     </svg>
   );
 }

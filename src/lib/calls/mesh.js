@@ -3,8 +3,8 @@
 // Each peer pair has one RTCPeerConnection carrying my mic track and at most one video sender
 // (camera or screen; switched with replaceTrack so screen share never needs a second track).
 // The polite side is the higher uid. Signaling messages are AES-GCM encrypted with the scope's
-// conversation key and bound to `call:{scope}/{callId}/{from}->{to}`; each payload carries the
-// sender's slot `joinedAt` so leftovers from an earlier session of the same peer are dropped.
+// conversation key and bound to `call:{scope}/{callId}/{from}->{to}`. Messages whose server `ts` is
+// older than the sender's current slot `joinedAt` are leftovers from an earlier session and dropped.
 import { onChildAdded, onValue, ref, remove } from 'firebase/database';
 import { db } from '../firebase.js';
 import {
@@ -131,15 +131,29 @@ export class CallSession {
 
   openPeer(uid, joinedAt) {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
-    const p = { uid, pc, joinedAt, polite: this.me > uid, makingOffer: false, ignoreOffer: false, stream: new MediaStream(), queue: Promise.resolve(), video: null, state: 'connecting' };
+    const p = {
+      uid, pc, joinedAt, polite: this.me > uid, makingOffer: false, ignoreOffer: false, stream: new MediaStream(),
+      queue: Promise.resolve(), sendQueue: Promise.resolve(), pendingCands: [], video: null, state: 'connecting',
+    };
     this.peers.set(uid, p);
     for (const t of this.micStream.getAudioTracks()) pc.addTrack(t, this.outStream);
     if (this.videoOut) p.video = pc.addTrack(this.videoOut, this.outStream);
 
-    const send = (payload) =>
-      sendSignal({ scope: this.scope, callId: this.callId, me: this.me, to: uid, keys: this.keys, payload: { ...payload, j: this.slot?.joinedAt } }).catch(() => {});
+    // Sent strictly in order: encryption is async, and a small ICE candidate overtaking the larger offer
+    // it belongs to would reach the peer before any remote description exists.
+    const send = (payload) => {
+      p.sendQueue = p.sendQueue
+        .then(() => sendSignal({ scope: this.scope, callId: this.callId, me: this.me, to: uid, keys: this.keys, payload: { ...payload, j: this.slot?.joinedAt } }))
+        .catch(() => {});
+      return p.sendQueue;
+    };
 
     pc.onnegotiationneeded = async () => {
+      // The first negotiation of a pair is always offered by the impolite side (lower uid). If both
+      // offered at once, the polite side would roll its offer back, and when that happens before it
+      // gathered any candidates Chrome gathers none afterwards: the peer then waits at "Connecting…"
+      // forever. Later renegotiations (camera, screen share) may come from either side.
+      if (p.polite && !pc.remoteDescription) return;
       try {
         p.makingOffer = true;
         await pc.setLocalDescription();
@@ -171,7 +185,12 @@ export class CallSession {
     };
 
     const inbox = ref(db, `${signalPath(this.scope)}/${this.me}/${uid}`);
+    // Each message is handled once. If deleting it fails, the SDK restores it locally and fires
+    // onChildAdded again; replaying an offer or answer would wreck the negotiation.
+    const handled = new Set();
     p.unsub = onChildAdded(inbox, (snap) => {
+      if (handled.has(snap.key)) return;
+      handled.add(snap.key);
       const msg = snap.val();
       p.queue = p.queue
         .then(() => this.handleSignal(p, msg, send))
@@ -188,7 +207,12 @@ export class CallSession {
     } catch {
       return; // wrong call / tampered / stale epoch: drop
     }
-    if (data.j !== p.joinedAt) return;
+    // Leftovers from an earlier session of this peer were sent before its current slot existed. Both
+    // msg.ts and the slot's joinedAt are server timestamps (the rules require `now`), so they compare
+    // reliably. (The sender's own copy of joinedAt is NOT reliable: a transaction resolves
+    // serverTimestamp() locally, so it can be off by the round-trip time. Matching on it dropped
+    // every signal and left calls stuck at "Connecting…".)
+    if (typeof msg?.ts === 'number' && typeof p.joinedAt === 'number' && msg.ts < p.joinedAt) return;
     const { pc } = p;
     if (data.desc) {
       const desc = data.desc;
@@ -200,7 +224,14 @@ export class CallSession {
         await pc.setLocalDescription();
         send({ desc: pc.localDescription.toJSON() });
       }
+      // Candidates that arrived before any remote description (older clients send unordered).
+      const early = p.pendingCands.splice(0);
+      for (const c of early) await pc.addIceCandidate(c).catch(() => {});
     } else if (data.cand) {
+      if (!pc.remoteDescription) {
+        p.pendingCands.push(data.cand);
+        return;
+      }
       try {
         await pc.addIceCandidate(data.cand);
       } catch (e) {

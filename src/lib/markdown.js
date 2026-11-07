@@ -1,5 +1,6 @@
 // Markdown rendering for chat messages: marked (GFM) -> DOMPurify, highlight.js (core +
-// a curated language set) for fenced code, `:shortcode:` emoji, and `@mention` chips.
+// a curated language set) for fenced code, `:shortcode:` emoji, custom server `:emote:` images
+// (data: URLs only), and `@mention` chips.
 //
 // Everything that reaches the DOM goes through DOMPurify. Raw HTML in messages is shown
 // as text, and remote images are rendered as links (loading them would leak IPs).
@@ -142,12 +143,13 @@ export function replaceShortcodes(text) {
 
 const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|‍|️|⃣|[#*0-9](?=️?⃣)|:[a-z0-9_+-]{1,40}:|\s)+$/u;
 
-// "Jumbo" emoji rendering for short emoji-only messages.
-export function isEmojiOnly(text) {
+// "Jumbo" emoji rendering for short emoji-only messages. `emotes` (Map name -> src) counts a
+// server's custom :emotes: as emoji too.
+export function isEmojiOnly(text, emotes) {
   const t = (text || '').trim();
   if (!t || t.length > 80 || !EMOJI_ONLY.test(t)) return false;
   const codes = t.match(/:([a-z0-9_+-]{1,40}):/gi) || [];
-  if (codes.some((c2) => !shortcodeToNative(c2.slice(1, -1)))) return false;
+  if (codes.some((c2) => !shortcodeToNative(c2.slice(1, -1)) && !emotes?.has(c2.slice(1, -1)))) return false;
   const stripped = t.replace(/:([a-z0-9_+-]{1,40}):/gi, 'x').replace(/\s/g, '');
   const graphemes = typeof Intl.Segmenter === 'function'
     ? [...new Intl.Segmenter().segment(stripped)].length
@@ -185,7 +187,7 @@ function stripCode(text) {
 
 // ---------- Marked setup ----------
 
-let ctx = { selfTokens: new Set(), knownTokens: null };
+let ctx = { selfTokens: new Set(), knownTokens: null, emotes: null };
 
 const marked = new Marked({ gfm: true, breaks: true, async: false });
 marked.use(spoilerExtension);
@@ -222,12 +224,17 @@ marked.use({
       tokenizer(src) {
         const m = /^:([a-z0-9_+-]{1,40}):/i.exec(src);
         if (!m) return undefined;
+        // A server's own emote wins over a standard shortcode of the same name.
+        const emote = ctx.emotes?.get(m[1]);
+        if (emote && SAFE_EMOTE_SRC.test(emote)) return { type: 'shortcode', raw: m[0], emote, code: m[1] };
         const native = shortcodeToNative(m[1]);
         if (!native) return undefined;
         return { type: 'shortcode', raw: m[0], native, code: m[1] };
       },
       renderer(token) {
-        return `<span class="emoji" title=":${escapeHtml(token.code)}:">${token.native}</span>`;
+        const label = `:${escapeHtml(token.code)}:`;
+        if (token.emote) return `<img class="md-emote" src="${escapeHtml(token.emote)}" alt="${label}" title="${label}">`;
+        return `<span class="emoji" title="${label}">${token.native}</span>`;
       },
     },
     {
@@ -257,8 +264,15 @@ marked.use({
 
 // ---------- Sanitizer ----------
 
+// The only <img> a message may contain is a custom emote rendered above: a decrypted, size-capped
+// data: URL. Anything else (remote URLs would leak the reader's IP) loses its src.
+const SAFE_EMOTE_SRC = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+
 const purifier = DOMPurify(typeof window !== 'undefined' ? window : undefined);
 purifier.addHook?.('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'IMG' && (node.getAttribute('class') !== 'md-emote' || !SAFE_EMOTE_SRC.test(node.getAttribute('src') || ''))) {
+    node.removeAttribute('src');
+  }
   if (node.tagName === 'A') {
     const href = node.getAttribute('href') || '';
     if (!/^(https?:|mailto:)/i.test(href)) {
@@ -273,9 +287,9 @@ purifier.addHook?.('afterSanitizeAttributes', (node) => {
 const PURIFY_CONFIG = {
   ALLOWED_TAGS: [
     'a', 'b', 'strong', 'i', 'em', 'del', 's', 'code', 'pre', 'p', 'br', 'hr', 'blockquote', 'ul', 'ol', 'li',
-    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span', 'div', 'button', 'input',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span', 'div', 'button', 'input', 'img',
   ],
-  ALLOWED_ATTR: ['href', 'title', 'class', 'type', 'checked', 'disabled', 'start', 'align', 'data-copy', 'data-mention', 'target', 'rel'],
+  ALLOWED_ATTR: ['href', 'title', 'class', 'type', 'checked', 'disabled', 'start', 'align', 'data-copy', 'data-mention', 'target', 'rel', 'src', 'alt'],
   ALLOW_DATA_ATTR: false,
   FORBID_ATTR: ['style', 'id', 'name'],
 };
@@ -289,9 +303,10 @@ export function sanitize(html) {
 /**
  * Render message Markdown to sanitized HTML.
  * @param {string} text
- * @param {{ selfName?: string, knownNames?: string[] }} [opts]
+ * @param {{ selfName?: string, knownNames?: string[], emotes?: Map<string, string> }} [opts]
  *   selfName: highlights mentions of the current user. knownNames: if given, only these
- *   (plus @everyone/@here) render as mention chips.
+ *   (plus @everyone/@here) render as mention chips. emotes: the server's custom emotes
+ *   (name -> data: URL); `:name:` renders as the image.
  */
 export function renderMarkdown(text, opts = {}) {
   const selfTokens = new Set();
@@ -310,7 +325,7 @@ export function renderMarkdown(text, opts = {}) {
     }
   }
   const prev = ctx;
-  ctx = { selfTokens, knownTokens };
+  ctx = { selfTokens, knownTokens, emotes: opts.emotes instanceof Map && opts.emotes.size ? opts.emotes : null };
   try {
     return sanitize(marked.parse(String(text || '')));
   } catch {

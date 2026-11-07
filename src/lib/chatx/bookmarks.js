@@ -1,11 +1,13 @@
 // Bookmarks: bookmarks/{uid}/{key}, each entry vault-encrypted (AAD `bm:{uid}/{key}`).
 // The server sees only that a bookmark exists. key = `${scope}_${mid}` (RTDB-safe, deterministic so
 // re-saving is idempotent).
-import { onValue, ref, remove, serverTimestamp, set } from 'firebase/database';
+import { get, onValue, ref, remove, serverTimestamp, set } from 'firebase/database';
 import { db } from '../firebase.js';
 import { vaultDecryptJSON, vaultEncryptJSON } from '../keystore.js';
 import { typingScope } from '../messages.js';
 
+// Enforced here, not in the rules (they can't count children); a modified client could store more,
+// but only in its own owner-only bookmarks/{uid} node.
 export const MAX_BOOKMARKS = 200;
 const SNIPPET = 600;
 
@@ -21,6 +23,10 @@ function convRef(conv) {
 /** msg: { mid, uid, ts }, body: decrypted body, authorName for display. */
 export async function addBookmark(uid, conv, msg, body, authorName) {
   const key = bookmarkKey(conv, msg.mid);
+  const existing = (await get(ref(db, `bookmarks/${uid}`))).val() || {};
+  if (!existing[key] && Object.keys(existing).length >= MAX_BOOKMARKS) {
+    throw new Error(`You can save up to ${MAX_BOOKMARKS} messages. Remove some in Saved messages first.`);
+  }
   const entry = {
     conv: convRef(conv),
     mid: msg.mid,

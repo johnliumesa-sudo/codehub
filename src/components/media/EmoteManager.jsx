@@ -1,6 +1,6 @@
 // Server settings tab for custom emotes (feature 8). Caller gates on can(me, roles, 'manageEmotes'); rules enforce it too.
 import { useRef, useState } from 'react';
-import { addEmote, deleteEmote, useEmotes } from '../../lib/media/emotes.js';
+import { EMOTE_MAX_BYTES, EMOTE_MAX_DIM, addEmote, deleteEmote, useEmotes } from '../../lib/media/emotes.js';
 import { ConfirmButton, useToast } from '../layout/ui.jsx';
 import { ACCEPT_IMAGES, EMOTE_MAX_PER_SERVER, EMOTE_NAME_RE, errMsg, isRasterImage, normalizeEmotes } from './util.js';
 
@@ -55,7 +55,7 @@ export function EmoteManager({ sid, canManage = true }) {
     <div className="md-emotes">
       <h3 className="md-h">Custom emotes</h3>
       <p className="md-hint">
-        {emotes.length}/{EMOTE_MAX_PER_SERVER} used. Images are resized to 128 px (max 64 KB) and encrypted with the server key. Use them as <code>:name:</code>.
+        {emotes.length}/{EMOTE_MAX_PER_SERVER} used. Images are resized to {EMOTE_MAX_DIM} px (max {EMOTE_MAX_BYTES / 1024} KB) and encrypted with the server key. Use them as <code>:name:</code> in messages and reactions, or pick them from the emoji picker&apos;s Server tab.
       </p>
       {canManage && (
         <form className="md-emote-form" onSubmit={add}>

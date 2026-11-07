@@ -16,6 +16,7 @@ import { db } from './firebase.js';
 import { decryptMessage, getConvKey, messagesPath, serverNow } from './messages.js';
 import { mentionsName } from './markdown.js';
 import { channelScope, decryptChannel, decryptServerName, dmScope } from './servers.js';
+import { setTitleCount } from './title.js';
 
 export const DEFAULT_SETTINGS = Object.freeze({ desktop: false, preview: false, mentionsOnly: false });
 export const LEVELS = ['all', 'mentions', 'none'];
@@ -446,14 +447,9 @@ export function useNotifier({ me, sources, activeScope, prefs, reads, blocked, o
     }, 0);
   }, [pending, prefs, byPath]);
 
-  // Page title prefix "(3) Codehub". Other code may retitle the page; strip only our own prefix.
-  useEffect(() => {
-    const base = document.title.replace(/^\(\d+\+?\)\s+/, '');
-    document.title = unread > 0 ? `(${unread > 99 ? '99+' : unread}) ${base}` : base;
-  }, [unread]);
-  useEffect(() => () => {
-    document.title = document.title.replace(/^\(\d+\+?\)\s+/, '');
-  }, []);
+  // "(3) …" in the tab title (lib/title.js owns document.title).
+  useEffect(() => setTitleCount('messages', unread), [unread]);
+  useEffect(() => () => setTitleCount('messages', 0), []);
 
   return { unread };
 }
@@ -483,8 +479,8 @@ export function useNotifySources({ servers = [], dms = [], groups = [] }) {
           const v = snap.val() || {};
           const list = Object.entries(v)
             .filter(([, ch]) => ch && typeof ch === 'object' && ch.type !== 'code')
-            .map(([cid, ch]) => ({ cid, enc: ch.enc }));
-          setChans((c) => ({ ...c, [sid]: list.map(({ cid }) => ({ cid, name: c[sid]?.find((x) => x.cid === cid)?.name || '' })) }));
+            .map(([cid, ch]) => ({ cid, enc: ch.enc, type: ch.type === 'voice' ? 'voice' : 'text' }));
+          setChans((c) => ({ ...c, [sid]: list.map(({ cid, type }) => ({ cid, type, name: c[sid]?.find((x) => x.cid === cid)?.name || '' })) }));
           list.forEach(({ cid, enc }) => {
             if (!enc) return;
             decryptChannel(sid, cid, enc).then(
@@ -520,7 +516,7 @@ export function useNotifySources({ servers = [], dms = [], groups = [] }) {
   return useMemo(() => {
     const out = [];
     Object.entries(chans).forEach(([sid, list]) => {
-      list.forEach(({ cid, name }) => {
+      list.forEach(({ cid, name, type }) => {
         const scope = channelScope(sid, cid);
         out.push({
           scope,
@@ -528,6 +524,7 @@ export function useNotifySources({ servers = [], dms = [], groups = [] }) {
           conv: { kind: 'channel', sid, cid, title: name, scope },
           title: name,
           serverName: names[sid] || '',
+          type,
         });
       });
     });

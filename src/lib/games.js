@@ -23,6 +23,7 @@ import {
 } from 'firebase/database';
 import { db } from './firebase.js';
 import { MAX_GAME_CHARS } from './sandbox.js';
+import { deliverNotif } from './notifSend.js';
 
 export const TITLE_MAX = 80;
 export const DESC_MAX = 500;
@@ -165,6 +166,12 @@ async function setLike(gameId, uid, liked) {
         [`gameLikes/${gameId}/${uid}`]: liked ? true : null,
         [`games/${gameId}/likes`]: liked ? n + 1 : n - 1,
       });
+      if (liked) {
+        // Bell entry for the author ("liked your game"); skipped for my own games.
+        get(ref(db, `games/${gameId}/ownerId`))
+          .then((s) => s.val() && deliverNotif({ to: s.val(), kind: 'gameLike', ref: { gameId } }))
+          .catch(() => {});
+      }
       return;
     } catch (err) {
       if (!isDenied(err) || attempt === MAX_LIKE_TRIES - 1) throw err;
