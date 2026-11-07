@@ -175,6 +175,7 @@ export async function claimSlot(scope, me, flags) {
   }
   const base = { uid: me, mic: !!flags.mic, cam: !!flags.cam, screen: !!flags.screen };
   let taken = 0;
+  let denied = 0;
   let failure = null;
   for (let i = 0; i < MAX_CALL; i++) {
     if (existing[i]) {
@@ -190,8 +191,11 @@ export async function claimSlot(scope, me, flags) {
         res = await runTransaction(r, (cur) => (cur ? undefined : { ...slot, joinedAt: serverTimestamp() }), { applyLocally: false });
         break;
       } catch (e) {
+        // A refusal means one of: rules from before heartbeats (try the plain slot); the slot is taken
+        // and my cached copy was out of date (e.g. after a frozen tab: the server refuses writing over
+        // someone's slot instead of handing the transaction their value); or I may not join at all.
         if (isPermissionDenied(e) && !legacy) {
-          legacy = true; // maybe rules from before heartbeats: try the plain slot
+          legacy = true;
           continue;
         }
         failure = e;
@@ -199,9 +203,8 @@ export async function claimSlot(scope, me, flags) {
       }
     }
     if (!res) {
-      // Refused for a reason that holds for every slot (not a member, timed out, no call): stop here.
-      if (isPermissionDenied(failure)) break;
-      continue; // e.g. a transaction that gave up under contention: try the next slot
+      if (isPermissionDenied(failure)) denied += 1;
+      continue; // possibly taken, or a transaction that gave up under contention: try the next slot
     }
     if (res.committed && res.snapshot.val()?.uid === me) {
       if (legacy) heartbeatsRefused = true;
@@ -218,7 +221,7 @@ export async function claimSlot(scope, me, flags) {
     taken += 1; // someone else got this slot first
   }
   if (taken >= MAX_CALL) throw new Error(`This call is full (${MAX_CALL} people max)`);
-  if (isPermissionDenied(failure)) {
+  if (denied > 0) {
     throw new Error("Couldn't join the call: the server refused it (permission denied). Check that you can still post here, then try again.");
   }
   throw new Error(`Couldn't join the call${failure?.message ? `: ${failure.message}` : ''}. Try again.`);
