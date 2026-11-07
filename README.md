@@ -64,7 +64,7 @@ security notes and limits.
 
 **Add-ons**
 
-4. **Add-on builder and public directory**: publish a small HTML/JS app (≤ 64 KB) with a live sandbox preview. [addons](docs/features/addons.md)
+4. **Add-on builder and public directory**: publish a small JavaScript app (≤ 64 KB) that runs in an isolated worker with no network access and draws sanitized HTML, with a live preview. [addons](docs/features/addons.md)
 5. **Personal add-ons and bridge**: run add-ons in a sandboxed chat panel with the permissions you grant. [addons](docs/features/addons.md)
 6. **Server add-ons**: managers install add-ons for a server; each member consents on first open. [addons](docs/features/addons.md)
 
