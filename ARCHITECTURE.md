@@ -206,9 +206,11 @@ config/ownerPass           string >= 12    // owner passcode; console only, like
 premium/{uid}              { at(=now), until(now+30d, within the minute before), m:'YYYYMM' }
                                            // signed-in read one; admins list; created by uid only when
                                            // premiumCodes/{m}/c === promoAttempts/{uid}/code (< 2 min old),
-                                           // from <= now < until, and m !== the stored m; uid or admins delete
+                                           // from <= now < until, m !== the stored m and
+                                           // m !== premiumRevoked/{uid}; uid or admins delete
 premiumCodes/{YYYYMM}      { c(8..64), from, until }   // UTC month window; read/write only by an app admin whose
                                            // promoAttempts code === config/ownerPass and is < 15 min old
+premiumRevoked/{uid}       'YYYYMM'        // month an app admin revoked (set with the revoke); admin write, uid read
 upub/{uid}/premium/look    { tag?, tagA, tagB?, nameFx, fxA, fxB, cardFx, banner, frame }  // shown only while premium
 shop/items/{id}/premium    true            // premium-only item: inventory create needs premium/{uid}/until > now
                                            // daily claim: +200 while premium/{uid}/until > now, else +100
@@ -632,7 +634,7 @@ With seven workstreams merged (bots, add-ons, assistant, messaging, personal, co
 Premium adds about 1.8 KB and a fifth minifier rewrite: in a `.validate` that is a plain `&&` chain, an
 `X.isString()` term directly followed by `X.val().length` / `X.val().matches(` is dropped (a type error fails the rule
 just as the dropped term did; emulator probes in `tests/rules/premium.test.mjs`), saving about 2.7 KB: 99,850 bytes
-with premium. The build also emits the minified rules as `rules.min.json` (Admin panel → Owner → Database rules).
+with premium, 100,066 with the revoke marker (`premiumRevoked`). The build also emits the minified rules as `rules.min.json` (Admin panel → Owner → Database rules).
 
 ### Integration pass notes
 - **Desktop alerts and Do Not Disturb.** `showNotification` (`src/lib/notify.js`) is the only way to show a

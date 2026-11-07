@@ -1517,7 +1517,7 @@
    ".read": "root.child('admins').child(auth.uid).exists()",
    "$uid": {
     ".read": "auth != null",
-    ".write": "newData.exists() ? $uid === auth.uid && newData.child('m').val() !== data.child('m').val() && root.child('premiumCodes/' + newData.child('m').val() + '/c').val() === root.child('promoAttempts/' + $uid + '/code').val() && now - root.child('promoAttempts/' + $uid + '/at').val() <= 120000 && root.child('premiumCodes/' + newData.child('m').val() + '/from').val() <= now && now < root.child('premiumCodes/' + newData.child('m').val() + '/until').val() : $uid === auth.uid || root.child('admins').child(auth.uid).exists()",
+    ".write": "newData.exists() ? $uid === auth.uid && newData.child('m').val() !== data.child('m').val() && newData.child('m').val() !== root.child('premiumRevoked/' + $uid).val() && root.child('premiumCodes/' + newData.child('m').val() + '/c').val() === root.child('promoAttempts/' + $uid + '/code').val() && now - root.child('promoAttempts/' + $uid + '/at').val() <= 120000 && root.child('premiumCodes/' + newData.child('m').val() + '/from').val() <= now && now < root.child('premiumCodes/' + newData.child('m').val() + '/until').val() : $uid === auth.uid || root.child('admins').child(auth.uid).exists()",
     ".validate": "newData.child('at').val() === now && newData.child('until').val() <= now + 2592000000 && newData.child('until').val() > now + 2591940000 && newData.child('m').val().matches(/^[0-9]{6}$/)",
     "$f": {
      ".validate": "$f.matches(/^(at|until|m)$/)"
@@ -1532,6 +1532,13 @@
     "$f": {
      ".validate": "$f.matches(/^(c|from|until)$/)"
     }
+   }
+  },
+  "premiumRevoked": {
+   "$uid": {
+    ".read": "$uid === auth.uid",
+    ".write": "root.child('admins').child(auth.uid).exists()",
+    ".validate": "newData.val().matches(/^[0-9]{6}$/)"
    }
   },
   "reports": {

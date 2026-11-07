@@ -29,7 +29,7 @@ async function openShop(page) {
 }
 
 test('owner dashboard, redeem, perks, premium-only items, revoke, rules panel', async ({ users }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const passcode = randomBytes(12).toString('base64url'); // random per run, never a real value
 
   // ---- Owner: an app admin unlocks the dashboard with the passcode set in "the console" (admin REST).
@@ -50,6 +50,10 @@ test('owner dashboard, redeem, perks, premium-only items, revoke, rules panel', 
   await panel.getByRole('button', { name: 'Unlock' }).click();
   await expect(panel.getByText(/Unlocked · locks in 1[45]:\d\d/)).toBeVisible();
   await expect(panel.getByLabel('Owner passcode')).toHaveCount(0);
+  // Screen readers: the ticking mm:ss is outside any live region; one status says "unlocked" and stays put.
+  const lockStatus = panel.getByRole('status').filter({ hasText: 'Owner dashboard' });
+  await expect(lockStatus).toHaveText('Owner dashboard unlocked.');
+  await expect(panel.locator('[role="status"] .pm-mono, [aria-live] .pm-mono, .pm-unlocked-bar[role], .pm-unlocked-bar [role]')).toHaveCount(0);
 
   // Generate this month's and the next 11 months' codes.
   await panel.getByRole('button', { name: /Generate codes \(12 missing\)/ }).click();
@@ -172,15 +176,37 @@ test('owner dashboard, redeem, perks, premium-only items, revoke, rules panel', 
   await row.getByRole('button', { name: 'Revoke?' }).click();
   await expect(panel.getByText('Nobody has redeemed a code yet.')).toBeVisible();
   expect(await adminGet(`premium/${bobUid}`)).toBeNull();
-  // Lock: the dashboard asks for the passcode again.
+  expect(await adminGet(`premiumRevoked/${bobUid}`)).toBe(cur);
+  // Lock: the dashboard asks for the passcode again, and screen readers hear it once.
   await panel.getByRole('button', { name: 'Lock', exact: true }).click();
   await expect(panel.getByLabel('Owner passcode')).toBeVisible();
+  await expect(lockStatus).toHaveText('Owner dashboard locked.');
   await panel.getByRole('button', { name: 'Close admin panel' }).click();
 
   await expect(bob.locator('.ly-userpanel .pm-badge')).toHaveCount(0);
   dlg = await openSettingsTab(bob, 'Premium');
   await expect(dlg.getByRole('heading', { name: 'Redeem a premium code' })).toBeVisible();
-  // Redeeming the same month's code again after a revoke is the owner's call: replace the code to stop it.
+  // At phone width the whole code fits in the box: the button moves to its own row.
+  await bob.setViewportSize({ width: 375, height: 760 });
+  const box = dlg.getByRole('textbox', { name: 'Premium code' });
+  await box.fill(code);
+  expect(await box.evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.clientWidth >= 200)).toBe(true);
+  // The revoke sticks: the same month's code can't bring the membership back.
+  const redeem = dlg.getByRole('button', { name: 'Redeem' });
+  await expect(redeem).toBeEnabled({ timeout: 35_000 });
+  await redeem.click();
+  await expect(dlg.getByRole('alert').filter({ hasText: 'ended your membership' })).toBeVisible();
+  expect(await adminGet(`premium/${bobUid}`)).toBeNull();
+
+  // A membership that ran out earlier this month: the valid code is "already used", never "expired".
+  await adminPut(`premiumRevoked/${bobUid}`, null);
+  await adminPut(`premium/${bobUid}`, { at: Date.now() - 31 * 86400000, until: Date.now() - 60_000, m: cur });
+  await box.fill(code);
+  await expect(redeem).toBeEnabled({ timeout: 35_000 });
+  await redeem.click();
+  const why = dlg.getByRole('alert').filter({ hasText: 'already used this month' });
+  await expect(why).toBeVisible();
+  await expect(why).not.toContainText('expired');
   expect(owner.__errors.filter((e) => !/permission_denied|PERMISSION_DENIED|Failed to load resource/.test(e))).toEqual([]);
   expect(bob.__errors.filter((e) => !/permission_denied|PERMISSION_DENIED|Failed to load resource/.test(e))).toEqual([]);
 });

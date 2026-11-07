@@ -3,6 +3,7 @@
 //   premium/{uid}            { at, until, m }   member writes (code check in the rules); signed-in read;
 //                                               app admins list and revoke; member may delete
 //   premiumCodes/{YYYYMM}    { c, from, until } owner only: app admin + fresh owner passcode
+//   premiumRevoked/{uid}     "YYYYMM"           month an app admin revoked (admin write, member reads)
 //   promoAttempts/{uid}      { code, at }       the guess (30 s per account, nobody can read it)
 //   upub/{uid}/premium/look  cosmetics         shown only while premium/{uid} is active
 //
@@ -14,7 +15,7 @@ import { auth, db } from '../../../lib/firebase.js';
 import { promoCooldownLeft } from '../../../lib/admin.js';
 import { upubRef, useUpub } from '../../../lib/ext/store.js';
 import { PREMIUM_MS, usePremium } from './status.js';
-import { candidateMonths, planCodes, replacementCode } from './codes.js';
+import { candidateMonths, planCodes, redeemFailure, replacementCode } from './codes.js';
 import { hasLook, lookRecord, normalizeLook } from './lookCore.js';
 
 export const PROMO_COOLDOWN_MS = 30_000;
@@ -68,7 +69,7 @@ async function writeGuess(uid, value) {
  * Redeem a monthly premium code. The caller clears its input first and passes the normalized code.
  * Writes the guess once, then tries premium/{me} for the month of the server clock and, near a month
  * boundary, the neighbouring month. -> { ok: true, until, m } or { ok: false, reason, message }.
- * reason: 'cooldown' | 'invalid' | 'same' (this month's code is already redeemed) | 'error'
+ * reason: 'cooldown' | 'invalid' | 'same' (this month's code is already used) | 'revoked' | 'error'
  */
 export async function redeemPremium(code, current = null) {
   let uid;
@@ -95,18 +96,13 @@ export async function redeemPremium(code, current = null) {
     }
   }
   if (netError) return { ok: false, reason: 'error', message: NET };
-  if (current && months.includes(current.m) && typeof current.until === 'number' && current.until > now) {
-    return {
-      ok: false,
-      reason: 'same',
-      message: "You've already redeemed this month's code. Renew with next month's code once it is out.",
-    };
+  let revoked = null;
+  try {
+    revoked = (await get(ref(db, `premiumRevoked/${uid}`))).val();
+  } catch {
+    /* older rules without premiumRevoked: fall back to the other explanations */
   }
-  return {
-    ok: false,
-    reason: 'invalid',
-    message: "That code doesn't work. Codes change on the 1st of every month (UTC), so an older code has expired. Check it and try again in 30 s.",
-  };
+  return { ok: false, ...redeemFailure({ months, current, revoked, now }) };
 }
 
 /** Leave premium (deletes my record; perks stop at once). */
@@ -291,8 +287,20 @@ export function usePremiumMembers(enabled = true) {
   return st;
 }
 
-/** Revoke someone's premium (app admins). */
-export async function revokePremium(uid) {
+/**
+ * Revoke someone's premium (app admins): deletes premium/{uid} and records the revoked month in
+ * premiumRevoked/{uid}, which the member can't delete, so the same month's code can't bring it back.
+ */
+export async function revokePremium(uid, m) {
+  const updates = { [`premium/${uid}`]: null };
+  if (typeof m === 'string' && /^[0-9]{6}$/.test(m)) updates[`premiumRevoked/${uid}`] = m;
+  try {
+    await update(ref(db), updates);
+    return;
+  } catch (e) {
+    if (!isDenied(e)) throw new Error(NET);
+  }
+  // Rules published before premiumRevoked existed refuse the marker: remove the record alone.
   try {
     await remove(ref(db, `premium/${uid}`));
   } catch (e) {

@@ -6,7 +6,7 @@ the only gatekeeper, there is no server and no payment integration (how the owne
 
 Code: `src/features/premium/` (`index.js` registers the UI; `lib/status.js` is the shared status contract;
 `lib/codes.js` and `lib/lookCore.js` are pure and unit-tested; `lib/premium.js` holds the Firebase actions; the
-agent mode lives in `agent/`, see [Agent mode](#agent-mode-in-codespaces) below). Rules: `premium`, `premiumCodes`, plus small changes in
+agent mode lives in `agent/`, see [Agent mode](#agent-mode-in-codespaces) below). Rules: `premium`, `premiumCodes`, `premiumRevoked`, plus small changes in
 `wallets`, `inventory` and `shop/items` in `database.rules.json`.
 
 ## Purpose and UI
@@ -43,6 +43,7 @@ at phone width.
 premium/{uid}              { at, until, m }        at = server now; until = now + 30 days (within the minute
                                                     before); m = 'YYYYMM' of the code redeemed
 premiumCodes/{YYYYMM}      { c, from, until }      c = code (8–64 chars), from/until = UTC month start / next month start
+premiumRevoked/{uid}       'YYYYMM'                the month whose membership an app admin revoked
 promoAttempts/{uid}        { code, at }            existing: the last guess (code or passcode), 30 s per account
 config/ownerPass           string ≥ 12 chars       set only in the Firebase console
 upub/{uid}/premium/look    { tag?, tagA, tagB?, nameFx, fxA, fxB, cardFx, banner, frame }   generic public block
@@ -58,7 +59,13 @@ them in any case, with or without dashes or spaces.
 - **Redeem / renew** (member): `set(promoAttempts/{me}, { code, at: now })`, then `set(premium/{me}, { at: now,
   until, m })` for the month of the server clock; within 36 hours of a month boundary also the neighbouring month.
   `until` is computed from the server time offset, 10 s below now + 30 days.
-- **Leave** (member) / **Revoke** (app admin): `remove(premium/{uid})`.
+- **Leave** (member): `remove(premium/{me})`.
+- **Revoke** (app admin): one multi-path update `{ premium/{uid}: null, premiumRevoked/{uid}: m }`, so the code that
+  membership was redeemed with can't start it again. If the published rules predate `premiumRevoked`, the client
+  falls back to removing the record alone.
+- **Refused redeem**: the client reads `premiumRevoked/{me}` and its own record to explain why: "an app admin ended
+  your membership for this month's code", "you've already used this month's code" (also when that membership has
+  run out), or a wrong / expired code.
 - **Unlock** (owner): `set(promoAttempts/{me}, { code: passcode, at: now })`, then a test read of `premiumCodes`.
   **Lock** overwrites the stored guess with random filler (after the 30 s cooldown if needed) so access ends before
   the 15 minutes are over.
@@ -76,7 +83,8 @@ them in any case, with or without dashes or spaces.
   - `premiumCodes/{m}/c` equals `promoAttempts/{uid}/code`, written at most 2 minutes ago;
   - `premiumCodes/{m}/from <= now < premiumCodes/{m}/until` (expired and future months fail);
   - `m` differs from the stored record's `m` (renewal needs a later month's code; the same code can't be replayed to
-    push `until` forward).
+    push `until` forward);
+  - `m` differs from `premiumRevoked/{uid}` (a revoked month stays revoked).
   A **delete** is allowed for `uid` itself and for app admins. Admins can't grant premium.
 - `premiumCodes`: read and write only when `admins/{auth.uid}` exists, `config/ownerPass` is a string of at least 12
   characters, `promoAttempts/{auth.uid}/code` equals it and was written less than 15 minutes ago. Entries need
@@ -84,6 +92,8 @@ them in any case, with or without dashes or spaces.
 - `wallets`: a daily claim adds exactly 200 while `premium/{uid}/until > now`, else exactly 100.
 - `inventory`: an item with `premium` set can be added (bought or taken free) only while `premium/{uid}/until > now`.
 - `shop/items/{id}/premium`: `true` or absent; the existing item rules decide who may edit (creator or app admin).
+- `premiumRevoked/{uid}`: written (set or cleared) only by app admins, a six-digit month string; readable only by
+  `uid` itself. The member can't delete it, so a revoke survives "Leave" and a fresh guess.
 - `config` stays unreadable and unwritable for every client.
 
 ## Threat model and security notes
@@ -99,8 +109,10 @@ them in any case, with or without dashes or spaces.
   stolen admin session without the passcode can only list and revoke memberships.
 - **Shared codes.** A monthly code works for everyone who has it, during its month. A leaked code can be stopped with
   "Replace this month's code"; members who already redeemed keep their 30 days (revoke them individually).
-- **Revoke is not a ban.** A revoked member who still has this month's code can redeem it again (their record is gone,
-  so it is a first redemption). Replace the code if that matters.
+- **Revoke sticks for its month.** Revoking records the month in `premiumRevoked/{uid}`, which only app admins can
+  change, so the member can't redeem that month's code again (not with the still-fresh guess, not with a new one).
+  It is not a ban: next month's code works for them. App admins can clear the marker (console or a later revoke
+  overwrites it).
 - **Leave and redeem again.** A member who deletes their own record can redeem the same month's code again and
   restart 30 days from that moment, at most until 30 days after the month ends.
 - **Cosmetics are untrusted.** Anyone can write `upub/{uid}/premium/look` (generic block); readers show it only
@@ -130,7 +142,7 @@ passcode are never readable by members.
 - Owner unlock: 15 minutes; one guess per 30 s per account.
 - Rule bytes: premium adds about 1.8 KB to the minified rules; the minifier's new `isString()` guard drop saves about
   2.7 KB across the existing rules (full suite green on source and minified output, emulator probes in
-  `tests/rules/premium.test.mjs`). Minified total with premium: 99,850 bytes.
+  `tests/rules/premium.test.mjs`). Minified total with premium: 100,066 bytes (the revoke marker adds 216).
 
 ## Agent mode in codespaces
 
@@ -256,14 +268,16 @@ the editor does, encrypted with the space key and the existing AAD strings. `pre
 ## Tests
 
 - Rules: `tests/rules/premium.test.mjs` (redeem right / wrong / expired / future / stale / no code / wrong shape;
-  renew; delete own; admin revoke; list access; dashboard access with fresh passcode, after 15 minutes, wrong
+  renew; delete own; admin revoke; a revoked month can't be redeemed again, the marker's access; list access; dashboard access with fresh passcode, after 15 minutes, wrong
   passcode, non-admins, short or missing passcode; malformed codes; config unreadable; double coins; premium-only
   purchases; the premium item flag; probes for the dropped `isString()` guards).
 - Unit: `tests/unit/premium.test.mjs` (code generation and alphabet, normalization, UTC month windows, candidate
-  months, code planning and replacement, look validation, the minifier's guard drop).
+  months, code planning and replacement, refused-redeem explanations, look validation, the minifier's guard drop).
 - E2E: `tests/e2e/52-premium.spec.mjs` (owner unlocks with a random passcode, generates and copies codes; a member
   redeems and gets the badge, tag, effects and double coins; a non-member's look shows nothing; premium-only item
-  purchase; revoke; lock; the Database rules panel's size and Copy).
+  purchase; revoke, and the same month's code refused afterwards; an expired member told the code is already used;
+  the lock status announced once (no ticking live region); the code box at phone width; lock; the Database rules
+  panel's size and Copy).
 - Agent mode: `tests/unit/premium-agent.test.mjs` (tool schemas and input validation, path rules, planning and
   applying changes, search, the loop's stop reasons) and `tests/e2e/53-premium-agent.spec.mjs` (list, read, an
   approved diff seen live by a collaborator, preview console output, checkpoint, Undo, Stop, non-premium upsell).

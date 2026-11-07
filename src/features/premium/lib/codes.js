@@ -112,6 +112,34 @@ export function candidateMonths(now) {
 }
 
 /**
+ * Why a redemption was refused, once every candidate month failed. `months` = the months tried,
+ * `current` = my premium record (or null), `revoked` = premiumRevoked/{me} (or null), `now` = server ms.
+ * The rules refuse a month that is the one on my record (active or expired) or the one an app admin
+ * revoked; anything else is a wrong, expired or not-yet-valid code. -> { reason, message }
+ */
+export function redeemFailure({ months, current, revoked, now }) {
+  if (typeof revoked === 'string' && months.includes(revoked)) {
+    return {
+      reason: 'revoked',
+      message: "An app admin ended your membership for this month's code, so it can't be redeemed again. Next month's code will work.",
+    };
+  }
+  if (current && typeof current.m === 'string' && months.includes(current.m)) {
+    const active = typeof current.until === 'number' && current.until > now;
+    return {
+      reason: 'same',
+      message: active
+        ? "You've already redeemed this month's code. Renew with next month's code once it is out."
+        : "You've already used this month's code once, so it can't start another 30 days. Next month's code (out on the 1st, UTC) will.",
+    };
+  }
+  return {
+    reason: 'invalid',
+    message: "That code doesn't work. Codes change on the 1st of every month (UTC), so an older code has expired. Check it and try again in 30 s.",
+  };
+}
+
+/**
  * The premiumCodes entries "Generate codes" adds: this month and the next 11 that have no code yet.
  * `existing` = the current premiumCodes value. -> { [monthKey]: { c, from, until } }
  */

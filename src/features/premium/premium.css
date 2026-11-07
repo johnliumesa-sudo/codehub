@@ -116,6 +116,7 @@ html.ap-reduce-motion .pm-cardfx { display: none; }
 .pm-steps li.done::marker { color: var(--ok); }
 .pm-steps li.done::after { content: ' \2713'; color: var(--ok); }
 .pm-redeem-row { display: flex; gap: 8px; }
+.pm-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .pm-redeem-row .input { flex: 1; min-width: 0; }
 .pm-redeem-row .btn { flex: none; min-width: 96px; }
 .pm-code-input { font-family: var(--mono); letter-spacing: .08em; }
@@ -171,5 +172,6 @@ html.ap-reduce-motion .pm-cardfx { display: none; }
   .pm-code-row { grid-template-columns: 1fr auto; }
   .pm-code-row code { grid-column: 1 / 2; }
   .pm-redeem-row { flex-wrap: wrap; }
+  .pm-redeem-row .input { flex: 1 1 100%; }
   .pm-redeem-row .btn { flex: 1 1 auto; }
 }

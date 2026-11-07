@@ -213,7 +213,9 @@ Only an app admin who also knows the passcode can see or create codes. To set it
 
 Entering the passcode unlocks the dashboard for 15 minutes (one try every 30 seconds). To change the passcode, edit
 `config/ownerPass` in the console. "Replace this month's code" makes the old one stop working at once; members who
-already redeemed keep their 30 days. The same dashboard has a **Database rules** panel with the current minified
+already redeemed keep their 30 days. **Revoke** ends one member's membership and writes the month to
+`premiumRevoked/{uid}` so that month's code can't restore it (next month's code works again); delete that entry in
+the console to undo it. The same dashboard has a **Database rules** panel with the current minified
 rules, their size against the 102,400-byte console limit, and a Copy button for Option B below.
 
 ### Test locally against emulators
@@ -449,7 +451,8 @@ allow that only if the stored guess equals `config/adminPromo` and is less than 
 
 Premium uses the same guess node twice: a member's monthly code is checked against `premiumCodes/{YYYYMM}/c` (which
 only the owner can read), and the owner passcode against `config/ownerPass`. App admins can list and revoke premium
-memberships, but only an admin whose fresh guess equals `config/ownerPass` (15 minutes) can read or write the codes.
+memberships (a revoke records the month in `premiumRevoked/{uid}`, so that month's code can't bring it back), but
+only an admin whose fresh guess equals `config/ownerPass` (15 minutes) can read or write the codes.
 Details: [docs/features/premium.md](docs/features/premium.md).
 
 ### What the database rules enforce

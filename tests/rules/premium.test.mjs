@@ -120,6 +120,36 @@ describe('premium: reading, deleting, revoking', () => {
     await ok(db('admin1').ref('premium/erin').remove());
     await deny(db('admin1').ref('premium/dave').set(rec('202611')));
   });
+  const revoke = (u, m) => db('admin1').ref().update({ [`premium/${u}`]: null, [`premiumRevoked/${u}`]: m });
+  it('revoke sticks: DENY re-redeeming the revoked month (old or new guess); ALLOW a later month', async () => {
+    await ok(guess('dave', CODE_NOW));
+    await ok(write('dave', '202611'));
+    await ok(revoke('dave', '202611'));
+    // The guess from the redemption is still fresh: writing the record again at once must fail.
+    await deny(write('dave', '202611'));
+    // A new guess after the 30 s cooldown must fail too.
+    await admin((d) => d.ref('promoAttempts/dave/at').set(Date.now() - 31000));
+    await ok(guess('dave', CODE_NOW));
+    await deny(write('dave', '202611'));
+    // Next month's code still works (a revoke ends one month's membership, it is not a ban).
+    await admin((d) => d.ref('promoAttempts/dave/at').set(Date.now() - 31000));
+    await ok(guess('dave', CODE_NEXT));
+    await ok(write('dave', '202612'));
+  });
+  it('revoke marker: only app admins write it, only the member reads it, the member cannot clear it', async () => {
+    await deny(db('dave').ref('premiumRevoked/erin').set('202611'));
+    await deny(db('erin').ref('premiumRevoked/erin').set('202612'));
+    await ok(revoke('erin', '202611'));
+    await ok(db('erin').ref('premiumRevoked/erin').get());
+    await deny(db('dave').ref('premiumRevoked/erin').get());
+    await deny(db('dave').ref('premiumRevoked').get());
+    await deny(db('erin').ref('premiumRevoked/erin').remove());
+    await deny(db('erin').ref('premiumRevoked/erin').set('209901'));
+    await deny(db('admin1').ref('premiumRevoked/erin').set('2026-11'));
+    await deny(db('admin1').ref('premiumRevoked/erin').set(202611));
+    await deny(db('admin1').ref('premiumRevoked/erin').set({ m: '202611' }));
+    await ok(db('admin1').ref('premiumRevoked/erin').remove());
+  });
 });
 
 describe('premium: owner dashboard access to premiumCodes', () => {

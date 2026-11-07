@@ -21,13 +21,30 @@ const fmtLeft = (ms) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
+// What screen readers get instead of the ticking mm:ss: whole minutes, read in place (not announced).
+const fmtMinutes = (ms) => {
+  const m = Math.max(1, Math.ceil(ms / 60000));
+  return `${m} minute${m === 1 ? '' : 's'}`;
+};
+/** The live announcement: changes only on unlock, one minute before the re-lock, and on lock. */
+function lockAnnouncement(unlocked, left, wasUnlocked) {
+  if (unlocked) return left <= 60_000 ? 'The owner dashboard locks in 1 minute.' : 'Owner dashboard unlocked.';
+  return wasUnlocked ? 'Owner dashboard locked.' : '';
+}
 
 export default function OwnerTab() {
   const { isAdmin, loading } = useAppAdminState();
   const { unlocked, left } = useOwnerLock();
+  const wasUnlocked = useRef(false);
+  if (unlocked) wasUnlocked.current = true;
   if (loading) return <div className="adm-loading"><div className="spinner" /></div>;
   if (!isAdmin) return <div className="adm-empty"><strong>App admins only</strong></div>;
-  return unlocked ? <Dashboard left={left} /> : <LockScreen />;
+  return (
+    <>
+      <span className="pm-sr-only" role="status">{lockAnnouncement(unlocked, left, wasUnlocked.current)}</span>
+      {unlocked ? <Dashboard left={left} /> : <LockScreen />}
+    </>
+  );
 }
 
 function LockScreen() {
@@ -112,9 +129,10 @@ function Dashboard({ left }) {
 
   return (
     <div className="adm-section pm-owner">
-      <div className="pm-unlocked-bar" role="status">
+      <div className="pm-unlocked-bar">
         <span>
-          <strong>Unlocked</strong> · locks in <span className="pm-mono">{fmtLeft(left)}</span>
+          <strong>Unlocked</strong> · locks in <span className="pm-mono" aria-hidden="true">{fmtLeft(left)}</span>
+          <span className="pm-sr-only">{fmtMinutes(left)}</span>
         </span>
         <button type="button" className="btn sm" onClick={() => lockOwner()}>Lock</button>
       </div>
@@ -250,8 +268,8 @@ function MembersCard({ now }) {
         </label>
       </div>
       <p className="adm-note">
-        Revoking ends a membership at once. Someone who still has this month&apos;s code could redeem it again; replace the
-        code above if that matters.
+        Revoking ends a membership at once, and the code it was redeemed with can&apos;t start it again. A later
+        month&apos;s code still works for them.
       </p>
       {error && <p className="error-text" role="alert">{error}</p>}
       {err && <p className="error-text" role="alert">{err}</p>}
@@ -278,7 +296,7 @@ function MembersCard({ now }) {
                   onConfirm={async () => {
                     setErr('');
                     try {
-                      await revokePremium(m.uid);
+                      await revokePremium(m.uid, m.m);
                     } catch (e) {
                       setErr(e.message);
                     }

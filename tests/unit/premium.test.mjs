@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BOUNDARY_MS, CODE_ALPHABET, GENERATE_MONTHS, addMonths, candidateMonths, codeRows, generateCode, isCodeShape, isMonthKey,
-  monthKey, monthWindow, monthsFrom, normalizeCode, planCodes, replacementCode,
+  monthKey, monthWindow, monthsFrom, normalizeCode, planCodes, redeemFailure, replacementCode,
 } from '../../src/features/premium/lib/codes.js';
 import { TAG_MAX, hasLook, lookRecord, normalizeLook, readableOn, tagProblem } from '../../src/features/premium/lib/lookCore.js';
 import { dropStringGuards, minifyRules } from '../../scripts/minify-rules.mjs';
@@ -64,6 +64,24 @@ test('candidate months: the current month, plus the neighbour near a boundary', 
   assert.deepEqual(candidateMonths(Date.UTC(2026, 11, 1) - 2 * H), ['202611', '202612']);
   assert.deepEqual(candidateMonths(Date.UTC(2027, 0, 1) - H), ['202612', '202701']);
   assert.deepEqual(candidateMonths(Date.UTC(2026, 10, 1) + BOUNDARY_MS + 1), ['202611']);
+});
+
+test('redeemFailure: revoked month, same month (active or expired), otherwise a wrong code', () => {
+  const now = Date.UTC(2026, 10, 30, 12);
+  const months = ['202611', '202612'];
+  const f = (current, revoked) => redeemFailure({ months, current, revoked, now });
+  assert.equal(f(null, null).reason, 'invalid');
+  assert.equal(f({ m: '202610', until: now - 1 }, null).reason, 'invalid');
+  assert.equal(f({ m: '202611', until: now + 1000 }, null).reason, 'same');
+  // Expired earlier this month: the code is valid but already used; never "has expired".
+  const expired = f({ m: '202611', until: now - 1000 }, null);
+  assert.equal(expired.reason, 'same');
+  assert.doesNotMatch(expired.message, /expired/);
+  assert.match(expired.message, /already used/);
+  assert.equal(f(null, '202611').reason, 'revoked');
+  assert.equal(f({ m: '202612', until: now + 1000 }, '202612').reason, 'revoked');
+  assert.equal(f(null, '202609').reason, 'invalid');
+  assert.equal(f(null, 202611).reason, 'invalid');
 });
 
 test('planCodes: this month and the next 11, skipping months that have a code, all distinct', () => {
