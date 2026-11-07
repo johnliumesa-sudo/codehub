@@ -9,7 +9,7 @@
 //      people's messages) and the peer's index entry for them;
 //   4. what I published (bots, add-ons, discovery listings, community shop items) and my uncollected
 //      shop earnings are removed;
-//   5. my private nodes (vault, presence, reads, indexes, saved messages, round 3 udata/upub) are removed;
+//   5. my private nodes (vault, presence, reads, indexes, saved messages, round 3 udata/upub, premium) are removed;
 //   6. the Firebase Auth user is deleted.
 // Each step tolerates data that is already gone, so a retry after a partial failure finishes the job.
 import {
@@ -218,7 +218,8 @@ export async function deleteAccount(onStep) {
   ]);
   // Round 3 per-user data. Separate, best-effort writes: until the round 3 rules are published these
   // paths don't exist in the rules, and one refused path would fail the whole batch above.
-  await Promise.all([`udata/${uid}`, `upub/${uid}`].map((p) => update(ref(db), { [p]: null }).catch(() => {})));
+  // premium/{uid} (membership record) the same way: older rules have no premium path.
+  await Promise.all([`udata/${uid}`, `upub/${uid}`, `premium/${uid}`].map((p) => update(ref(db), { [p]: null }).catch(() => {})));
   try {
     localStorage.removeItem('codehub.trustedDomains');
     sessionStorage.removeItem('codehub.keyChangeAck');
