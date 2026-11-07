@@ -29,7 +29,7 @@ const TABS = [
   ['privacy', 'Privacy'],
   ['notifications', 'Notifications'],
   ['github', 'GitHub'],
-  ['addons', 'Add-ons'],
+  ['addons', 'Shop items'], // owned/equipped shop cosmetics; add-on apps have their own tab
   ['admin', 'Codes & admin'],
   ['account', 'Account'],
 ];
@@ -121,7 +121,7 @@ function ProfileTab({ user }) {
       </div>
 
       <label className="field">
-        <span className="settings-label-row">Status <span className="settings-count">{status.length}/{STATUS_MAX}</span></span>
+        <span className="settings-label-row">Profile status <span className="settings-count">{status.length}/{STATUS_MAX}</span></span>
         <input
           className="input"
           value={status}
@@ -130,7 +130,11 @@ function ProfileTab({ user }) {
           onChange={(e) => setStatus(e.target.value)}
         />
       </label>
-      <p className="settings-note">Your name, color and status are public to other Codehub users (not encrypted).</p>
+      <p className="settings-note">
+        Your name, color and profile status are public to other Codehub users (not encrypted). A custom status
+        (emoji, Do Not Disturb, clears itself), set from the status button next to your name, shows instead while
+        it is set.
+      </p>
 
       <div className="settings-actions">
         {msg && <span className={msg.ok ? 'settings-ok' : 'error-text'}>{msg.text}</span>}

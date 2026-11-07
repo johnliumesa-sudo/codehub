@@ -103,6 +103,21 @@ test('slash menu, message action, chat panel and body extras', async ({ users })
   await expect(panel).toHaveCount(0);
   await expect(btn).toBeFocused();
 
+  // On a phone-width screen only the first feature button stays in the header; the rest (more than
+  // two here) move into the "More chat tools" menu, which opens the same panel.
+  await alice.setViewportSize({ width: 560, height: 800 });
+  const moreTools = alice.getByRole('button', { name: 'More chat tools' });
+  await expect(moreTools).toBeVisible();
+  await expect(alice.locator('.chat-header .ext-header-btn')).toHaveCount(2); // one feature button + More
+  await moreTools.click();
+  await alice.getByRole('menu', { name: 'More chat tools' }).getByRole('menuitem', { name: 'Test panel' }).click();
+  await expect(panel).toContainText(/Loaded \d+ messages in channel/);
+  await panel.getByRole('heading', { name: 'Test panel' }).press('Escape');
+  await expect(panel).toHaveCount(0);
+  await expect(moreTools).toBeFocused();
+  await alice.setViewportSize({ width: 1280, height: 720 });
+  await expect(moreTools).toHaveCount(0);
+
   // A send hook's `extra` rides in the encrypted body and reaches m.body after a reload.
   await send(alice, 'tag:badged message');
   const badged = alice.locator('.msg', { hasText: 'badged message' });

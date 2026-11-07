@@ -579,7 +579,7 @@ function WorkspaceFrame({ user }) {
       { id: 'snippets', title: 'Snippet library', hint: 'Your private code snippets', keywords: ['code', 'vault'] },
       { id: 'new-codespace', title: 'New codespace', hint: 'Create an encrypted workspace', keywords: ['create'] },
       { id: 'new-group', title: 'New group chat', hint: 'Private, end-to-end encrypted', keywords: ['create', 'group'] },
-      { id: 'shop', title: 'Open shop', hint: 'Add-ons and cosmetics', keywords: ['store', 'addons'] },
+      { id: 'shop', title: 'Open shop', hint: 'Themes, badges and other cosmetics', keywords: ['store', 'addons', 'cosmetics'] },
       { id: 'arcade', title: 'Open arcade', hint: 'Public games', keywords: ['games', 'play'] },
       { id: 'toggle-preview', title: 'Toggle preview', hint: 'Live preview of the open workspace', keywords: ['run', 'sandbox', 'console'] },
       { id: 'create-server', title: 'Create or join a server', keywords: ['invite', 'new'] },

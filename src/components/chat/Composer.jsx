@@ -15,6 +15,7 @@ import { SLASH_GROUPS, commandGroup, commandsFor, matchCommands, parseSlash } fr
 import { ComposerExtButtons } from '../ext/ChatExt.jsx';
 
 const TYPING_THROTTLE = 3000;
+const STACK_BELOW = 520; // px of composer width
 
 // Find an autocomplete trigger ("/cmd" at the very start, ":sho" or "@na") right before the caret.
 function findTrigger(value, caret, slash) {
@@ -93,6 +94,18 @@ const Composer = forwardRef(function Composer(props, ref) {
   // addFiles: images dropped anywhere on the chat pane (ChatView's DropZone) join the draft.
   const addFiles = draft.add;
   useImperativeHandle(ref, () => ({ focus: () => ta.current?.focus(), insert: insertBlock, insertText: insertInline, addFiles: conv ? addFiles : () => {} }), [insertBlock, insertInline, addFiles, conv]);
+
+  // A narrow composer (phone, or a side panel open beside the chat) puts the text box on its own row:
+  // with every feature's buttons in one row it was squeezed to a few characters.
+  const boxRef = useRef(null);
+  const [stacked, setStacked] = useState(false);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(([e]) => setStacked(e.contentRect.width < STACK_BELOW));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Autosize
   useEffect(() => {
@@ -347,7 +360,7 @@ const Composer = forwardRef(function Composer(props, ref) {
         </div>
       )}
 
-      <div className={`composer-box${replyItem ? ' has-reply' : ''}`}>
+      <div ref={boxRef} className={`composer-box${replyItem ? ' has-reply' : ''}${stacked ? ' stacked' : ''}`}>
         <button type="button" className="composer-btn" title="Share code snippet" onClick={onOpenSnippet} disabled={disabled}>
           <CodeIcon />
         </button>

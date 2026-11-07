@@ -1,4 +1,4 @@
-// Settings → Add-ons: what you own, what is equipped, editor add-on toggles, wallet summary.
+// Settings → Shop items (tab id `addons`): what you own, what is equipped, editor add-on toggles, wallet summary.
 import { useMemo, useState } from 'react';
 import { KIND_PLURAL, SLOTS } from '../../lib/addons/registry.js';
 import { equip, toggleExt, unequipAll, useCatalog, useEquipped, useInventory } from '../../lib/shop.js';
@@ -75,7 +75,7 @@ export default function AddonsTab({ me, onOpenShop }) {
         <div className="shop-empty small"><span className="spinner" /></div>
       ) : total === 0 ? (
         <div className="shop-tab-card">
-          <h3>No add-ons yet</h3>
+          <h3>No shop items yet</h3>
           <p className="muted">Grab a free editor theme or badge from the shop to get started.</p>
         </div>
       ) : (

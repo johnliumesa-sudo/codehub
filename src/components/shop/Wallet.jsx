@@ -1,4 +1,4 @@
-// Wallet primitives shared by the shop, the Settings → Add-ons tab, the catalog editor and the item form.
+// Wallet primitives shared by the shop, the Settings → Shop items tab, the catalog editor and the item form.
 import { useEffect, useState } from 'react';
 import { DAILY_COINS, claimDaily, formatCountdown, msUntilClaim, serverNow, useWallet } from '../../lib/shop.js';
 import { useToast } from '../layout/ui.jsx';

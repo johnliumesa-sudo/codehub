@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRegistry } from '../../lib/ext/registry.js';
 import { useChatCtx } from '../../lib/ext/chatContext.js';
+import { useMediaQuery } from '../layout/hooks.js';
 import { ExtBoundary, ExtIcon, ExtMenu, ExtRender, passes, runSafe } from './ExtRender.jsx';
 import './ext.css';
 
@@ -95,29 +96,74 @@ export function MessageExtActions({ m }) {
 }
 
 /** chatHeaderButtons: toggle a chatPanels panel (entry.panel) or run an action. */
+// On narrow screens the header can't fit every feature's button: past HEADER_MAX (4, or 2 on a phone)
+// the first ones stay inline (in registry order) and the rest move into a "More chat tools" menu.
+const HEADER_MAX = { narrow: 4, phone: 2 };
 export function ChatHeaderExtButtons({ panel, onTogglePanel }) {
   const ctx = useChatCtx();
   const entries = useRegistry('chatHeaderButtons');
+  const narrow = useMediaQuery('(max-width: 900px)');
+  const phone = useMediaQuery('(max-width: 600px)');
+  const [open, setOpen] = useState(false);
+  const moreBtn = useRef(null);
   if (!ctx) return null;
-  return entries
-    .filter((e) => e.label && (typeof e.run === 'function' || e.panel) && passes(e.when, ctx))
-    .map((e) => {
-      const on = !!e.panel && panel === e.panel;
-      return (
+  const usable = entries.filter((e) => e.label && (typeof e.run === 'function' || e.panel) && passes(e.when, ctx));
+  const max = phone ? HEADER_MAX.phone : narrow ? HEADER_MAX.narrow : Infinity;
+  const inline = usable.length > max ? usable.slice(0, max - 1) : usable;
+  const more = usable.length > max ? usable.slice(max - 1) : [];
+  const activate = (e, opener) => (e.panel ? onTogglePanel(e.panel, opener) : runSafe(e.run, [ctx], ctx.toast));
+  const moreActive = more.some((e) => e.panel && panel === e.panel);
+  return (
+    <>
+      {inline.map((e) => {
+        const on = !!e.panel && panel === e.panel;
+        return (
+          <button
+            key={e.id}
+            type="button"
+            className={`chat-icon-btn ext-header-btn${on ? ' active' : ''}`}
+            title={e.label}
+            aria-label={e.label}
+            aria-pressed={e.panel ? on : undefined}
+            data-ext-panel={e.panel || undefined}
+            onClick={(ev) => activate(e, ev.currentTarget)}
+          >
+            <ExtIcon icon={e.icon || e.label.slice(0, 1)} />
+          </button>
+        );
+      })}
+      {more.length > 0 && (
         <button
-          key={e.id}
+          ref={moreBtn}
           type="button"
-          className={`chat-icon-btn ext-header-btn${on ? ' active' : ''}`}
-          title={e.label}
-          aria-label={e.label}
-          aria-pressed={e.panel ? on : undefined}
-          data-ext-panel={e.panel || undefined}
-          onClick={(ev) => (e.panel ? onTogglePanel(e.panel, ev.currentTarget) : runSafe(e.run, [ctx], ctx.toast))}
+          className={`chat-icon-btn ext-header-btn${open || moreActive ? ' active' : ''}`}
+          title="More chat tools"
+          aria-label="More chat tools"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
         >
-          <ExtIcon icon={e.icon || e.label.slice(0, 1)} />
+          <MoreIcon />
         </button>
-      );
-    });
+      )}
+      {open && more.length > 0 && (
+        <ExtMenu
+          anchor={moreBtn.current}
+          label="More chat tools"
+          items={more.map((e) => ({
+            id: e.id,
+            label: e.panel && panel === e.panel ? `${e.label} (open)` : e.label,
+            icon: e.icon || e.label.slice(0, 1),
+            run: () => activate(e, moreBtn.current),
+          }))}
+          onClose={(refocus) => {
+            setOpen(false);
+            if (refocus) requestAnimationFrame(() => moreBtn.current?.focus());
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 /** The open chatPanels panel, in the same right-side slot as Search / Pinned. */

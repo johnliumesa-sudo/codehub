@@ -302,6 +302,10 @@
   .chat-side { position: absolute; right: 0; top: 52px; bottom: 0; z-index: 30; box-shadow: -10px 0 30px rgba(0,0,0,.4); width: min(340px, 90%); }
   .composer-hint { display: none; }
 }
+/* A narrow composer (phone, or a panel open beside the chat; Composer sets .stacked): with the round 3
+   composer buttons the text box got squeezed to a few characters, so it gets its own row above them. */
+.composer-box.stacked { flex-wrap: wrap; }
+.composer-box.stacked .composer-input { order: -1; flex: 1 0 100%; }
 @media (prefers-reduced-motion: reduce) {
   .msg-toolbar, .chat-side, .chat-toast, .emoji-popover, .composer-suggest { animation: none !important; }
   .sk-line { animation: none; }

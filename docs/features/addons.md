@@ -6,7 +6,7 @@ bridge (`window.codehub`). Code: `src/features/addons/` (registrations in `regis
 `lib/`, UI in `components/`, first-party examples in `examples/`). Rule bytes used: **0** (generic
 blocks only; minified rules stay at 98,157 bytes).
 
-Not to be confused with the shop's cosmetic "Add-ons" (themes, badges; Settings → Add-ons): these are
+Not to be confused with the add-on shop's cosmetics (themes, badges; Settings → Shop items): these are
 "Add-on apps" in Settings.
 
 ## Features
