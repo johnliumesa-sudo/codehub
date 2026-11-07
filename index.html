@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="./favicon.svg" />
     <title>Codehub</title>
+    <!-- Set data-theme before the CSS paints (no dark flash for light-mode users). Must equal THEME_BOOT_SNIPPET in src/lib/theme.js; tests/unit/theme-boot.test.mjs checks it. -->
+    <script>(function(){try{var t=localStorage.getItem('codehub.theme');if(t!=='dark'&&t!=='light')t='system';var l=t==='light'||(t==='system'&&matchMedia('(prefers-color-scheme: light)').matches);var r=l?'light':'dark';document.documentElement.setAttribute('data-theme',r);document.documentElement.style.colorScheme=r;}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   </head>
   <body>
     <div id="root"></div>

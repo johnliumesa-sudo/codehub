@@ -19,6 +19,7 @@ import { db } from './firebase.js';
 import { decryptText, encryptText, generateRoomKey } from './crypto.js';
 import { AVATAR_COLORS } from './profiles.js';
 import { currentUid, onLock, unwrapForMe, wrapFor } from './keystore.js';
+import { deliverNotifs } from './notifSend.js';
 
 export const MAX_GROUP_MEMBERS = 25;
 export const MAX_GROUP_NAME = 64;
@@ -199,6 +200,7 @@ export async function createGroup(me, { name, memberUids }) {
     throw e;
   }
   cacheGroupKey(gid, 1, key);
+  deliverNotifs(others, { kind: 'groupAdd', ref: { gid } });
   return gid;
 }
 
@@ -283,6 +285,7 @@ export async function addMembers(gid, uids, { shareHistory = true } = {}) {
     if (isDenied(e)) throw new Error('Could not add them — someone may have blocked you, or the group key just rotated (try again)');
     throw e;
   }
+  deliverNotifs(add, { kind: 'groupAdd', ref: { gid } });
   return add;
 }
 
@@ -383,10 +386,14 @@ export async function deleteGroup(gid) {
   }
   if (meta.ownerId !== myUid) throw new Error('Only the group owner can delete it');
   const members = (await get(ref(db, `groups/${gid}/members`))).val() || {};
+  // Images first, while the messages and my ownership (checked by the rules) still exist. Best effort.
+  const { purgeConversationAttachments } = await import('./media/cleanup.js');
+  await purgeConversationAttachments({ kind: 'group', gid });
   const patch = {
     [`groupMessages/${gid}`]: null,
     [`typing/grp/${gid}`]: null,
     [`groups/${gid}`]: null,
+    [`votes/grp/${gid}`]: null, // the rules allow this once groups/{gid} is gone (same update)
     [`reads/${myUid}/${groupScope(gid)}`]: null,
   };
   for (const u of new Set([...Object.keys(members), myUid])) patch[`userGroups/${u}/${gid}`] = null;
@@ -429,6 +436,8 @@ export async function ensureGroupKeys(gid) {
  */
 export async function removeMyGroupMessages(gid, uid) {
   const mine = await get(query(ref(db, groupMessagesPath(gid)), orderByChild('uid'), equalTo(uid)));
+  const { purgeAttachments } = await import('./media/cleanup.js');
+  await purgeAttachments({ kind: 'group', gid }, mine.val(), { onlyUid: uid });
   const paths = Object.keys(mine.val() || {}).map((mid) => `${groupMessagesPath(gid)}/${mid}`);
   for (let i = 0; i < paths.length; i += CHUNK) {
     await update(ref(db), Object.fromEntries(paths.slice(i, i + CHUNK).map((p) => [p, null])));

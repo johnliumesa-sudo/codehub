@@ -44,7 +44,9 @@ export function tally(votes, optionCount, myUid) {
       total++;
     }
   }
-  const mine = Number.isInteger(votes?.[myUid]) ? votes[myUid] : null;
+  // The rules only see an index 0-9 (the options are encrypted); ignore a vote past this poll's options.
+  const v = votes?.[myUid];
+  const mine = Number.isInteger(v) && v >= 0 && v < optionCount ? v : null;
   return { counts, total, mine };
 }
 

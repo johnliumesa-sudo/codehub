@@ -6,7 +6,9 @@ import { db } from '../../lib/firebase.js';
 import ChatView from '../chat/ChatView.jsx';
 import SettingsModal from '../settings/SettingsModal.jsx';
 import { startPresence } from '../../lib/presence.js';
-import { AVATAR_COLORS, useProfile } from '../../lib/profiles.js';
+import { AVATAR_COLORS, useProfile, useProfiles } from '../../lib/profiles.js';
+import { themePaletteActions } from '../../lib/theme.js';
+import { setTitlePage } from '../../lib/title.js';
 import {
   channelScope,
   clearPlainCache,
@@ -247,6 +249,19 @@ function WorkspaceFrame({ user }) {
   const notifySources = useNotifySources({ servers, dms, groups: groupConvs });
   // Blocking removes my userDms entry, but the peer could have re-created it before the block.
   const visibleDms = useMemo(() => dms.filter((d) => !blocked.has(d.peer)), [dms, blocked]);
+  const dmPeerProfiles = useProfiles(useMemo(() => visibleDms.map((d) => d.peer), [visibleDms]));
+  // Where a message can be forwarded: text channels of my servers, my (unblocked) DMs and my groups.
+  const forwardTargets = useMemo(() => {
+    const dmIds = new Set(visibleDms.map((d) => d.dmId));
+    return notifySources
+      .filter((s) => (s.conv.kind === 'channel' ? s.type === 'text' : s.conv.kind !== 'dm' || dmIds.has(s.conv.dmId)))
+      .map((s) => {
+        if (s.conv.kind === 'channel') return { ...s.conv, title: `${s.title || 'channel'}${s.serverName ? ` · ${s.serverName}` : ''}` };
+        if (s.conv.kind === 'dm') return { ...s.conv, title: dmPeerProfiles[s.conv.peerUid]?.name || 'Direct message' };
+        return { ...s.conv, title: s.title || 'Group' };
+      })
+      .sort((a, b) => (a.kind === b.kind ? a.title.localeCompare(b.title) : a.kind === 'dm' ? -1 : b.kind === 'dm' ? 1 : a.kind.localeCompare(b.kind)));
+  }, [notifySources, visibleDms, dmPeerProfiles]);
 
   // Top-level views (rail buttons): servers/DMs/groups keep their remembered selection but aren't shown.
   const view = VIEWS.includes(nav.view) ? nav.view : null;
@@ -458,7 +473,15 @@ function WorkspaceFrame({ user }) {
         if (mobile) setNavOpen(false);
         break;
       case 'channel':
-        enterServer(t.sid, t.cid, t.channelType);
+        if (t.channelType === 'voice') {
+          // Same as clicking a voice channel in the sidebar: join (never ring) and show the call.
+          enterServer(t.sid);
+          joinCall(voiceScope(t.sid, t.cid), uid, { kind: 'audio', ring: false })
+            .then(() => setCallOpen(true))
+            .catch((e) => toast(errMsg(e), 'error'));
+        } else {
+          enterServer(t.sid, t.cid, t.channelType);
+        }
         break;
       case 'dm':
         openConv({ kind: 'dm', dmId: t.dmId });
@@ -470,7 +493,8 @@ function WorkspaceFrame({ user }) {
         openCodespace(t.csid);
         break;
       case 'action':
-        if (t.id === 'settings') setModal({ type: 'settings' });
+        if (t.id.startsWith('theme:')) themeActions.find((a) => a.id === `action:${t.id}`)?.run();
+        else if (t.id === 'settings') setModal({ type: 'settings' });
         else if (t.id === 'snippets') setModal({ type: 'snippets' });
         else if (t.id === 'create-server') setModal({ type: 'createJoin' });
         else if (t.id === 'new-dm') setModal({ type: 'newDm' });
@@ -516,6 +540,8 @@ function WorkspaceFrame({ user }) {
     ],
     [groups, codespaces],
   );
+  // Recomputed on open so "(current)" follows the theme.
+  const themeActions = useMemo(() => themePaletteActions(), [paletteOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const paletteActions = useMemo(
     () => [
       { id: 'settings', title: 'Open settings', hint: 'Profile, GitHub token, keys', keywords: ['preferences', 'profile'] },
@@ -527,8 +553,9 @@ function WorkspaceFrame({ user }) {
       { id: 'toggle-preview', title: 'Toggle preview', hint: 'Live preview of the open workspace', keywords: ['run', 'sandbox', 'console'] },
       { id: 'create-server', title: 'Create or join a server', keywords: ['invite', 'new'] },
       { id: 'new-dm', title: 'New direct message', keywords: ['dm', 'message'] },
+      ...themeActions.map((a) => ({ id: a.id.replace(/^action:/, ''), title: a.title, hint: a.subtitle, keywords: a.keywords })),
     ],
-    [],
+    [themeActions],
   );
   const describeScope = useCallback((s) => notifySources.find((x) => x.scope === s)?.title, [notifySources]);
 
@@ -566,12 +593,10 @@ function WorkspaceFrame({ user }) {
             : gid
               ? group.name
               : dmPeer?.name;
-    document.title = t ? `${t} — Codehub` : 'Codehub';
+    setTitlePage(t);
   }, [csMode, arcade, shopMode, sid, tab, channel?.name, meta.name, dmPeer?.name, gid, group.name]);
 
-  useEffect(() => () => {
-    document.title = 'Codehub';
-  }, []);
+  useEffect(() => () => setTitlePage(''), []);
 
   // ---------- content ----------
   const chatConv = useMemo(() => {
@@ -600,13 +625,14 @@ function WorkspaceFrame({ user }) {
           conv={chatConv}
           me={me}
           onOpenGroupSettings={() => setModal({ type: 'group', gid, tab: 'overview' })}
+          forwardTargets={forwardTargets}
         />
       ) : (
         <EmptyState icon="x" title="This group isn't available">You may have been removed, or it was deleted.</EmptyState>
       );
   } else if (!sid) {
     content = chatConv ? (
-      <ChatView key={chatConv.scope} conv={chatConv} me={me} />
+      <ChatView key={chatConv.scope} conv={chatConv} me={me} forwardTargets={forwardTargets} />
     ) : (
       <FriendsView me={me} friends={friends} onMessage={messageUser} />
     );
@@ -648,7 +674,7 @@ function WorkspaceFrame({ user }) {
   } else if (channel.failed) {
     content = <EmptyState icon="lock" title="Can't decrypt this channel">Its name could not be decrypted with your server key.</EmptyState>;
   } else if (tab === 'chat') {
-    content = <ChatView key={`${chatConv.scope}|${nonce}`} conv={chatConv} me={me} />;
+    content = <ChatView key={`${chatConv.scope}|${nonce}`} conv={chatConv} me={me} forwardTargets={forwardTargets} />;
   } else {
     content = (
       <Suspense fallback={<Loading />}>
@@ -673,7 +699,7 @@ function WorkspaceFrame({ user }) {
       />
     ) : rightPanel === 'chat' && chatConv && tab === 'collab' ? (
       <ErrorBoundary resetKey={chatConv.scope}>
-        <ChatView key={`side-${chatConv.scope}|${nonce}`} conv={chatConv} me={me} />
+        <ChatView key={`side-${chatConv.scope}|${nonce}`} conv={chatConv} me={me} forwardTargets={forwardTargets} />
       </ErrorBoundary>
     ) : null;
 
@@ -696,7 +722,7 @@ function WorkspaceFrame({ user }) {
   const activeCallLabel = !callScopeInfo
     ? ''
     : callScopeInfo.type === 'dm'
-      ? (dms.find((d) => d.dmId === callScopeInfo.dmId)?.name || 'Direct call')
+      ? (dmPeerProfiles[dms.find((d) => d.dmId === callScopeInfo.dmId)?.peer]?.name || 'Direct call')
       : callScopeInfo.type === 'grp'
         ? (groups.find((g) => g.gid === callScopeInfo.gid)?.name || 'Group call')
         : (callScopeInfo.sid === sid ? `#${channels.find((c) => c.cid === callScopeInfo.cid)?.name || 'voice'}` : 'Voice channel');
@@ -875,7 +901,12 @@ function WorkspaceFrame({ user }) {
       {/* ---------- modals ---------- */}
       <LinkGuardHost />
       <CallAudio />
-      <IncomingCallModal me={uid} onAccepted={(scope) => openCall(scope)} isBlocked={(u) => blocked.has(u)} muted={false} />
+      <IncomingCallModal
+        me={uid}
+        onAccepted={(scope) => openCall(scope)}
+        isBlocked={(u) => blocked.has(u)}
+        muted={(scope) => isMuted(notifPrefs, scope)}
+      />
       <Notifier me={me} sources={notifySources} activeScope={chatConv?.scope || null} reads={reads} onOpen={(src) => openConv(src.conv)} />
       {modal?.type === 'settings' && (
         <SettingsModal

@@ -10,65 +10,20 @@
 // deliverNotif(...) (preferred next to a message write: the 3 s rate-limit rule or a block would otherwise
 // reject the WHOLE multi-path update, including the message).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { get, limitToLast, onValue, orderByKey, push, query, ref, remove, serverTimestamp, update } from 'firebase/database';
-import { auth, db } from './firebase.js';
+import { get, limitToLast, onValue, orderByKey, query, ref, remove, update } from 'firebase/database';
+import { db } from './firebase.js';
+import { NOTIF_KINDS } from './notifSend.js';
 import { useBlocks } from './blocks.js';
 import { isMuted, notificationPermission, showNotification, useNotifPrefs } from './notify.js';
 import { useProfiles } from './profiles.js';
+import { setTitleCount } from './title.js';
 
-export const NOTIF_KINDS = ['mention', 'reply', 'dm', 'groupAdd', 'friendReq', 'roleChange', 'gameLike', 'call', 'announcement'];
+export {
+  NOTIF_KINDS, NOTIF_MIN_GAP_MS, cleanRef, sendNotif, deliverNotif, deliverNotifs,
+} from './notifSend.js';
 export const MAX_NOTIFS = 200;
-export const NOTIF_MIN_GAP_MS = 3000;
-const REF_KEYS = ['sid', 'cid', 'gid', 'dmId', 'mid', 'gameId', 'callId'];
 
 const uidOf = (me) => (typeof me === 'string' ? me : me?.uid) || null;
-
-/** Keep only known ref keys with non-empty string values of <= 64 chars (rules require it). */
-export function cleanRef(r) {
-  const out = {};
-  REF_KEYS.forEach((k) => {
-    const v = r?.[k];
-    if (typeof v === 'string' && v && v.length <= 64) out[k] = v;
-  });
-  return out;
-}
-
-const lastSent = new Map(); // recipient uid -> client time of last send (rate-limit guard)
-
-/**
- * Add `notifs/{to}/{nid}` and `notifLog/{me}/{to}` to a multi-path update map.
- * Returns the nid, or null when skipped (self, bad kind, no sign-in, or sent <3 s ago to the same user).
- * Skipping is silent on purpose: a notification must never break the action that triggered it.
- */
-export function sendNotif(updates, { to, kind, ref: r = {}, from } = {}) {
-  const me = from || auth.currentUser?.uid;
-  if (!me || !to || to === me || !NOTIF_KINDS.includes(kind) || !updates) return null;
-  const now = Date.now();
-  if (now - (lastSent.get(to) || 0) < NOTIF_MIN_GAP_MS + 250) return null;
-  lastSent.set(to, now);
-  const nid = push(ref(db, `notifs/${to}`)).key;
-  updates[`notifs/${to}/${nid}`] = { kind, from: me, ts: serverTimestamp(), ref: cleanRef(r) };
-  updates[`notifLog/${me}/${to}`] = serverTimestamp();
-  return nid;
-}
-
-/** Standalone send; never throws (blocked / rate-limited / rules rejection are all ignorable). */
-export async function deliverNotif(args) {
-  const u = {};
-  const nid = sendNotif(u, args);
-  if (!nid) return null;
-  try {
-    await update(ref(db), u);
-    return nid;
-  } catch {
-    return null;
-  }
-}
-
-/** Deliver to many recipients (each its own update so one block/rate-limit failure doesn't affect others). */
-export function deliverNotifs(recipients, args) {
-  return Promise.all([...new Set(recipients || [])].map((to) => deliverNotif({ ...args, to })));
-}
 
 // ---------- Shared live subscription (one listener per uid, ref-counted) ----------
 
@@ -235,16 +190,10 @@ export function timeAgo(ts, now = Date.now()) {
 
 // ---------- Hooks: tab title + desktop alerts ----------
 
-/** Sets document.title to `(N) Codehub` while N > 0 and restores it afterwards. */
-export function useUnreadTitle(unread, base = 'Codehub') {
-  useEffect(() => {
-    if (typeof document === 'undefined') return undefined;
-    document.title = unread > 0 ? `(${unread > 99 ? '99+' : unread}) ${base}` : base;
-    return undefined;
-  }, [unread, base]);
-  useEffect(() => () => {
-    if (typeof document !== 'undefined') document.title = base;
-  }, [base]);
+/** Reports the unread notification count to the tab title ("(N) …"; lib/title.js owns document.title). */
+export function useUnreadTitle(unread) {
+  useEffect(() => setTitleCount('notifs', unread), [unread]);
+  useEffect(() => () => setTitleCount('notifs', 0), []);
 }
 
 /**

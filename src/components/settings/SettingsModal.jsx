@@ -457,7 +457,9 @@ function DeleteAccount({ user, disabled }) {
  * Props:
  *  - user: Firebase auth user (required)
  *  - onClose(): close the modal (required)
- *  - initialTab: optional 'profile' | 'security' | 'github' | 'account'
+ *  - initialTab: optional id of a tab in TABS ('profile', 'security', 'appearance', 'privacy',
+ *    'notifications', 'github', 'addons', 'admin' or 'account'); anything else opens 'profile'
+ *  - onOpenShop, onOpenAdmin, describeScope: optional hooks used by the Add-ons, admin and Notifications tabs
  */
 export default function SettingsModal({ user, onClose, initialTab = 'profile', onOpenShop, onOpenAdmin, describeScope }) {
   const [tab, setTab] = useState(TABS.some(([id]) => id === initialTab) ? initialTab : 'profile');

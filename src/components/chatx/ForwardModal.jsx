@@ -1,5 +1,6 @@
 // Forward a message. Props: body (decrypted), fromName, me, targets (conversation descriptors the
-// user can post in: [{kind, sid,cid | dmId,peerUid | gid,epoch, title, scope}]), onClose, onDone?(conv).
+// user can post in: [{kind, sid,cid | dmId,peerUid | gid,epoch, title, scope}]), onClose,
+// onDone?(conv, { mid }) after the server accepted the forwarded copy.
 import { useMemo, useState } from 'react';
 import { Modal } from '../layout/ui.jsx';
 import { forwardMessage } from '../../lib/chatx/forward.js';
@@ -18,8 +19,8 @@ export default function ForwardModal({ body, fromName, me, targets = [], onClose
     setBusy(String(idx));
     setErr('');
     try {
-      await forwardMessage(t, me, body, fromName);
-      onDone?.(t);
+      const res = await forwardMessage(t, me, body, fromName);
+      onDone?.(t, res);
       onClose();
     } catch (e) {
       setErr(e?.message || 'Could not forward.');

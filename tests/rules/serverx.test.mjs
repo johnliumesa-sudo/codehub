@@ -71,8 +71,11 @@ describe('categories', () => {
     await deny(db('alice').ref('servers/s1/categories/k3').set({ ...cat, evil: 1 }));
     await deny(db('alice').ref('servers/s1/categories/k3').set({ enc: { iv: 'x', ct: 'y' }, position: 1 }));
   });
-  it('channel cat field: manager only, string <= 32', async () => {
+  it('channel cat field: manager only, string <= 32, must name an existing category', async () => {
+    await deny(db('alice').ref('servers/s1/channels/c1/cat').set('k1'));
+    await admin((d) => d.ref('servers/s1/categories/k1').set(cat));
     await ok(db('alice').ref('servers/s1/channels/c1/cat').set('k1'));
+    await ok(db('alice').ref().update({ 'servers/s1/categories/k9': cat, 'servers/s1/channels/c1/cat': 'k9' }));
     await deny(db('alice').ref('servers/s1/channels/c1/cat').set(5));
     await deny(db('alice').ref('servers/s1/channels/c1/cat').set('x'.repeat(33)));
     await deny(db('dave').ref('servers/s1/channels/c1/cat').set('k1'));

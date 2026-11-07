@@ -21,6 +21,10 @@
 .md-emote-big { width: 32px; height: 32px; object-fit: contain; }
 .md-emote-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }
 .md-emote { vertical-align: -0.35em; object-fit: contain; display: inline-block; }
+.md .md-emote { width: 1.375em; height: 1.375em; }
+.md.jumbo .md-emote { width: 1.1em; height: 1.1em; }
+.reaction-emoji .md-emote { vertical-align: middle; }
+img.suggest-emoji { object-fit: contain; }
 .md-emote-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; max-height: 240px; overflow-y: auto; }
 .md-emote-pick { display: grid; place-items: center; padding: 4px; border: 0; background: none; border-radius: var(--radius-sm); cursor: pointer; }
 .md-emote-pick:hover { background: var(--bg-hover); }

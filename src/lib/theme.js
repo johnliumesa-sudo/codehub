@@ -2,7 +2,7 @@
 // never sent anywhere. The RESOLVED theme (dark | light) is written to <html data-theme="...">;
 // CSS tokens in styles.css key off that attribute. In 'system' mode it follows prefers-color-scheme live.
 //
-// Applied before React renders via THEME_BOOT_SNIPPET-equivalent code in main.jsx (see initTheme()).
+// Applied before the first paint by THEME_BOOT_SNIPPET, inlined in index.html, then kept in sync by initTheme() (main.jsx).
 import { useSyncExternalStore } from 'react';
 
 export const THEME_KEY = 'codehub.theme';
@@ -165,8 +165,9 @@ export function themePaletteActions() {
 }
 
 /**
- * Self-contained pre-render script for index.html / main.jsx (no imports, safe if storage is blocked).
- * Prevents a flash of the wrong theme. Keep in sync with resolveTheme().
+ * Self-contained pre-render script, inlined verbatim in index.html's <head> (no imports, safe if storage
+ * is blocked). Prevents a flash of the wrong theme. Keep in sync with resolveTheme(); the unit test
+ * tests/unit/theme-boot.test.mjs fails if index.html drifts from this string.
  */
 export const THEME_BOOT_SNIPPET =
   "(function(){try{var t=localStorage.getItem('codehub.theme');if(t!=='dark'&&t!=='light')t='system';" +

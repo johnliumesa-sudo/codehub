@@ -7,7 +7,7 @@
 // Messages reference attachments as body.attachments = [{ attId, w, h, mime, size }] (≤ 4).
 // Chunks are fetched lazily (IntersectionObserver) and kept as object URLs in a ≤ 50 MB LRU.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { get, push, ref, serverTimestamp, set, update } from 'firebase/database';
+import { get, push, ref, remove, serverTimestamp, set, update } from 'firebase/database';
 import { db } from '../firebase.js';
 import { decryptBytes, decryptJSON, encryptBytes, encryptJSON } from '../crypto.js';
 import { currentUid } from '../keystore.js';
@@ -131,17 +131,23 @@ async function writeMetaLogged(uid, scope, attId, meta) {
   throw err;
 }
 
-/** Removes attachments (author or moderator, per rules). Call alongside deleting the message. */
+/**
+ * Removes attachments (author or moderator, per rules). Called after a message is deleted and when a
+ * send fails after upload. Each one is removed separately, so one that is already gone (the rules
+ * refuse deleting a missing node) doesn't block the others. Throws only if none could be removed.
+ */
 export async function deleteAttachments(conv, atts) {
   const list = (atts || []).filter((a) => a && ID_RE.test(a.attId));
   if (list.length === 0) return;
   const scope = scopeOf(conv);
-  const patch = {};
-  for (const a of list) {
-    patch[a.attId] = null;
-    blobCache.drop(`${scope}/${a.attId}`);
-  }
-  await update(ref(db, `att/${scope}`), patch);
+  const results = await Promise.allSettled(
+    list.map((a) => {
+      blobCache.drop(`${scope}/${a.attId}`);
+      return remove(ref(db, `att/${scope}/${a.attId}`));
+    }),
+  );
+  const failed = results.filter((r) => r.status === 'rejected');
+  if (failed.length === list.length) throw failed[0].reason;
 }
 
 /** Fetches, decrypts and caches one attachment; resolves an object URL. */

@@ -1,7 +1,7 @@
 // AvatarUploader (profile picture) and ServerIconUploader. Processing, size caps and encryption live in src/lib/media.
 import { useRef, useState } from 'react';
 import { setAvatar, clearAvatar, useAvatar } from '../../lib/media/avatars.js';
-import { setServerIcon } from '../../lib/media/icons.js';
+import { clearServerIcon, setServerIcon, useServerIcon } from '../../lib/media/icons.js';
 import { useToast } from '../layout/ui.jsx';
 import { Avatar, ServerIcon } from './Avatar.jsx';
 import { ACCEPT_IMAGES, errMsg, isRasterImage } from './util.js';
@@ -77,16 +77,18 @@ export function AvatarUploader({ uid, size = 72 }) {
 export function ServerIconUploader({ sid, name, size = 72, canEdit = true }) {
   const { busy, error, run } = useUploader();
   const [localErr, setLocalErr] = useState('');
+  const has = !!useServerIcon(sid);
   if (!canEdit) return <ServerIcon sid={sid} name={name} size={size} />;
   return (
     <Picker
       label="icon"
       busy={busy}
       error={error || localErr}
-      hasImage={false}
-      hint="Encrypted with the server key. Only members can see it."
+      hasImage={has}
+      hint="Encrypted with the server key. Only members can see it. Without an icon the server shows its initials."
       preview={<ServerIcon sid={sid} name={name} size={size} />}
       onFile={(f, msg) => (msg ? setLocalErr(msg) : (setLocalErr(''), run(() => setServerIcon(sid, f))))}
+      onRemove={() => run(() => clearServerIcon(sid))}
     />
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ANN_MAX, clearAnnouncement, setAnnouncement, useAnnouncement } from '../../lib/announcements.js';
+import { ANN_MAX, ANN_NOTIFY_MAX, clearAnnouncement, setAnnouncement, useAnnouncement } from '../../lib/announcements.js';
 import { useProfile } from '../../lib/profiles.js';
 import './admin.css';
 
@@ -25,6 +25,7 @@ export default function AnnouncementEditor() {
   const { ann, loading } = useAnnouncement();
   const [text, setText] = useState('');
   const [level, setLevel] = useState('info');
+  const [notifyAll, setNotifyAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // {ok, text}
   const mounted = useRef(true);
@@ -36,8 +37,8 @@ export default function AnnouncementEditor() {
     setBusy(true);
     setMsg(null);
     try {
-      await fn();
-      if (mounted.current) setMsg({ ok: true, text: okText });
+      const res = await fn();
+      if (mounted.current) setMsg({ ok: true, text: typeof okText === 'function' ? okText(res) : okText });
       return true;
     } catch (err) {
       if (mounted.current) setMsg({ ok: false, text: err?.message || 'Something went wrong.' });
@@ -50,7 +51,10 @@ export default function AnnouncementEditor() {
   async function publish(e) {
     e.preventDefault();
     if (!clean) return;
-    const ok = await run(() => setAnnouncement({ text: clean, level }), 'Announcement published to everyone.');
+    const ok = await run(
+      () => setAnnouncement({ text: clean, level, notify: notifyAll }),
+      (res) => (notifyAll ? `Announcement published; ${res?.notified || 0} users notified.` : 'Announcement published to everyone.'),
+    );
     if (ok && mounted.current) setText('');
   }
 
@@ -103,6 +107,10 @@ export default function AnnouncementEditor() {
             ))}
           </div>
         </div>
+        <label className="adm-check">
+          <input type="checkbox" checked={notifyAll} onChange={(e) => setNotifyAll(e.target.checked)} />{' '}
+          Also add it to everyone&apos;s notification bell (up to {ANN_NOTIFY_MAX} users; only that you posted one, not the text)
+        </label>
         {clean && (
           <div className="adm-preview">
             <span className="muted adm-preview-label">Preview</span>

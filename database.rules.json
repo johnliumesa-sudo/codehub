@@ -49,8 +49,9 @@
       ".validate": "newData.isString() && newData.val().length <= 40"
      },
      "links": {
+      ".validate": "newData.hasChildren()",
       "$i": {
-       ".validate": "$i.matches(/^[0-2]$/) && newData.isString() && newData.val().length <= 200 && newData.val().matches(/^https:\\/\\/[^ ]+$/)"
+       ".validate": "$i.matches(/^[0-2]$/) && newData.isString() && newData.val().length <= 200 && newData.val().matches(/^https:\\/\\/[A-Za-z0-9_.-]+\\.[A-Za-z0-9_-]+(:[0-9]+)?([\\/?#][^ ]*)?$/)"
       }
      },
      "banner": {
@@ -281,7 +282,7 @@
        ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 21600"
       },
       "cat": {
-       ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 32"
+       ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 32 && newData.parent().parent().parent().child('categories/' + newData.val()).exists()"
       },
       "$other": {
        ".validate": false
@@ -1610,7 +1611,9 @@
   },
   "vcalls": {
    "$sid": {
+    ".write": "auth != null && !newData.exists() && !newData.parent().parent().child('servers/' + $sid).exists()",
     "$cid": {
+     ".write": "auth != null && !newData.exists() && !newData.parent().parent().parent().child('servers/' + $sid + '/channels/' + $cid).exists()",
      ".read": "auth != null && (root.child('servers').child($sid).child('members').child(auth.uid).exists() && root.child('servers').child($sid).child('channels').child($cid).child('type').val() === 'voice')",
      "$f": {
       ".write": "auth != null && (root.child('servers').child($sid).child('members').child(auth.uid).exists() && root.child('servers').child($sid).child('channels').child($cid).child('type').val() === 'voice') && !(root.child('servers').child($sid).child('timeouts').child(auth.uid).isNumber() && root.child('servers').child($sid).child('timeouts').child(auth.uid).val() > now) && !data.parent().child('slots').exists() && (!data.parent().child('ts').exists() || data.parent().child('ts').val() < now - 60000 || data.parent().child('startedBy').val() === auth.uid)",
@@ -1650,7 +1653,7 @@
      ".write": "auth != null && $to === auth.uid && !newData.exists()",
      "$from": {
       "$pid": {
-       ".write": "auth != null && $from === auth.uid && !data.exists() && root.child('calls').child($scope).child('id').exists() && (($scope.beginsWith('dm_') && root.child('dms').child($scope.replace('dm_','')).child('members').child(auth.uid).val() === true) || ($scope.beginsWith('grp_') && root.child('groups').child($scope.replace('grp_','')).child('members').child(auth.uid).exists())) && (($scope.beginsWith('dm_') && root.child('dms').child($scope.replace('dm_','')).child('members').child($to).val() === true) || ($scope.beginsWith('grp_') && root.child('groups').child($scope.replace('grp_','')).child('members').child($to).exists()))",
+       ".write": "auth != null && (($to === auth.uid && !newData.exists()) || ($from === auth.uid && !data.exists() && root.child('calls').child($scope).child('id').exists() && (($scope.beginsWith('dm_') && root.child('dms').child($scope.replace('dm_','')).child('members').child(auth.uid).val() === true) || ($scope.beginsWith('grp_') && root.child('groups').child($scope.replace('grp_','')).child('members').child(auth.uid).exists())) && (($scope.beginsWith('dm_') && root.child('dms').child($scope.replace('dm_','')).child('members').child($to).val() === true) || ($scope.beginsWith('grp_') && root.child('groups').child($scope.replace('grp_','')).child('members').child($to).exists()))))",
        ".validate": "newData.hasChildren(['iv','ct','ts'])",
        "iv": {
         ".validate": "newData.isString() && newData.val().length <= 24"
@@ -1674,13 +1677,15 @@
   },
   "vsignal": {
    "$sid": {
+    ".write": "auth != null && !newData.exists() && !newData.parent().parent().child('servers/' + $sid).exists()",
     "$cid": {
+     ".write": "auth != null && !newData.exists() && !newData.parent().parent().parent().child('servers/' + $sid + '/channels/' + $cid).exists()",
      "$to": {
       ".read": "auth != null && $to === auth.uid",
       ".write": "auth != null && $to === auth.uid && !newData.exists()",
       "$from": {
        "$pid": {
-        ".write": "auth != null && $from === auth.uid && !data.exists() && root.child('vcalls').child($sid).child($cid).child('id').exists() && !(root.child('servers').child($sid).child('timeouts').child(auth.uid).isNumber() && root.child('servers').child($sid).child('timeouts').child(auth.uid).val() > now) && (root.child('servers').child($sid).child('members').child(auth.uid).exists() && root.child('servers').child($sid).child('channels').child($cid).child('type').val() === 'voice') && (root.child('servers').child($sid).child('members').child($to).exists() && root.child('servers').child($sid).child('channels').child($cid).child('type').val() === 'voice')",
+        ".write": "auth != null && (($to === auth.uid && !newData.exists()) || ($from === auth.uid && !data.exists() && root.child('vcalls').child($sid).child($cid).child('id').exists() && !(root.child('servers').child($sid).child('timeouts').child(auth.uid).isNumber() && root.child('servers').child($sid).child('timeouts').child(auth.uid).val() > now) && (root.child('servers').child($sid).child('members').child(auth.uid).exists() && root.child('servers').child($sid).child('channels').child($cid).child('type').val() === 'voice') && (root.child('servers').child($sid).child('members').child($to).exists() && root.child('servers').child($sid).child('channels').child($cid).child('type').val() === 'voice')))",
         ".validate": "newData.hasChildren(['iv','ct','ts'])",
         "iv": {
          ".validate": "newData.isString() && newData.val().length <= 24"
@@ -1708,7 +1713,7 @@
     ".read": "$uid === auth.uid",
     ".write": "$uid === auth.uid && !newData.exists()",
     "$nid": {
-     ".write": "($uid === auth.uid && data.exists() && !newData.exists()) || (!data.exists() && newData.child('from').val() === auth.uid && $uid !== auth.uid && newData.parent().parent().parent().child('notifLog').child(auth.uid).child($uid).val() === now && !root.child('blocks').child($uid).child(auth.uid).exists() && (((newData.child('kind').val() === 'mention' || newData.child('kind').val() === 'reply' || (newData.child('kind').val() === 'roleChange' && (root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child(auth.uid).child('role').val() === 'admin' || (root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child(auth.uid).child('roleId').isString() && root.child('servers').child(newData.child('ref').child('sid').val()).child('roles').child(root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageRoles').val() === true)))) && root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child(auth.uid).exists() && root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child($uid).exists()) || ((newData.child('kind').val() === 'dm' || newData.child('kind').val() === 'call') && newData.child('ref').child('dmId').exists() && (newData.child('ref').child('dmId').val().beginsWith(auth.uid + '_') || newData.child('ref').child('dmId').val().endsWith('_' + auth.uid)) && (newData.child('ref').child('dmId').val().beginsWith($uid + '_') || newData.child('ref').child('dmId').val().endsWith('_' + $uid))) || (newData.child('kind').val() === 'call' && newData.child('ref').child('gid').exists() && root.child('groups').child(newData.child('ref').child('gid').val()).child('members').child(auth.uid).exists() && root.child('groups').child(newData.child('ref').child('gid').val()).child('members').child($uid).exists()) || (newData.child('kind').val() === 'groupAdd' && root.child('groups').child(newData.child('ref').child('gid').val()).child('meta').child('ownerId').val() === auth.uid && newData.parent().parent().parent().child('groups').child(newData.child('ref').child('gid').val()).child('members').child($uid).exists()) || (newData.child('kind').val() === 'friendReq' && newData.parent().parent().parent().child('friends').child($uid).child(auth.uid).child('state').val() === 'in') || (newData.child('kind').val() === 'gameLike' && newData.child('ref').child('gameId').isString() && root.child('games').child(newData.child('ref').child('gameId').val()).child('ownerId').val() === $uid && newData.parent().parent().parent().child('gameLikes').child(newData.child('ref').child('gameId').val()).child(auth.uid).val() === true) || (newData.child('kind').val() === 'announcement' && root.child('admins').child(auth.uid).exists())))",
+     ".write": "($uid === auth.uid && data.exists() && !newData.exists()) || (!data.exists() && newData.child('from').val() === auth.uid && $uid !== auth.uid && newData.parent().parent().parent().child('notifLog').child(auth.uid).child($uid).val() === now && !root.child('blocks').child($uid).child(auth.uid).exists() && ((newData.child('ref').child('sid').exists() && (newData.child('kind').val() === 'mention' || newData.child('kind').val() === 'reply' || (newData.child('kind').val() === 'roleChange' && (root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child(auth.uid).child('role').val() === 'owner' || root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child(auth.uid).child('role').val() === 'admin' || (root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child(auth.uid).child('roleId').isString() && root.child('servers').child(newData.child('ref').child('sid').val()).child('roles').child(root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child(auth.uid).child('roleId').val()).child('perms').child('manageRoles').val() === true)))) && root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child(auth.uid).exists() && root.child('servers').child(newData.child('ref').child('sid').val()).child('members').child($uid).exists()) || ((newData.child('kind').val() === 'dm' || newData.child('kind').val() === 'call') && newData.child('ref').child('dmId').exists() && (newData.child('ref').child('dmId').val().beginsWith(auth.uid + '_') || newData.child('ref').child('dmId').val().endsWith('_' + auth.uid)) && (newData.child('ref').child('dmId').val().beginsWith($uid + '_') || newData.child('ref').child('dmId').val().endsWith('_' + $uid))) || ((newData.child('kind').val() === 'call' || newData.child('kind').val() === 'mention' || newData.child('kind').val() === 'reply') && newData.child('ref').child('gid').exists() && root.child('groups').child(newData.child('ref').child('gid').val()).child('members').child(auth.uid).exists() && root.child('groups').child(newData.child('ref').child('gid').val()).child('members').child($uid).exists()) || (newData.child('kind').val() === 'groupAdd' && root.child('groups').child(newData.child('ref').child('gid').val()).child('meta').child('ownerId').val() === auth.uid && newData.parent().parent().parent().child('groups').child(newData.child('ref').child('gid').val()).child('members').child($uid).exists()) || (newData.child('kind').val() === 'friendReq' && newData.parent().parent().parent().child('friends').child($uid).child(auth.uid).child('state').val() === 'in') || (newData.child('kind').val() === 'gameLike' && newData.child('ref').child('gameId').isString() && root.child('games').child(newData.child('ref').child('gameId').val()).child('ownerId').val() === $uid && newData.parent().parent().parent().child('gameLikes').child(newData.child('ref').child('gameId').val()).child(auth.uid).val() === true) || (newData.child('kind').val() === 'announcement' && root.child('admins').child(auth.uid).exists())))",
      ".validate": "newData.hasChildren(['kind', 'from', 'ts']) && (data.exists() || newData.child('ts').val() === now)",
      "kind": {
       ".validate": "newData.isString() && newData.val().matches(/^(mention|reply|dm|groupAdd|friendReq|roleChange|gameLike|call|announcement)$/)"
@@ -1924,7 +1929,9 @@
   },
   "lastPost": {
    "$sid": {
+    ".write": "auth != null && !newData.exists() && !newData.parent().parent().child('servers/' + $sid).exists()",
     "$cid": {
+     ".write": "auth != null && !newData.exists() && !newData.parent().parent().parent().child('servers/' + $sid + '/channels/' + $cid).exists()",
      "$uid": {
       ".read": "$uid === auth.uid",
       ".write": "$uid === auth.uid && newData.exists() && root.child('servers').child($sid).child('members').child(auth.uid).exists()",
@@ -1936,7 +1943,9 @@
   "votes": {
    "ch": {
     "$sid": {
+     ".write": "auth != null && !newData.exists() && !newData.parent().parent().parent().child('servers/' + $sid).exists()",
      "$cid": {
+      ".write": "auth != null && !newData.exists() && !newData.parent().parent().parent().parent().child('servers/' + $sid + '/channels/' + $cid).exists()",
       "$mid": {
        ".read": "auth != null && root.child('servers').child($sid).child('members').child(auth.uid).exists() && root.child('servers').child($sid).child('channels').child($cid).exists()",
        "$uid": {
@@ -1960,6 +1969,7 @@
    },
    "grp": {
     "$gid": {
+     ".write": "auth != null && !newData.exists() && !newData.parent().parent().parent().child('groups/' + $gid).exists()",
      "$mid": {
       ".read": "auth != null && root.child('groups').child($gid).child('members').child(auth.uid).exists()",
       "$uid": {

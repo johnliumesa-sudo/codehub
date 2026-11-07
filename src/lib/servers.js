@@ -14,6 +14,7 @@ import {
 } from './crypto.js';
 import { cacheServerKey, getPublicKey, getServerKey, importInviteKey, wrapServerKeyFor } from './keystore.js';
 import { AVATAR_COLORS } from './profiles.js';
+import { deliverNotif } from './notifSend.js';
 
 export const SERVER_COLORS = AVATAR_COLORS;
 export const MAX_SERVER_NAME = 64;
@@ -139,13 +140,33 @@ export async function updateServer(sid, { name, color }) {
 
 // Owner only. Removes the server tree, its messages and collab data, and my index entry.
 // Other members' userServers entries become stale; their clients show the server as unavailable.
+// Server data kept outside servers/{sid}. The rules let anyone clear these once the server (or, per
+// channel, the channel) is gone, so they go in the same update that deletes it.
+const serverSidePaths = (sid) => [`emotes/${sid}`, `vcalls/${sid}`, `vsignal/${sid}`, `lastPost/${sid}`, `votes/ch/${sid}`];
+const channelSidePaths = (sid, cid) => [`vcalls/${sid}/${cid}`, `vsignal/${sid}/${cid}`, `lastPost/${sid}/${cid}`, `votes/ch/${sid}/${cid}`];
+
+// Attachments are keyed by ids inside the encrypted messages; remove them while the messages (and my
+// membership, which the rules check) still exist. Best effort.
+async function purgeChannelAttachments(sid, cids) {
+  const { purgeConversationAttachments } = await import('./media/cleanup.js');
+  for (const cid of cids) await purgeConversationAttachments({ kind: 'channel', sid, cid });
+}
+
 export async function deleteServer(sid, uid) {
+  let cids = [];
+  try {
+    cids = Object.keys((await get(ref(db, `servers/${sid}/channels`))).val() || {});
+  } catch {
+    /* not readable: nothing to purge */
+  }
+  await purgeChannelAttachments(sid, cids).catch(() => {});
   await update(ref(db), {
     [`messages/${sid}`]: null,
     [`collab/${sid}`]: null,
     [`audit/${sid}`]: null,
     [`servers/${sid}`]: null,
     [`userServers/${uid}/${sid}`]: null,
+    ...Object.fromEntries(serverSidePaths(sid).map((p) => [p, null])),
   });
 }
 
@@ -164,9 +185,10 @@ export function forgetServer(sid, uid) {
 
 // ---------- Members ----------
 
-export function setMemberRole(sid, uid, role) {
+export async function setMemberRole(sid, uid, role) {
   if (role !== 'admin' && role !== 'member') throw new Error('Invalid role');
-  return set(ref(db, `servers/${sid}/members/${uid}/role`), role);
+  await set(ref(db, `servers/${sid}/members/${uid}/role`), role);
+  deliverNotif({ to: uid, kind: 'roleChange', ref: { sid } });
 }
 
 // Kick/ban also drop the target's userServers index entry in the same atomic write, so the server
@@ -349,10 +371,12 @@ export async function updateChannel(sid, cid, { name, topic }) {
 }
 
 export async function deleteChannel(sid, cid) {
+  await purgeChannelAttachments(sid, [cid]).catch(() => {});
   await update(ref(db), {
     [`messages/${sid}/${cid}`]: null,
     [`collab/${sid}/${cid}`]: null,
     [`servers/${sid}/channels/${cid}`]: null,
+    ...Object.fromEntries(channelSidePaths(sid, cid).map((p) => [p, null])),
   });
 }
 

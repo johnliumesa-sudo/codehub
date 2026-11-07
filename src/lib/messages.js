@@ -75,21 +75,8 @@ export function getConvKey(conv) {
   return conv.kind === 'dm' ? getDmKey(conv.dmId, conv.peerUid) : getServerKey(conv.sid);
 }
 
-// ---------- Reaction keys ----------
-// RTDB keys can't hold some characters, so reactions are keyed by the emoji's code points
-// in lowercase hex joined with '-' (e.g. "1f44d", "2764-fe0f"). Plaintext by design.
-
-export function emojiKey(native) {
-  return Array.from(native, (ch) => ch.codePointAt(0).toString(16)).join('-');
-}
-
-export function emojiFromKey(key) {
-  try {
-    return String.fromCodePoint(...key.split('-').map((h) => parseInt(h, 16)));
-  } catch {
-    return '?';
-  }
-}
+// ---------- Reaction keys (lib/reactions.js) ----------
+export { emojiKey, emojiFromKey, emoteFromKey, reactionKey } from './reactions.js';
 
 // ---------- Body validation ----------
 

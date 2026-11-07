@@ -12,6 +12,7 @@ import { onValue, push, ref, remove, serverTimestamp, set, update } from 'fireba
 import { db } from './firebase.js';
 import { decryptText, encryptText } from './crypto.js';
 import * as keystore from './keystore.js';
+import { deliverNotif } from './notifSend.js';
 
 export const PERMS = ['manageChannels', 'manageInvites', 'kick', 'ban', 'manageMessages', 'manageRoles', 'timeout', 'viewAudit', 'manageEmotes'];
 
@@ -379,8 +380,9 @@ export async function deleteRole(sid, rid, members, me, roles) {
   }
 }
 
-/** Sets (rid) or clears (null) a member's custom role. */
-export function assignRole(sid, uid, rid) {
+/** Sets (rid) or clears (null) a member's custom role, then tells them (bell: "changed your role"). */
+export async function assignRole(sid, uid, rid) {
   const r = ref(db, `servers/${sid}/members/${uid}/roleId`);
-  return rid ? set(r, rid) : remove(r);
+  await (rid ? set(r, rid) : remove(r));
+  deliverNotif({ to: uid, kind: 'roleChange', ref: { sid } });
 }
