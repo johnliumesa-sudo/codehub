@@ -219,6 +219,12 @@
 
 .composer-suggest { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); background: var(--bg-1); border: 1px solid var(--border); border-radius: 12px; padding: 6px; box-shadow: 0 -10px 30px rgba(0,0,0,.35); z-index: 20; animation: chat-pop .1s ease-out; }
 .composer-suggest-title { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); font-weight: 600; padding: 4px 8px 6px; }
+/* Every matching slash command is listed: the box scrolls (the active row is kept in view). */
+.composer-suggest { max-height: min(340px, 45vh); overflow-y: auto; overscroll-behavior: contain; }
+.composer-suggest-title { position: sticky; top: -6px; z-index: 1; background: var(--bg-1); margin: -6px -6px 0; padding: 10px 14px 6px; }
+.composer-suggest-group + .composer-suggest-group { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+.composer-suggest .suggest-item { scroll-margin-top: 30px; scroll-margin-bottom: 4px; }
+.composer-suggest-group-title { font-size: 11px; color: var(--text-faint); font-weight: 600; padding: 4px 8px 2px; }
 .suggest-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: transparent; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
 .suggest-item.active { background: var(--bg-hover); }
 .suggest-emoji { font-size: 18px; width: 22px; text-align: center; }

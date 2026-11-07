@@ -11,7 +11,7 @@ import { GifPicker, useGifEnabled } from '../media/GifPicker.jsx';
 import { uploadAttachments } from '../../lib/media/attachments.js';
 import { useRegistry } from '../../lib/ext/registry.js';
 import { MentionStatus } from '../../features/personal/components/StatusBits.jsx';
-import { commandsFor, matchCommands, parseSlash } from '../../lib/ext/send.js';
+import { SLASH_GROUPS, commandGroup, commandsFor, matchCommands, parseSlash } from '../../lib/ext/send.js';
 import { ComposerExtButtons } from '../ext/ChatExt.jsx';
 
 const TYPING_THROTTLE = 3000;
@@ -109,9 +109,11 @@ const Composer = forwardRef(function Composer(props, ref) {
   const suggestions = useMemo(() => {
     if (!trigger) return [];
     if (trigger.kind === 'slash') {
-      return matchCommands(trigger.query, conv?.kind || 'channel', slashCmds).slice(0, 8).map((c) => ({
+      // Every matching command (the list scrolls), grouped: built-in, features, this server's bots.
+      return matchCommands(trigger.query, conv?.kind || 'channel', slashCmds).map((c) => ({
         id: `slash:${c.name}`,
         slash: true,
+        group: commandGroup(c),
         name: c.name,
         label: `/${c.name}`,
         args: typeof c.args === 'string' ? c.args : '',
@@ -141,7 +143,16 @@ const Composer = forwardRef(function Composer(props, ref) {
     return list;
   }, [trigger, members, allowEveryone, emotes, conv?.kind, slashCmds]);
 
-  useEffect(() => { setSel(0); }, [trigger?.kind, trigger?.query]);
+  // A fully typed command name starts selected (Enter runs it), else the first entry.
+  useEffect(() => {
+    const exact = trigger?.kind === 'slash' ? suggestions.findIndex((s) => s.name === trigger.query) : -1;
+    setSel(exact > 0 ? exact : 0);
+  }, [trigger?.kind, trigger?.query]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Keep the active row visible while arrowing through a long (scrolling) list.
+  const suggestOpen = !!trigger && suggestions.length > 0;
+  useEffect(() => {
+    if (suggestOpen) document.getElementById(`${listId}-${sel}`)?.scrollIntoView({ block: 'nearest' });
+  }, [suggestOpen, sel, listId]);
 
   const updateTrigger = (val, caret) => setTrigger(findTrigger(val, caret, !!conv));
 
@@ -262,6 +273,26 @@ const Composer = forwardRef(function Composer(props, ref) {
 
   const over = value.trim().length > MAX_TEXT;
 
+  const renderSuggestion = (s, i) => (
+    <button
+      type="button"
+      key={s.id}
+      id={`${listId}-${i}`}
+      tabIndex={-1}
+      role="option"
+      aria-selected={i === sel}
+      className={`suggest-item${i === sel ? ' active' : ''}`}
+      onMouseEnter={() => setSel(i)}
+      onMouseDown={(e) => { e.preventDefault(); applySuggestion(s); }}
+    >
+      {s.slash ? <span className="suggest-slash" aria-hidden="true">/</span> : s.img ? <img className="suggest-emoji md-emote" src={s.img} alt="" width={22} height={22} /> : s.icon ? <span className="suggest-emoji">{s.icon}</span> : s.profile ? <Avatar profile={s.profile} size={22} /> : <span className="suggest-at">@</span>}
+      <span className="suggest-label">{s.label}</span>
+      {s.profile && <MentionStatus uid={s.id} />}
+      {s.slash && s.args && <span className="suggest-args">{s.args}</span>}
+      {s.hint && <span className={`suggest-hint${s.slash ? ' slash' : ''}`}>{s.hint}</span>}
+    </button>
+  );
+
   return (
     <div className={`composer${disabled ? ' disabled' : ''}`}>
       {conv && <AttachmentTray files={draft.files} progress={draft.progress} onRemove={draft.remove} notice={upErr || draft.notice} busy={sending} />}
@@ -291,25 +322,18 @@ const Composer = forwardRef(function Composer(props, ref) {
           aria-label={trigger.kind === 'slash' ? 'Commands' : trigger.kind === 'emoji' ? 'Emoji' : 'Members'}
         >
           <div className="composer-suggest-title">{trigger.kind === 'slash' ? 'Commands' : trigger.kind === 'emoji' ? `Emoji matching :${trigger.query}` : 'Members'}</div>
-          {suggestions.map((s, i) => (
-            <button
-              type="button"
-              key={s.id}
-              id={`${listId}-${i}`}
-              tabIndex={-1}
-              role="option"
-              aria-selected={i === sel}
-              className={`suggest-item${i === sel ? ' active' : ''}`}
-              onMouseEnter={() => setSel(i)}
-              onMouseDown={(e) => { e.preventDefault(); applySuggestion(s); }}
-            >
-              {s.slash ? <span className="suggest-slash" aria-hidden="true">/</span> : s.img ? <img className="suggest-emoji md-emote" src={s.img} alt="" width={22} height={22} /> : s.icon ? <span className="suggest-emoji">{s.icon}</span> : s.profile ? <Avatar profile={s.profile} size={22} /> : <span className="suggest-at">@</span>}
-              <span className="suggest-label">{s.label}</span>
-              {s.profile && <MentionStatus uid={s.id} />}
-              {s.slash && s.args && <span className="suggest-args">{s.args}</span>}
-              {s.hint && <span className={`suggest-hint${s.slash ? ' slash' : ''}`}>{s.hint}</span>}
-            </button>
-          ))}
+          {trigger.kind === 'slash'
+            ? SLASH_GROUPS.map((g) => {
+              const rows = suggestions.map((s, i) => [s, i]).filter(([s]) => s.group === g.id);
+              if (!rows.length) return null;
+              return (
+                <div key={g.id} role="group" aria-labelledby={`${listId}-g-${g.id}`} className="composer-suggest-group">
+                  <div id={`${listId}-g-${g.id}`} className="composer-suggest-group-title" role="presentation">{g.label}</div>
+                  {rows.map(([s, i]) => renderSuggestion(s, i))}
+                </div>
+              );
+            })
+            : suggestions.map((s, i) => renderSuggestion(s, i))}
         </div>
       )}
 

@@ -30,13 +30,40 @@ test('slash menu, message action, chat panel and body extras', async ({ users })
   await registerTestEntries(alice);
   const box = alice.locator('textarea[aria-label^="Message"]');
 
-  // Slash autocomplete: "/" lists commands; keyboard selects; Tab completes; Enter runs the command.
+  // Slash autocomplete: "/" lists every command here, grouped (built-in, features, server bots) in a
+  // scrolling list; arrows keep the active row in view; Tab completes; Enter runs the command.
   await box.fill('/');
   const menu = alice.getByRole('listbox', { name: 'Commands' });
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole('option', { name: /\/help/ })).toBeVisible();
-  await expect(menu.getByRole('option', { name: /\/shout/ })).toBeVisible();
+  const expected = await alice.evaluate(() => {
+    const seen = new Set();
+    return window.__codehubTestExt.list('slashCommands').filter((c) => {
+      const ok = typeof c.run === 'function' && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(c.name || '') && (!c.scopes?.length || c.scopes.includes('channel')) && !seen.has(c.name);
+      if (ok) seen.add(c.name);
+      return ok;
+    }).length;
+  });
+  expect(expected).toBeGreaterThan(8);
+  await expect(menu.getByRole('option')).toHaveCount(expected);
+  await expect(menu.getByRole('group', { name: 'Built-in' }).getByRole('option').first()).toHaveText(/\/help/);
+  await expect(menu.getByRole('group', { name: 'Features' }).getByRole('option', { name: /\/shout/ })).toHaveCount(1);
+  await expect(menu.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+  // ArrowUp wraps to the last command, which is scrolled into view inside the list.
+  await box.press('ArrowUp');
+  const lastOpt = menu.getByRole('option').last();
+  await expect(lastOpt).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(() => menu.evaluate((el) => {
+    const a = el.querySelector('[aria-selected="true"]').getBoundingClientRect();
+    const b = el.getBoundingClientRect();
+    return el.scrollHeight > el.clientHeight && a.top >= b.top && a.bottom <= b.bottom + 1;
+  })).toBe(true);
+  await box.press('ArrowDown');
+  await expect(menu.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+  // "/sh": the built-in /shrug comes first, the feature command /shout after it.
   await box.pressSequentially('sh');
+  await expect(menu.getByRole('option').first()).toHaveText(/\/shrug/);
+  await expect(menu.getByRole('option', { name: /\/shrug/ })).toHaveAttribute('aria-selected', 'true');
+  await box.press('ArrowDown');
   await expect(menu.getByRole('option', { name: /\/shout/ })).toHaveAttribute('aria-selected', 'true');
   await box.press('Tab');
   await expect(box).toHaveValue('/shout ');

@@ -23,7 +23,7 @@ for (const cmd of BUILTIN_COMMANDS) {
       if (!(await gifsEnabled())) return { cancel: true, reason: 'GIFs are not set up on this Codehub (an app admin adds a GIPHY key).' };
       return cmd.run(args, ctx);
     };
-  register('slashCommands', { ...cmd, id: `bots.${cmd.name}`, order: 50, run });
+  register('slashCommands', { ...cmd, id: `bots.${cmd.name}`, group: 'builtin', order: 50, run });
 }
 
 // Readers: the bot line in the message header, and the "used /roll" note under the body.

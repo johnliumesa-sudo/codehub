@@ -88,13 +88,30 @@ export function commandsFor(kind, commands = list('slashCommands')) {
   });
 }
 
-/** Autocomplete matches for the partial name typed after "/" (prefix first, then substring). */
+/**
+ * Slash menu groups, in display order: `builtin` (core and always-available chat commands), `feature`
+ * (commands a feature adds; the default) and `bot` (commands of the bots installed in this server).
+ */
+export const SLASH_GROUPS = [
+  { id: 'builtin', label: 'Built-in' },
+  { id: 'feature', label: 'Features' },
+  { id: 'bot', label: 'Bots in this server' },
+];
+const GROUP_RANK = Object.fromEntries(SLASH_GROUPS.map((g, i) => [g.id, i]));
+/** A command's slash menu group id (unknown or missing `group` -> 'feature'). */
+export const commandGroup = (cmd) => (cmd?.group === 'builtin' || cmd?.group === 'bot' ? cmd.group : 'feature');
+
+/**
+ * Autocomplete matches for the partial name typed after "/": every match, grouped (built-in, features,
+ * server bots), and within a group names starting with the query before names containing it.
+ */
 export function matchCommands(query, kind, commands = list('slashCommands')) {
   const q = String(query || '').toLowerCase();
   const all = commandsFor(kind, commands);
   const pre = all.filter((c) => c.name.startsWith(q));
   const mid = q ? all.filter((c) => !c.name.startsWith(q) && c.name.includes(q)) : [];
-  return [...pre, ...mid].sort((a, b) => (a.name === q ? -1 : b.name === q ? 1 : 0));
+  // Array.prototype.sort is stable: prefix-before-substring and registration order survive.
+  return [...pre, ...mid].sort((a, b) => GROUP_RANK[commandGroup(a)] - GROUP_RANK[commandGroup(b)]);
 }
 
 /** The sendHooks entry that runs slash commands. */
@@ -137,5 +154,5 @@ export function installCoreExtensions() {
   if (installed) return;
   installed = true;
   register('sendHooks', slashHook);
-  register('slashCommands', { id: 'core.help', ...helpCommand });
+  register('slashCommands', { id: 'core.help', group: 'builtin', ...helpCommand });
 }

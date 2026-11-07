@@ -17,7 +17,8 @@ Rule bytes used: **0** (only the generic blocks `pub`, `sconf` and `udata`; no r
 
 ## 1. Slash commands and built-ins
 
-**Purpose.** `slashCommands` entries (all conversation kinds, order 50): `/shrug [text]`, `/tableflip [text]`,
+**Purpose.** `slashCommands` entries (all conversation kinds, order 50, `group: 'builtin'`, so the "/"
+menu lists them under "Built-in" with `/help`): `/shrug [text]`, `/tableflip [text]`,
 `/unflip [text]`, `/me <action>` (the action in italics), `/roll [NdM]` (default `1d6`, also `d20`,
 `2d6+3`; 1–100 dice, 2–1000 sides, modifier ±1000; posts e.g. "🎲 rolled 2d6: 3 + 5 = **8**"),
 `/flip` (heads or tails), `/spoiler <text>` (a `||spoiler||`), `/poll` (opens the existing poll
@@ -90,10 +91,11 @@ are escaped too (a bot never mass-pings). Output is capped at 4000 characters an
   `ver` starts at 1 and increases with every saved edit. `img` is base64 WebP/JPEG/PNG from the
   shared image pipeline (`processImage`: re-encoded, metadata stripped, ≤ 128 px, ≤ 14 KB so it fits a
   20000-char leaf), `imgType` its MIME type.
-- Reports use the existing `reports` flow (`submitReport`, one per 30 s, app admins only). The reports
-  rules accept only the kinds `game|user|shopItem|message`, so a bot is reported as kind `user` with
-  `target` = the publisher's uid and the note prefixed `[bot pub/bots/{botId} “Name” vN]`. (A
-  dedicated `bot` kind would need a small rules change; not made, budget 0.)
+- Reports use the existing `reports` flow (`submitReport`, one per 30 s, app admins only) with kind
+  `bot`, `target` = the bot id (`pub/bots/{botId}`) and the note prefixed with the reported version
+  (`[vN]`). The admin reports queue shows the bot (avatar, name, version, publisher) and a "Remove bot"
+  action through a `reportTargets` entry (`components/AdminReport.jsx`). The integration pass added the
+  kind to the rules; earlier bot reports (kind `user`, target = the publisher) still show as user reports.
 
 **AAD strings.** None: directory entries are public plaintext by design (like games and shop items);
 anyone signed in can read every bot definition. The builder says so.
@@ -120,7 +122,7 @@ keeps working), and uninstall.
 In the server's channels (the composer host, a `composerButtons` render entry that draws nothing
 itself):
 - **Commands**: each installed bot's commands are registered as `slashCommands` (scope `channel`,
-  order 100+, so built-in commands, other features' commands and earlier installs win a name) while a channel of that server is open, and
+  `group: 'bot'`, listed last in the "/" menu under "Bots in this server", order 100+, so built-in commands, other features' commands and earlier installs win a name) while a channel of that server is open, and
   unregistered when it closes. Running one turns the member's message into the bot's reply: body
   `extra.bot = { id, name, glyph, via: 'cmd' }` and `cmd = name`.
 - **Keyword triggers** (`sendHooks` id `bots.triggers`, order 1e6 so it sees the final text): when my

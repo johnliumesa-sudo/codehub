@@ -46,6 +46,7 @@ function useBotCommands(sid, installed) {
           args: cmd.usage || undefined,
           description: `${cmd.desc || 'Bot command'} · ${bot.def.name} (bot)`,
           scopes: ['channel'],
+          group: 'bot',
           order: order++,
           async run(args, ctx) {
             if (ctx?.conv?.kind !== 'channel' || ctx.conv.sid !== sid) return { cancel: true, reason: `/${cmd.name} only works in this bot's server.` };

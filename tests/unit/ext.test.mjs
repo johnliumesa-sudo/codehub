@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { _resetRegistries, get, list, register, subscribe, unregister } from '../../src/lib/ext/registry.js';
 import {
-  CORE_BODY_KEYS, commandsFor, draftToBody, helpCommand, matchCommands, parseSlash, pickExtras, runSendHooks, slashHook,
+  CORE_BODY_KEYS, SLASH_GROUPS, commandGroup, commandsFor, draftToBody, helpCommand, matchCommands, parseSlash, pickExtras, runSendHooks, slashHook,
 } from '../../src/lib/ext/send.js';
 import { exprVars, looseEq, minifyRules, renameVars, squeeze, wildcardMap } from '../../scripts/minify-rules.mjs';
 import { portsFor, portBase } from '../../scripts/test-ports.mjs';
@@ -91,6 +91,25 @@ test('slash commands: parsing, matching by scope, running through the first hook
   assert.deepEqual(matchCommands('re', 'channel', cmds).map((c) => c.name), ['remind']);
   assert.deepEqual(matchCommands('', 'group', cmds).map((c) => c.name), ['roll', 'help']);
   assert.deepEqual(matchCommands('el', 'group', cmds).map((c) => c.name), ['help'], 'substring matches come after prefixes');
+
+  // Every match is returned (no cap), grouped built-in -> features -> server bots; within a group,
+  // prefix matches before substring matches, otherwise registration order.
+  const many = [
+    { name: 'zbot', group: 'bot', run: () => null },
+    { name: 'ask', run: () => null },
+    { name: 'help', group: 'builtin', run: () => null },
+    ...Array.from({ length: 12 }, (_, i) => ({ name: `f${i}`, group: 'nonsense', run: () => null })),
+    { name: 'shrug', group: 'builtin', run: () => null },
+    { name: 'shout', run: () => null },
+    { name: 'fish', group: 'bot', run: () => null },
+  ];
+  const all = matchCommands('', 'channel', many);
+  assert.equal(all.length, many.length);
+  assert.deepEqual(all.map(commandGroup), [...Array(2).fill('builtin'), ...Array(14).fill('feature'), ...Array(2).fill('bot')]);
+  assert.deepEqual(all.slice(0, 3).map((c) => c.name), ['help', 'shrug', 'ask']);
+  assert.deepEqual(matchCommands('sh', 'channel', many).map((c) => c.name), ['shrug', 'shout', 'fish']);
+  assert.deepEqual(matchCommands('f1', 'channel', many).map((c) => c.name), ['f1', 'f10', 'f11']);
+  assert.deepEqual(SLASH_GROUPS.map((g) => g.id), ['builtin', 'feature', 'bot']);
 
   _resetRegistries();
   for (const c of cmds) register('slashCommands', c);
