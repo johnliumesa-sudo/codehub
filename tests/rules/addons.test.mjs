@@ -2,7 +2,7 @@
 // (publish, edit, unpublish, admin removal, personal installs with pinned copies, sealed storage,
 // consent, server installs) plus the report filed for an add-on.
 import { describe, it, before, after, beforeEach } from 'node:test';
-import { getEnv, cleanup, reset, db, box, TS, assertFails, assertSucceeds } from './helpers.mjs';
+import { getEnv, cleanup, reset, db, admin, box, TS, pubStamp, assertFails, assertSucceeds } from './helpers.mjs';
 import { packChunks } from '../../src/features/addons/lib/chunks.js';
 
 const ok = assertSucceeds, deny = assertFails;
@@ -10,12 +10,16 @@ const SHA = 'ab'.repeat(32);
 const SHA2 = 'cd'.repeat(32);
 const manifest = (by, extra = {}) => ({ name: 'Timer', icon: '⏱', version: '1.0.0', perms: 'storage', sha: SHA, size: 10, by, ts: TS, ...extra });
 const codeRec = (by, code = '<p>hi</p>', sha = SHA) => ({ code, sha, by, ts: TS });
-const publish = (uid, id, m = manifest(uid), c = codeRec(uid)) => db(uid).ref().update({ [`pub/addons/${id}`]: m, [`pub/addonCode/${id}`]: c });
+// As publishAddon writes it: a new add-on also stamps the shared publish window (bound to its id).
+const publish = (uid, id, m = manifest(uid), c = codeRec(uid), stamp = true) => db(uid).ref().update({
+  [`pub/addons/${id}`]: m, [`pub/addonCode/${id}`]: c, ...(stamp ? pubStamp(uid, id) : {}),
+});
 const appsRole = { nameEnc: box, color: '#00ff00', position: 40, perms: { manageApps: true }, createdAt: 1 };
 
 const seed = (w) => {
   w.servers.s1.roles.rApps = appsRole;
   w.servers.s1.members.erin.roleId = 'rApps';
+  w.publishLog.erin = Date.now() - 120000; // outside the one-per-minute publish window
   w.pub = {
     addons: { a1: { name: 'Clock', icon: '🕐', version: '1.0.0', sha: SHA, size: 9, by: 'dave', ts: 1 } },
     addonCode: { a1: { code: '<p>hi</p>', sha: SHA, by: 'dave', ts: 1 } },
@@ -31,6 +35,7 @@ describe('add-ons', () => {
   describe('directory (pub/addons + pub/addonCode)', () => {
     it('ALLOW publishing manifest + code in one update (64 KB of code)', async () => {
       await ok(publish('erin', 'a2'));
+      await admin((d) => d.ref('publishLog/erin').remove()); // the next create would be inside the window
       await ok(publish('erin', 'a3', manifest('erin', { desc: 'd'.repeat(500), seed: 'pomodoro' }), codeRec('erin', 'x'.repeat(65536))));
       await ok(db('mallory').ref('pub/addons').orderByChild('ts').limitToLast(100).get());
       await ok(db('mallory').ref('pub/addons').orderByChild('by').equalTo('erin').get());
@@ -46,7 +51,7 @@ describe('add-ons', () => {
       await deny(publish('erin', 'a2', manifest('erin', { perms: { storage: true } }), codeRec('erin')));
     });
     it('ALLOW the publisher to replace both records; DENY anyone else (even with by = themselves)', async () => {
-      await ok(publish('dave', 'a1', manifest('dave', { version: '1.1.0', sha: SHA2 }), codeRec('dave', '<p>v2</p>', SHA2)));
+      await ok(publish('dave', 'a1', manifest('dave', { version: '1.1.0', sha: SHA2 }), codeRec('dave', '<p>v2</p>', SHA2), false));
       await deny(publish('erin', 'a1', manifest('erin', { sha: SHA2 }), codeRec('erin', '<p>evil</p>', SHA2)));
       await deny(db('erin').ref('pub/addonCode/a1').set(codeRec('erin', '<p>evil</p>')));
       await deny(db('erin').ref('pub/addonCode/a1').update({ code: '<p>evil</p>', ts: TS }));

@@ -2035,6 +2035,7 @@
    "$uid": {
     ".read": "$uid === auth.uid",
     ".write": "$uid === auth.uid",
+    ".validate": "newData.hasChildren()",
     "$feat": {
      ".validate": "$feat.matches(/^[a-z][a-zA-Z0-9]{0,23}$/) && newData.hasChildren()",
      "$key": {
@@ -2050,6 +2051,7 @@
    "$uid": {
     ".read": "auth != null",
     ".write": "$uid === auth.uid",
+    ".validate": "newData.hasChildren()",
     "$feat": {
      ".validate": "$feat.matches(/^[a-z][a-zA-Z0-9]{0,23}$/) && newData.hasChildren()",
      "$key": {
@@ -2087,7 +2089,7 @@
       ".write": "(!newData.exists() && (data.child('by').val() === auth.uid || root.child('servers').child($sid).child('members').child(auth.uid).child('role').val().matches(/^(owner|admin)$/) || root.child('servers/' + $sid + '/roles/' + root.child('servers/' + $sid + '/members/' + auth.uid + '/roleId').val() + '/perms/manageMessages').val() === true)) || (newData.child('by').val() === auth.uid && (!data.exists() || data.child('by').val() === auth.uid) && root.child('servers').child($sid).child('members').child(auth.uid).exists() && !(root.child('servers').child($sid).child('timeouts').child(auth.uid).isNumber() && root.child('servers').child($sid).child('timeouts').child(auth.uid).val() > now))",
       ".validate": "$id.length <= 128 && (!$feat.matches(/^(accepted|rsvp)$/) || $id.endsWith(auth.uid))",
       "$f": {
-       ".validate": "$f.length <= 64 && !newData.hasChildren() && (!newData.isString() || newData.val().length <= 20000)"
+       ".validate": "$f.matches(/^(by|iv|ct|s|v|ts)$/) && !newData.hasChildren() && (!newData.isString() || newData.val().length <= ($f === 'ct' ? 20000 : 200))"
       }
      }
     }
@@ -2102,9 +2104,9 @@
     ],
     "$id": {
      ".write": "$kind.matches(/^(bots|addons|addonCode|servers)$/) && ((!newData.exists() && (data.child('by').val() === auth.uid || root.child('admins').child(auth.uid).exists())) || (newData.child('by').val() === auth.uid && (!data.exists() || data.child('by').val() === auth.uid) && ($kind !== 'servers' || root.child('servers').child($id).child('meta').child('ownerId').val() === auth.uid)))",
-     ".validate": "newData.child('ts').val() === now",
+     ".validate": "newData.child('ts').val() === now && (data.exists() || root.child('admins').child(auth.uid).exists() || (newData.parent().parent().parent().child('publishLog').child(auth.uid).val() === now && root.child('publishLog').child(auth.uid).val() !== now && newData.parent().parent().parent().child('udata').child(auth.uid).child('pub').child('last').val() === $id))",
      "$f": {
-      ".validate": "$f.length <= 64 && !newData.hasChildren() && (!newData.isString() || newData.val().length <= 20000 || ($f === 'code' && newData.val().length <= 65536))"
+      ".validate": "$f.matches(/^(by|ts|name|desc|glyph|def|img|imgType|ver|created|icon|version|sha|size|perms|seed|code|tags|color|members|iid|k)$/) && !newData.hasChildren() && (!newData.isString() || newData.val().length <= ($f === 'code' ? 65536 : $f.matches(/^(def|img)$/) ? 20000 : 1000))"
      }
     }
    }

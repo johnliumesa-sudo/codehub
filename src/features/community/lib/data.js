@@ -6,7 +6,7 @@ import { useCallback, useMemo } from 'react';
 import { push, ref, remove, set, update } from 'firebase/database';
 import { db } from '../../../lib/firebase.js';
 import {
-  boxFits, myUid, openForMe, openForServer, putPub, sealForMe, sealForServer, updatePub, usePub,
+  boxFits, myUid, openForMe, openForServer, pubCreateWaitLeft, pubWaitText, putPub, sealForMe, sealForServer, updatePub, usePub,
 } from '../../../lib/ext/store.js';
 import { createInvite, inviteLink, parseInviteLink } from '../../../lib/servers.js';
 import { sendMessage } from '../../../lib/messages.js';
@@ -349,11 +349,15 @@ export async function publishListing(sid, form, { current = null, newInvite = fa
     await updatePub('servers', sid, fields);
     return current.iid;
   }
+  // A new listing is a pub create: one per minute per account (shared with bots, add-ons, games and
+  // shop items). Fail before creating its invite when this tab already knows it would be refused.
+  const wait = current ? 0 : pubCreateWaitLeft();
+  if (wait > 0) throw new Error(pubWaitText(wait));
   const iid = await createInvite(sid, me, { expiresInMs: 0, maxUses: 0 });
   try {
     const inv = parseInviteLink(await inviteLink(sid, iid));
     if (!inv?.key) throw new Error('Could not build the invite link');
-    await putPub('servers', sid, { ...fields, iid, k: inv.key });
+    await putPub('servers', sid, { ...fields, iid, k: inv.key }, { create: !current });
   } catch (e) {
     await remove(ref(db, `servers/${sid}/invites/${iid}`)).catch(() => {});
     throw e;

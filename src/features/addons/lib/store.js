@@ -13,7 +13,7 @@ import { useMemo } from 'react';
 import { get, push, ref, serverTimestamp, update } from 'firebase/database';
 import { db } from '../../../lib/firebase.js';
 import {
-  myUid, openForMe, pubPath, pubRef, sconfPath, sealForMe, udataPath, usePub, useSconf, useUdata,
+  commitPubCreate, myUid, openForMe, pubCreateStamp, pubPath, pubRef, sconfPath, sealForMe, udataPath, usePub, useSconf, useUdata,
 } from '../../../lib/ext/store.js';
 import { packChunks, unpackChunks } from './chunks.js';
 import { sha256Hex } from './hash.js';
@@ -29,8 +29,12 @@ const fail = (msg) => {
 
 // ---------- directory (pub) ----------
 
-/** Publish a new add-on (id omitted) or replace my existing one. value = validateDraft(...).value. */
-export async function publishAddon(id, value, { seed } = {}) {
+/**
+ * Publish a new add-on (id omitted) or replace my existing one. value = validateDraft(...).value.
+ * A new add-on stamps the shared one-per-minute publish window (pubCreateStamp); `stamp: false` is for
+ * app admins seeding the first-party examples (the rules exempt them).
+ */
+export async function publishAddon(id, value, { seed, stamp = true } = {}) {
   const uid = myUid();
   const sha = await sha256Hex(value.code);
   const addonId = id || push(pubRef('addons')).key;
@@ -47,10 +51,12 @@ export async function publishAddon(id, value, { seed } = {}) {
   const perms = permsToString(value.perms);
   if (perms) manifest.perms = perms;
   if (seed) manifest.seed = seed;
-  await update(ref(db), {
+  const patch = {
     [pubPath('addons', addonId)]: manifest,
     [pubPath('addonCode', addonId)]: { code: value.code, sha, by: uid, ts: serverTimestamp() },
-  });
+  };
+  if (id) await update(ref(db), patch);
+  else await commitPubCreate(stamp ? { ...patch, ...pubCreateStamp(addonId) } : patch);
   return { id: addonId, sha };
 }
 

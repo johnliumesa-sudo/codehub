@@ -31,7 +31,7 @@ export default function AdminAddonsTab({ me }) {
     try {
       const v = validateDraft(ex);
       if (!v.ok) throw new Error(Object.values(v.errors)[0]);
-      await publishAddon(existing?.id || null, v.value, { seed: ex.seed });
+      await publishAddon(existing?.id || null, v.value, { seed: ex.seed, stamp: false }); // app admins: no publish window
       setMsg({ text: `“${ex.name}” is in the directory.`, kind: 'ok' });
     } catch (e) {
       setMsg({ text: errText(e), kind: 'error' });

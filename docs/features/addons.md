@@ -150,8 +150,9 @@ owner-only `udata` or member-only `sconf` blocks.
 | Limit | Enforced by |
 |---|---|
 | Code ≤ 64 KB (65536 UTF-8 bytes; `code` ≤ 65536 chars) | builder + rules (`pub` `code` field) |
-| Name ≤ 48, icon ≤ 8, description ≤ 500, version `x.y.z` | builder + read-side validation (rules: strings ≤ 20000) |
+| Name ≤ 48, icon ≤ 8, description ≤ 500, version `x.y.z` | builder + read-side validation (rules: only the known `pub` field names, each ≤ 1000 chars except `code`) |
 | `ts` = server time on every `pub` write; only the publisher edits; publisher or app admin deletes | rules |
+| One new add-on per minute (shared with bots, server listings, games, shop items): a new add-on's update also stamps `publishLog/{me}` and `udata/{me}/pub/last` = its id; app admins seeding the examples are exempt (`publishAddon(…, { stamp: false })`) | rules (round 3 security fix R1) |
 | 20 published add-ons per user | UI only (rules can't count) |
 | Storage ≤ 32 KB of JSON per add-on (sealed, chunked into ≤ 16000-char fields) | bridge (rules: 20000 per field) |
 | `getMessages` ≤ 100, text ≤ 4000, ≤ 70 KB per call, 30-call burst / 10 per s, one send per 3 s | bridge |
