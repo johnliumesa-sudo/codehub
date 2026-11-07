@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 import { useProfiles } from '../../lib/profiles.js';
 import { useIsAppAdmin } from '../../lib/admin.js';
 import { DESC_MAX, TITLE_MAX, coverLetter, deleteGame, updateGame, useGames } from '../../lib/games.js';
+import { PYTHON_FIRST_LOAD, langLabel } from '../../lib/gameLangs/langs.js';
 import ReportButton from '../admin/ReportButton.jsx';
 import { Icon } from '../sandbox/icons.jsx';
 import GamePlayer, { LikeButton } from './GamePlayer.jsx';
@@ -141,6 +142,11 @@ function GameCard({ game, owner, me, isAdmin, onPlay, onEdit }) {
           <span title={game.updatedAt && game.updatedAt !== game.createdAt ? `Updated ${new Date(game.updatedAt).toLocaleString()}` : undefined}>
             {relTime(game.createdAt)}
           </span>
+          {game.lang && game.lang !== 'html' && (
+            <span className={`gm-lang gm-lang-${game.lang}`} title={game.lang === 'py' ? PYTHON_FIRST_LOAD : `Written in ${langLabel(game.lang)}`}>
+              {langLabel(game.lang)}
+            </span>
+          )}
         </div>
         {game.desc ? <p className="gm-card-desc" dir="auto">{game.desc}</p> : <p className="gm-card-desc empty">No description.</p>}
         {err && <p className="error-text gm-small">{err}</p>}
@@ -264,7 +270,8 @@ export default function GamesView({ me, openGameId, onOpenGameHandled, onMenu })
               <>
                 <p>You haven’t published a game yet.</p>
                 <p className="muted gm-small">
-                  Build one in any workspace (an <code>index.html</code> plus scripts and styles), then press <b>Publish game</b> in the editor toolbar.
+                  Build one in any workspace (an <code>index.html</code>, or a JavaScript, TypeScript, Python or Lua file), then press{' '}
+                  <b>Publish game</b> in the editor toolbar.
                 </p>
               </>
             ) : (

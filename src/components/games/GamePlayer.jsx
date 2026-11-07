@@ -12,6 +12,8 @@ import { useIsAppAdmin } from '../../lib/admin.js';
 import { deleteGame, fetchGameCode, likeGame, unlikeGame, useGame, useGameLiked } from '../../lib/games.js';
 import { clearGameSave, loadGameSave, peekGameSave, storeGameSave } from '../../lib/gameSaves.js';
 import { formatSize } from '../../lib/sandbox.js';
+import { PYTHON_FIRST_LOAD, langLabel } from '../../lib/gameLangs/langs.js';
+import { langOfDoc } from '../../lib/gameLangs/jsShell.js';
 import ReportButton from '../admin/ReportButton.jsx';
 import SandboxFrame from '../sandbox/SandboxFrame.jsx';
 import { Icon } from '../sandbox/icons.jsx';
@@ -198,6 +200,10 @@ export default function GamePlayer({ gameId, me, onClose, onEdit }) {
     restart();
   };
 
+  // Language: the game's record, else the marker at the start of its code (games published while
+  // the server's rules didn't accept `lang` yet).
+  const lang = game?.lang || (code.status === 'ready' ? langOfDoc(code.html) : null);
+
   const gone = !loading && !game;
   const errors = issues.filter((x) => x.kind === 'error');
   const blocked = issues.filter((x) => x.kind === 'blocked');
@@ -215,6 +221,12 @@ export default function GamePlayer({ gameId, me, onClose, onEdit }) {
                 <span className="gm-player-sub">
                   by <b style={{ color: owner?.color }} dir="auto">{owner?.name || '…'}</b>
                   {game.size ? ` · ${formatSize(game.size)}` : ''}
+                  {lang && lang !== 'html' && (
+                    <span className={`gm-lang gm-lang-${lang}`} title={lang === 'py' ? PYTHON_FIRST_LOAD : undefined}>
+                      {langLabel(lang)}
+                    </span>
+                  )}
+                  {lang === 'py' && <span className="gm-player-note"> · first play downloads about 6 MB</span>}
                 </span>
               )}
             </div>

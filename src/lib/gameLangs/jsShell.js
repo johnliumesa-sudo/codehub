@@ -17,8 +17,11 @@ export function langOfDoc(html) {
 export const SHELL_CSS =
   'html,body{margin:0;height:100%;background:#0d1017;color:#e6e9f0;color-scheme:dark;' +
   "font:14px/1.45 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}" +
-  '#game{display:block;width:100vw;height:100vh;outline:none;touch-action:none}#game[hidden]{display:none}' +
-  '#cx-console{position:fixed;left:8px;right:8px;bottom:8px;max-height:34vh;display:flex;flex-direction:column;' +
+  // Fills the frame at its automatic size; a game that sets its own size is centred (and scaled down,
+  // keeping its aspect ratio, when it is larger than the frame).
+  '#game{display:block;position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;outline:none;touch-action:none}' +
+  '#game[hidden]{display:none}' +
+  '#cx-console{position:fixed;left:8px;right:8px;bottom:8px;max-height:min(34vh,9em);display:flex;flex-direction:column;' +
   'background:rgba(13,16,23,.92);border:1px solid #2a3142;border-radius:8px;z-index:2147483646;' +
   'font:12.5px/1.45 ui-monospace,Menlo,Consolas,monospace;box-shadow:0 6px 22px rgba(0,0,0,.35)}' +
   '#cx-console[hidden]{display:none}#cx-console header{display:flex;align-items:center;gap:8px;padding:3px 6px 3px 10px;' +

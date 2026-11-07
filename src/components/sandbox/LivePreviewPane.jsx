@@ -7,10 +7,22 @@
 // Everything runs in SandboxFrame profile="play" (opaque origin; the only network is the public code
 // CDNs of the play CSP). The workspace itself never leaves the client. The first render waits until
 // the other workspace files are decrypted, so a page never runs without its scripts.
+// Game code (HTML, JS, TS/TSX/JSX, Python, Lua) is built by lib/gameLangs, the same layer the
+// publish modal uses, so the preview is exactly what would be published. TypeScript loads on demand.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdown } from '../../lib/markdown.js';
 import { loadWorkspaceFiles } from '../../lib/collab/read.js';
-import { MAX_CONSOLE_LINES, autoEntry, buildPreviewHtml, cleanPath, formatSize, isHtmlPath, extOf } from '../../lib/sandbox.js';
+import { MAX_CONSOLE_LINES, autoEntry, buildPreviewHtml, cleanPath, formatSize, extOf } from '../../lib/sandbox.js';
+import {
+  UNSUPPORTED,
+  UNSUPPORTED_MESSAGE,
+  autoGameEntry,
+  buildGamePreview,
+  entryKind,
+  findEntries,
+  loadTypeScript,
+  needsTranspiler,
+} from '../../lib/gameLangs/index.js';
 import SandboxFrame from './SandboxFrame.jsx';
 import { Icon } from './icons.jsx';
 import './sandbox.css';
@@ -18,7 +30,7 @@ import './sandbox.css';
 const DEBOUNCE_MS = 400;
 const WIDTH_KEY = 'codehub.sbx.width';
 const CONSOLE_KEY = 'codehub.sbx.consoleHeight';
-const PREVIEWABLE = new Set(['html', 'htm', 'xhtml', 'md', 'markdown', 'svg', 'js', 'mjs', 'cjs']);
+const OTHER_PREVIEWABLE = new Set(['md', 'markdown', 'svg', 'cjs']);
 
 function lsNum(key, fallback) {
   try {
@@ -159,26 +171,54 @@ export default function LivePreviewPane({ ctx, onClose, initialWidth }) {
 
   // ---- entry selection ----
   const [entrySel, setEntrySel] = useState('auto');
-  const entryOptions = useMemo(
-    () => merged.filter((f) => PREVIEWABLE.has(extOf(f.path))).map((f) => f.path).sort((a, b) => (isHtmlPath(b) - isHtmlPath(a)) || a.localeCompare(b)),
-    [merged],
-  );
+  // Game entries (with their language) first, then other files that render (Markdown, SVG).
+  const entryOptions = useMemo(() => {
+    const games = findEntries(merged).map((e) => ({ path: e.path, label: `${e.path} · ${e.label}` }));
+    const have = new Set(games.map((g) => g.path));
+    const others = merged
+      .filter((f) => !have.has(f.path) && (OTHER_PREVIEWABLE.has(extOf(f.path)) || (entryKind(f.path) && f.path === cleanPath(activePath || ''))))
+      .map((f) => ({ path: f.path, label: f.path }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    return [...games, ...others];
+  }, [merged, activePath]);
   useEffect(() => {
     if (entrySel !== 'auto' && siblings.status === 'ready' && !merged.some((f) => f.path === entrySel)) setEntrySel('auto');
   }, [entrySel, merged, siblings.status]);
-  const entry = entrySel === 'auto' ? autoEntry(activePath, merged) : entrySel;
+  const entry = entrySel === 'auto' ? (activePath ? autoGameEntry(activePath, merged) || autoEntry(activePath, merged) : null) : entrySel;
+  const gameEntry = !!entry && !!entryKind(entry);
+
+  // The TypeScript compiler (a lazy chunk) when the entry needs it.
+  const wantTs = gameEntry && needsTranspiler(entry, merged);
+  const [tsMod, setTsMod] = useState({ ts: null, error: null });
+  useEffect(() => {
+    if (!wantTs || tsMod.ts) return undefined;
+    let alive = true;
+    loadTypeScript().then(
+      (ts) => alive && setTsMod({ ts, error: null }),
+      (err) => alive && setTsMod({ ts: null, error: err?.message || String(err) }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [wantTs, tsMod.ts]);
 
   const waitingForText = !!activePath && !!provider && liveText === null && !merged.some((f) => f.path === cleanPath(activePath));
   // Until the first load of the other files finishes, only Markdown/SVG/plain files can render.
   const firstLoad = !!space && !!key && (siblings.status === 'idle' || (siblings.status === 'loading' && !siblings.loadedAt));
   const result = useMemo(() => {
     if (!entry) return { html: '', missing: [], error: null };
-    if (firstLoad && (isHtmlPath(entry) || /^(?:m?js|cjs)$/.test(extOf(entry)))) return { html: '', missing: [], error: null };
+    if (UNSUPPORTED[extOf(entry)]) return { html: '', missing: [], error: UNSUPPORTED_MESSAGE };
+    if (firstLoad && (gameEntry || /^cjs$/.test(extOf(entry)))) return { html: '', missing: [], error: null };
     if (!merged.some((f) => f.path === entry)) {
       return { html: '', missing: [], error: siblings.status === 'loading' || waitingForText ? null : `Can't read ${entry}` };
     }
+    if (gameEntry) {
+      if (wantTs && !tsMod.ts) return { html: '', missing: [], error: tsMod.error, compiling: !tsMod.error };
+      return buildGamePreview(entry, merged, { ts: tsMod.ts });
+    }
     return buildPreviewHtml(entry, merged, { renderMarkdown });
-  }, [entry, merged, siblings.status, waitingForText, firstLoad]);
+  }, [entry, merged, siblings.status, waitingForText, firstLoad, gameEntry, wantTs, tsMod]);
+  const buildErrors = result.errors || [];
   const blockedUrls = useMemo(() => (result.external || []).filter((x) => !x.allowed).map((x) => x.url), [result.external]);
 
   // ---- run / stop ----
@@ -293,9 +333,9 @@ export default function LivePreviewPane({ ctx, onClose, initialWidth }) {
           aria-label="File to preview"
         >
           <option value="auto">{entryName ? `Auto: ${entryName}` : 'Auto (active file)'}</option>
-          {entryOptions.map((p) => (
-            <option key={p} value={p}>
-              {p}
+          {entryOptions.map((o) => (
+            <option key={o.path} value={o.path}>
+              {o.label}
             </option>
           ))}
         </select>
@@ -340,6 +380,12 @@ export default function LivePreviewPane({ ctx, onClose, initialWidth }) {
           {blockedUrls.length > 2 ? ` +${blockedUrls.length - 2} more` : ''}. Load libraries from cdn.jsdelivr.net/npm, cdnjs or unpkg.
         </div>
       )}
+      {buildErrors.length > 0 && !result.error && (
+        <div className="sbx-banner warn" role="alert" title={buildErrors.join('\n')}>
+          {buildErrors.slice(0, 2).join(' · ')}
+          {buildErrors.length > 2 ? ` +${buildErrors.length - 2} more` : ''}
+        </div>
+      )}
       {result.missing?.length > 0 && !result.error && (
         <div className="sbx-banner" title={result.missing.join('\n')}>
           Not found in the workspace: {result.missing.slice(0, 3).join(', ')}
@@ -352,7 +398,7 @@ export default function LivePreviewPane({ ctx, onClose, initialWidth }) {
           <div className="sbx-empty">
             <Icon name="file" size={26} />
             <p>Open a file to preview it.</p>
-            <p className="muted">HTML pages, Markdown, SVG and JavaScript render here.</p>
+            <p className="muted">HTML, JavaScript, TypeScript, Python and Lua games run here; Markdown and SVG render.</p>
           </div>
         ) : result.error ? (
           <div className="sbx-empty">
@@ -370,6 +416,7 @@ export default function LivePreviewPane({ ctx, onClose, initialWidth }) {
         ) : !showFrame ? (
           <div className="sbx-empty">
             <span className="spinner" />
+            {result.compiling && <p className="muted">Loading the TypeScript compiler…</p>}
           </div>
         ) : (
           <SandboxFrame key={runNonce} html={result.html} profile="play" mode="preview" onConsole={onConsole} title={`Preview of ${entryName || 'file'}`} />

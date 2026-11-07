@@ -885,7 +885,7 @@ export function buildPreviewHtml(entryPath, files, { renderMarkdown } = {}) {
     } else if (['json', 'txt', 'csv', 'log', ''].includes(ext)) {
       result = { html: shell(name, `<pre>${escapeHtml(file.text)}</pre>`), missing: [], error: null };
     } else {
-      result = { html: '', missing: [], error: `No live preview for .${ext} files. Previews run HTML, Markdown, SVG and JavaScript.` };
+      result = { html: '', missing: [], error: `No live preview for .${ext} files. Previews run HTML, JavaScript, TypeScript, Python and Lua games, Markdown and SVG.` };
     }
   } catch (err) {
     return { html: '', missing: [], error: err.message || String(err) };

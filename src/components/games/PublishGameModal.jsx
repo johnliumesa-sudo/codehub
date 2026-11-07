@@ -1,16 +1,29 @@
 // Publish (or update) a workspace as a PUBLIC PLAINTEXT game.
 // Props: { ctx, onClose, onPublished?(gameId) }
 //   ctx: the CollabView extras contract ({ space, key, me, files, activePath, provider, … }).
-// All workspace files are decrypted locally (loadWorkspaceFiles), the chosen .html entry is
-// bundled with everything it uses from the workspace (scripts, styles, ES modules, data files;
-// bundle()), and the result is written as plaintext to games/{id} + gameCode/{id} + publishLog/{me}
-// in ONE update after an explicit confirmation. "Test run" plays exactly that bundle in the same
-// sandbox profile as the Arcade (without saving its data).
+// All workspace files are decrypted locally (loadWorkspaceFiles). The chosen entry (an HTML page, or a
+// JavaScript, TypeScript/TSX/JSX, Python or Lua file) is built into one self-contained document by
+// lib/gameLangs (the same layer as the live preview), and the result is written as plaintext to
+// games/{id} (with its language) + gameCode/{id} + publishLog/{me} in ONE update after an explicit
+// confirmation. "Test run" plays exactly that document in the same sandbox profile as the Arcade
+// (without saving its data).
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { loadWorkspaceFiles } from '../../lib/collab/read.js';
-import { CODE_MAX, DESC_MAX, TITLE_MAX, publishCooldownLeft, publishGame, titleFromHtml, updateGame, useGames } from '../../lib/games.js';
-import { bundle, cleanPath, formatSize, isHtmlPath } from '../../lib/sandbox.js';
+import { CODE_MAX, DESC_MAX, TITLE_MAX, publishCooldownLeft, publishGame, updateGame, useGames } from '../../lib/games.js';
+import { cleanPath, formatSize } from '../../lib/sandbox.js';
+import {
+  PYTHON_FIRST_LOAD,
+  SUPPORTED_SUMMARY,
+  UNSUPPORTED_MESSAGE,
+  buildGameDoc,
+  findEntries,
+  gameTitle,
+  langLabel,
+  loadTypeScript,
+  needsTranspiler,
+  unsupportedIn,
+} from '../../lib/gameLangs/index.js';
 import SandboxFrame from '../sandbox/SandboxFrame.jsx';
 import { Icon } from '../sandbox/icons.jsx';
 import './games.css';
@@ -60,21 +73,17 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
     };
   }, [space, key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const htmlFiles = useMemo(() => load.files.filter((f) => isHtmlPath(f.path)).map((f) => f.path).sort(), [load.files]);
+  // Everything that can run as a game (HTML pages first), and languages we can't compile here.
+  const entries = useMemo(() => findEntries(load.files), [load.files]);
+  const unsupported = useMemo(() => unsupportedIn(load.files), [load.files]);
 
   // ---- form ----
   const [entry, setEntry] = useState('');
   useEffect(() => {
-    if (entry && htmlFiles.includes(entry)) return;
+    if (entry && entries.some((e) => e.path === entry)) return;
     const active = activePath ? cleanPath(activePath) : '';
-    const pick =
-      (isHtmlPath(active) && htmlFiles.includes(active) && active) ||
-      htmlFiles.find((p) => p === 'index.html') ||
-      htmlFiles.find((p) => /(^|\/)index\.html?$/i.test(p)) ||
-      htmlFiles[0] ||
-      '';
-    setEntry(pick);
-  }, [htmlFiles]); // eslint-disable-line react-hooks/exhaustive-deps
+    setEntry((entries.find((e) => e.path === active) || entries[0])?.path || '');
+  }, [entries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { games: ownGames } = useGames({ sort: 'new', ownerId: me?.uid || '-', limit: 100 });
   const myGames = useMemo(() => ownGames.filter((g) => g.ownerId === me?.uid), [ownGames, me?.uid]);
@@ -94,24 +103,34 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
   const [done, setDone] = useState(null); // { gameId, updated }
   const [cooldown, refreshCooldown] = useCooldown();
 
-  const built = useMemo(() => {
-    if (!entry || load.status !== 'ready') return null;
-    try {
-      return { ...bundle(entry, load.files), error: null };
-    } catch (ex) {
-      return { html: '', missing: [], inlined: [], external: [], unpinned: [], modules: [], errors: [], error: ex?.message || String(ex) };
-    }
+  // Build the document (TypeScript entries load the compiler first, a lazy chunk).
+  const [built, setBuilt] = useState(null);
+  const [building, setBuilding] = useState(false);
+  useEffect(() => {
+    setBuilt(null);
+    if (!entry || load.status !== 'ready') return undefined;
+    let alive = true;
+    (async () => {
+      setBuilding(true);
+      try {
+        const ts = needsTranspiler(entry, load.files) ? await loadTypeScript() : null;
+        if (alive) setBuilt(buildGameDoc(entry, load.files, { ts }));
+      } catch (ex) {
+        if (alive) setBuilt({ html: '', lang: null, missing: [], inlined: [], external: [], unpinned: [], modules: [], errors: [], error: ex?.message || String(ex) });
+      } finally {
+        if (alive) setBuilding(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, [entry, load.status, load.files]);
 
-  // Default the title from <title> (or the file name) until the user types one.
+  // Default the title from <title> (or the file or folder name) until the user types one.
   useEffect(() => {
     if (titleTouched || target !== 'new' || !entry) return;
-    const f = load.files.find((x) => x.path === entry);
-    const fromDoc = titleFromHtml(f?.text);
-    const parts = entry.split('/');
-    const fallback = parts.length > 1 ? parts[parts.length - 2] : '';
-    setTitle(fromDoc || fallback);
-  }, [entry, load.files, titleTouched, target]);
+    setTitle(gameTitle(entry, load.files, ctx?.title && !/^(?:workspace|codespace)$/i.test(ctx.title) ? ctx.title : ''));
+  }, [entry, load.files, titleTouched, target, ctx?.title]);
 
   const chooseTarget = (value) => {
     setTarget(value);
@@ -142,11 +161,11 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
     setErr('');
     try {
       if (target === 'new') {
-        const gameId = await publishGame({ uid: me.uid, title, desc, html: built.html });
+        const gameId = await publishGame({ uid: me.uid, title, desc, html: built.html, lang: built.lang });
         setDone({ gameId, updated: false });
         onPublished?.(gameId);
       } else {
-        await updateGame({ uid: me.uid, gameId: target, title, desc, html: built.html });
+        await updateGame({ uid: me.uid, gameId: target, title, desc, html: built.html, lang: built.lang });
         setDone({ gameId: target, updated: true });
         onPublished?.(target);
       }
@@ -202,11 +221,20 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
             <Icon name="alert" size={24} />
             <p className="error-text">Couldn’t read the workspace: {load.error}</p>
           </div>
-        ) : htmlFiles.length === 0 ? (
-          <div className="gm-loading">
+        ) : entries.length === 0 ? (
+          <div className="gm-loading gm-nothing" role="alert">
             <Icon name="file" size={24} />
-            <p>A game needs an HTML entry file.</p>
-            <p className="muted gm-small">Create an <code>index.html</code> in this workspace (it can pull in <code>.js</code> and <code>.css</code> files next to it), then publish again.</p>
+            <p>Nothing in this workspace can run as a game yet.</p>
+            {unsupported.length > 0 && (
+              <p className="gm-small gm-unsupported">
+                <b>Found {unsupported.join(', ')} code.</b> {UNSUPPORTED_MESSAGE}
+              </p>
+            )}
+            <p className="muted gm-small">
+              Codehub runs {SUPPORTED_SUMMARY} games. Add an entry file such as <code>index.html</code>, <code>main.js</code>,{' '}
+              <code>main.ts</code>, <code>main.py</code> or <code>main.lua</code>, then publish again. The <b>Python game</b> and{' '}
+              <b>TypeScript game</b> codespace templates are ready-made starting points.
+            </p>
           </div>
         ) : (
           <>
@@ -225,12 +253,19 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
               <label className="field">
                 Entry file
                 <select className="input" value={entry} onChange={(e) => setEntry(e.target.value)}>
-                  {htmlFiles.map((p) => (
-                    <option key={p} value={p}>{p}</option>
+                  {entries.map((e) => (
+                    <option key={e.path} value={e.path}>
+                      {e.path} · {e.label}
+                    </option>
                   ))}
                 </select>
               </label>
             </div>
+            {unsupported.length > 0 && (
+              <p className="gm-small gm-unsupported" role="note">
+                <b>{unsupported.join(', ')} files can’t be published.</b> {UNSUPPORTED_MESSAGE}
+              </p>
+            )}
             <label className="field">
               Title
               <input
@@ -261,7 +296,19 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
               <div className={`gm-meter ${meterClass}`} role="meter" aria-valuemin={0} aria-valuemax={CODE_MAX} aria-valuenow={size} aria-label="Bundle size">
                 <span style={{ width: `${Math.max(1, ratio * 100)}%` }} />
               </div>
+              {building && !built && (
+                <p className="muted gm-small">
+                  <span className="spinner gm-inline-spin" /> {needsTranspiler(entry, load.files) ? 'Compiling TypeScript…' : 'Building…'}
+                </p>
+              )}
               {built?.error && <p className="error-text gm-small">{built.error}</p>}
+              {built?.lang && !built.error && (
+                <p className="gm-small gm-lang-line">
+                  <span className={`gm-lang gm-lang-${built.lang}`}>{langLabel(built.lang)}</span>
+                  {built.lang === 'py' && <span className="muted"> {PYTHON_FIRST_LOAD}</span>}
+                  {built.lang === 'lua' && <span className="muted"> Lua games download about 150 KB the first time.</span>}
+                </p>
+              )}
               {built && !built.error && (
                 <p className="muted gm-small">
                   {built.inlined.length ? `Inlined ${built.inlined.length} file${built.inlined.length === 1 ? '' : 's'}: ${built.inlined.slice(0, 4).join(', ')}${built.inlined.length > 4 ? '…' : ''}.` : 'No linked workspace files.'}

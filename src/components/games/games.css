@@ -198,3 +198,20 @@
   .gm-player-backdrop { padding: 0; }
   .gm-player { height: 100%; border-radius: 0; }
 }
+
+/* ---------- languages ---------- */
+.gm-lang {
+  display: inline-flex; align-items: center; flex: none; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  line-height: 18px; border: 1px solid var(--border); background: var(--bg-3); color: var(--text-dim); white-space: nowrap;
+}
+.gm-lang-js { color: var(--warn-text); }
+.gm-lang-ts { color: var(--accent); }
+.gm-lang-py { color: var(--ok); }
+.gm-lang-lua { color: var(--accent-2, var(--accent)); }
+.gm-lang-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0 0; }
+.gm-unsupported { margin: 8px 0 0; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-3); color: var(--text); text-align: start; }
+.gm-nothing { max-width: 520px; margin: 0 auto; }
+.gm-inline-spin { width: 11px; height: 11px; border-width: 2px; vertical-align: -1px; }
+.gm-card-meta .gm-lang { margin-left: auto; }
+.gm-player-sub .gm-lang { margin-left: 4px; vertical-align: 1px; }
+.gm-player-note { white-space: nowrap; }
