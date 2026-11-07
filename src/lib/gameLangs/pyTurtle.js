@@ -22,6 +22,16 @@ def _xy(x, y):
     return _W / 2 + x, _H / 2 - y
 
 
+def _point(x, y):
+    # A point given as (x, y), as one pair (tuple, list, Vec2D) or as another turtle.
+    if y is not None:
+        return float(x), float(y)
+    if isinstance(x, Turtle):
+        return x._x, x._y
+    a, b = x
+    return float(a), float(b)
+
+
 class Turtle:
     def __init__(self):
         self._x = self._y = 0.0
@@ -62,9 +72,8 @@ class Turtle:
         self.left(-a)
 
     def goto(self, x, y=None):
-        if y is None:
-            x, y = x
-        self._line_to(float(x), float(y))
+        x, y = _point(x, y)
+        self._line_to(x, y)
 
     def setheading(self, a):
         self._h = float(a) % 360
@@ -158,13 +167,11 @@ class Turtle:
         self.__init__()
 
     def towards(self, x, y=None):
-        if y is None:
-            x, y = x
+        x, y = _point(x, y)
         return math.degrees(math.atan2(y - self._y, x - self._x)) % 360
 
     def distance(self, x, y=None):
-        if y is None:
-            x, y = x
+        x, y = _point(x, y)
         return math.hypot(x - self._x, y - self._y)
 
     def shape(self, name=None):

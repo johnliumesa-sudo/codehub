@@ -130,17 +130,41 @@ function shellRuntime() {
  * The page for a JS/TS entry. `module`: load the entry as an ES module (always for TS/JSX, and for
  * JavaScript that uses import/export); otherwise a classic script, so top-level functions stay global.
  */
-export function jsShellHtml({ entry, title, module = true }) {
+export function jsShellHtml({ entry, title, module = true, mount = false }) {
   const src = `/${String(entry).split('/').map(encodeURIComponent).join('/')}`;
+  // `mount`: the entry only exports a React component (export default) and never renders it; mount
+  // it into #root like a Vite / CRA main file would.
+  const run = mount
+    ? '<script type="module">' +
+      `import * as M from ${JSON.stringify(src)};import { createElement } from "react";import { createRoot } from "react-dom/client";` +
+      'const C=M.default;if(typeof C!=="function"&&!(C&&typeof C==="object"&&C.$$typeof)){' +
+      `console.error(${JSON.stringify(`${String(entry).split('/').pop()}: the default export is not a React component, so there is nothing to show.`)});}` +
+      'else createRoot(document.getElementById("root")).render(createElement(C));</script>'
+    : `<script${module ? ' type="module"' : ''} src="${escapeHtml(src)}"></script>`;
   return (
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     `<title>${escapeHtml(title || entry)}</title><style>${SHELL_CSS}</style>` +
     '<canvas id="game" tabindex="0" aria-label="Game"></canvas>' +
+    (mount ? '<div id="root"></div>' : '') +
     '<section id="cx-console" hidden aria-label="Console"><header><span>Console</span>' +
     '<button type="button" id="cx-hide" aria-label="Hide console" title="Hide console">×</button></header>' +
     '<pre id="cx-log" role="log" aria-live="polite"></pre></section>' +
     `<script>(${escapeScript(shellRuntime.toString())})();</script>` +
-    `<script${module ? ' type="module"' : ''} src="${escapeHtml(src)}"></script>`
+    run
   );
+}
+
+/**
+ * Should a JSX/TSX entry be mounted for the user? Yes when it has a default export, doesn't render
+ * itself (no react-dom import, createRoot or hydrateRoot) and the JSX is React's (not another
+ * jsxImportSource from tsconfig.json).
+ */
+export function needsReactMount(text, files) {
+  const t = String(text || '');
+  if (!/\bexport\s+default\b/.test(t)) return false;
+  if (/["']react-dom(?:\/client)?["']|\b(?:createRoot|hydrateRoot)\s*\(/.test(t)) return false;
+  const cfg = (files || []).find((f) => /^(?:\.\/)?[jt]sconfig\.json$/.test(String(f.path || '')));
+  const src = cfg && /"jsxImportSource"\s*:\s*"([^"]*)"/.exec(cfg.text || '');
+  return !src || src[1] === 'react';
 }
 

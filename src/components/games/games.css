@@ -215,3 +215,9 @@
 .gm-card-meta .gm-lang { margin-left: auto; }
 .gm-player-sub .gm-lang { margin-left: 4px; vertical-align: 1px; }
 .gm-player-note { white-space: nowrap; }
+
+/* The dialogs take focus themselves while loading (useDialogFocus). */
+.gm-publish:focus,
+.gm-player:focus {
+  outline: none;
+}

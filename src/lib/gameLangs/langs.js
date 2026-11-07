@@ -182,18 +182,24 @@ export function findEntries(files) {
     const k = entryKind(f.path);
     if (!k) continue;
     let isModule = false;
-    if (k.lang === 'js' || k.lang === 'ts') isModule = imported.has(f.path) || htmlFilesReferencing(f.path, list).length > 0;
-    else if (k.lang === 'py') isModule = pyNames.has(pyModuleName(f.path)) || /(^|\/)__init__\.py$/.test(f.path);
+    let onPage = false; // loaded by an HTML page (directly or through imports): never its own entry
+    if (k.lang === 'js' || k.lang === 'ts') {
+      onPage = htmlFilesReferencing(f.path, list).length > 0;
+      isModule = onPage || imported.has(f.path);
+    } else if (k.lang === 'py') isModule = pyNames.has(pyModuleName(f.path)) || /(^|\/)__init__\.py$/.test(f.path);
     else if (k.lang === 'lua') isModule = luaNames.has(f.path.replace(/\.lua$/, ''));
-    all.push({ path: f.path, ...k, isModule });
+    all.push({ path: f.path, ...k, isModule, onPage });
   }
   const out = all.filter((e) => !e.isModule);
+  // An import cycle (every file of a language imported by another one): its main file still runs.
+  // Not when an HTML page loads any of them: then the page is the game and they are its modules.
   for (const fam of ['js', 'py', 'lua']) {
-    if (out.some((e) => family(e.lang) === fam)) continue;
-    const main = all.find((e) => family(e.lang) === fam && PREFERRED.test(baseName(e.path)));
+    const members = all.filter((e) => family(e.lang) === fam);
+    if (!members.length || out.some((e) => family(e.lang) === fam) || members.some((e) => e.onPage)) continue;
+    const main = members.find((e) => PREFERRED.test(baseName(e.path)));
     if (main) out.push(main);
   }
-  return out.map(({ isModule, ...e }) => e).sort(compare); // eslint-disable-line no-unused-vars
+  return out.map(({ isModule, onPage, ...e }) => e).sort(compare); // eslint-disable-line no-unused-vars
 }
 
 /**
@@ -206,12 +212,13 @@ export function autoGameEntry(activePath, files) {
   const k = entryKind(active);
   if (!k) return null;
   if (k.lang === 'html') return active;
-  const entries = findEntries(files);
-  if (entries.some((e) => e.path === active)) return active;
+  // A module an HTML page loads runs through that page (its canvas, styles, other modules).
   if (k.lang === 'js' || k.lang === 'ts') {
     const pages = htmlFilesReferencing(active, files);
     if (pages.length) return pages[0];
   }
+  const entries = findEntries(files);
+  if (entries.some((e) => e.path === active)) return active;
   const same = entries.find((e) => family(e.lang) === family(k.lang));
   return same ? same.path : active;
 }

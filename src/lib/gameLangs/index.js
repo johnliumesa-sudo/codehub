@@ -6,7 +6,8 @@
 //   .js/.mjs           a game page (canvas#game + on-screen console) that runs the file; ES modules,
 //                      npm imports and workspace files are bundled
 //   .ts/.tsx/.jsx      the same page; each module is compiled with TypeScript 6 in the app
-//                      (transpile.js, a lazy chunk) before it is bundled
+//                      (transpile.js, a lazy chunk) before it is bundled. A JSX/TSX file that only
+//                      exports a React component (export default) is mounted into #root.
 //   .py                Pyodide from jsDelivr (python.js)
 //   .lua               wasmoon from jsDelivr (lua.js)
 // Every document except plain HTML starts with <meta name="codehub-lang" content="…"> (jsShell.js).
@@ -14,7 +15,7 @@ import { bundle, cleanPath, MAX_PREVIEW_CHARS, formatSize } from '../sandbox.js'
 import { looksLikeModule } from '../esmScan.js';
 import { titleFromHtml } from '../gameText.js';
 import { entryKind, needsTranspiler, TRANSPILE_EXTS, UNSUPPORTED, UNSUPPORTED_MESSAGE } from './langs.js';
-import { jsShellHtml, langMarker } from './jsShell.js';
+import { jsShellHtml, langMarker, needsReactMount } from './jsShell.js';
 import { makeTransform } from './transpile.js';
 import { pythonDoc } from './python.js';
 import { luaDoc } from './lua.js';
@@ -74,7 +75,8 @@ export function buildGameDoc(entry, files, { ts = null, title = '' } = {}) {
     }
     if (kind.lang === 'js' || kind.lang === 'ts') {
       const module = kind.transpile || kind.ext === 'mjs' || looksLikeModule(file.text);
-      const page = jsShellHtml({ entry: path, title: title || gameTitle(path, files), module });
+      const mount = (kind.ext === 'jsx' || kind.ext === 'tsx') && needsReactMount(file.text, files);
+      const page = jsShellHtml({ entry: path, title: title || gameTitle(path, files), module, mount });
       const b = bundle('__game__.html', files, { html: page, ...opts });
       return { ...EMPTY, ...b, html: langMarker(kind.lang) + b.html, lang: kind.lang, kind, error: null };
     }

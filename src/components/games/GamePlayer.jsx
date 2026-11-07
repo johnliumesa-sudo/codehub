@@ -17,6 +17,7 @@ import { langOfDoc } from '../../lib/gameLangs/jsShell.js';
 import ReportButton from '../admin/ReportButton.jsx';
 import SandboxFrame from '../sandbox/SandboxFrame.jsx';
 import { Icon } from '../sandbox/icons.jsx';
+import { useDialogFocus } from './useDialogFocus.js';
 import './games.css';
 
 export function LikeButton({ game, me, compact = false }) {
@@ -84,6 +85,10 @@ export default function GamePlayer({ gameId, me, onClose, onEdit }) {
   const [isFs, setIsFs] = useState(false);
   const stageRef = useRef(null);
   const frameRef = useRef(null);
+  // Tab stays in the player; closing it returns focus to the Play button. (The game itself gets focus
+  // once it's loaded, below.)
+  const dialogRef = useRef(null);
+  useDialogFocus(dialogRef, { initial: null });
 
   const load = useCallback(async () => {
     setCode({ status: 'loading', html: '', error: null });
@@ -211,7 +216,7 @@ export default function GamePlayer({ gameId, me, onClose, onEdit }) {
 
   return createPortal(
     <div className="gm-player-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
-      <div className="gm-player" role="dialog" aria-modal="true" aria-label={game ? `Playing ${game.title}` : 'Game'}>
+      <div ref={dialogRef} className="gm-player" role="dialog" aria-modal="true" aria-label={game ? `Playing ${game.title}` : 'Game'}>
         <header className="gm-player-head">
           <div className="gm-player-title">
             <Icon name="gamepad" size={18} />

@@ -7,7 +7,7 @@
 // games/{id} (with its language) + gameCode/{id} + publishLog/{me} in ONE update after an explicit
 // confirmation. "Test run" plays exactly that document in the same sandbox profile as the Arcade
 // (without saving its data).
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { loadWorkspaceFiles } from '../../lib/collab/read.js';
 import { CODE_MAX, DESC_MAX, TITLE_MAX, publishCooldownLeft, publishGame, updateGame, useGames } from '../../lib/games.js';
@@ -17,6 +17,7 @@ import {
   SUPPORTED_SUMMARY,
   UNSUPPORTED_MESSAGE,
   buildGameDoc,
+  autoGameEntry,
   findEntries,
   gameTitle,
   langLabel,
@@ -26,6 +27,7 @@ import {
 } from '../../lib/gameLangs/index.js';
 import SandboxFrame from '../sandbox/SandboxFrame.jsx';
 import { Icon } from '../sandbox/icons.jsx';
+import { useDialogFocus } from './useDialogFocus.js';
 import './games.css';
 
 const CONFIRM_TEXT = 'This decrypts your code and publishes it as PUBLIC PLAINTEXT. Anyone signed in can read and run it.';
@@ -81,8 +83,9 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
   const [entry, setEntry] = useState('');
   useEffect(() => {
     if (entry && entries.some((e) => e.path === entry)) return;
-    const active = activePath ? cleanPath(activePath) : '';
-    setEntry((entries.find((e) => e.path === active) || entries[0])?.path || '');
+    // The entry the preview would run for the open file (a module -> the page that loads it).
+    const auto = activePath ? autoGameEntry(cleanPath(activePath), load.files) : null;
+    setEntry((entries.find((e) => e.path === auto) || entries[0])?.path || '');
   }, [entries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { games: ownGames } = useGames({ sort: 'new', ownerId: me?.uid || '-', limit: 100 });
@@ -177,6 +180,17 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
     }
   };
 
+  // Focus starts in the dialog (Entry file, else the first field), Tab stays in it, and goes back to
+  // the Publish game button when it closes.
+  const dialogRef = useRef(null);
+  useDialogFocus(dialogRef, { initial: ['.gm-row select, .gm-row input'] });
+  // The form appears once the files are read: move focus from the dialog itself to its first field.
+  useEffect(() => {
+    const root = dialogRef.current;
+    if (load.status !== 'ready' || !root || document.activeElement !== root) return;
+    root.querySelector('.gm-row select, .gm-row input')?.focus();
+  }, [load.status]);
+
   // Capture phase so Escape doesn't also reach editor shortcuts underneath.
   useEffect(() => {
     const onKey = (e) => {
@@ -190,7 +204,7 @@ export default function PublishGameModal({ ctx, onClose, onPublished }) {
 
   return createPortal(
     <div className="modal-backdrop gm-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose?.()}>
-      <form className="modal gm-modal gm-publish" role="dialog" aria-modal="true" aria-label="Publish game" onSubmit={submit}>
+      <form ref={dialogRef} tabIndex={-1} className="modal gm-modal gm-publish" role="dialog" aria-modal="true" aria-label="Publish game" onSubmit={submit}>
         <div className="gm-modal-head">
           <h2>
             <Icon name="gamepad" size={18} /> Publish to the Arcade

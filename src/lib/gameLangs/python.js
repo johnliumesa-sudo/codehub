@@ -15,6 +15,8 @@ export const PYODIDE_VERSION = '314.0.7';
 export const PYODIDE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
 export const PY_ROOT = '/home/pyodide/game/';
 const PY_LIB = '/home/pyodide/codehub/';
+/** localStorage key under which the files a Python game wrote in its folder are kept between runs. */
+export const PY_FILES_KEY = '__codehub_python_files__';
 
 /** Workspace files a Python game gets in its file system (code and text data it may open()). */
 export const PY_FILE_EXTS = ['py', 'txt', 'json', 'csv', 'tsv', 'md', 'ini', 'cfg', 'toml', 'yaml', 'yml', 'dat', 'xml', 'svg'];
@@ -345,6 +347,102 @@ function pyBoot(C) {
     });
   }
 
+  // Files the game writes in its folder (a high score in open('best.txt', 'w')) are kept in its
+  // localStorage under one reserved key, which the Arcade saves per game, and written back before the
+  // next run. Text files only, at most FILE_MAX characters each and SAVED_MAX in all.
+  var SAVE_KEY = C.saveKey;
+  var FILE_MAX = 64 * 1024;
+  var SAVED_MAX = 256 * 1024;
+  var lastSaved = null;
+  function storage() {
+    try {
+      return W.localStorage;
+    } catch (e) {
+      return null;
+    }
+  }
+  function restoreSaved(py, files) {
+    var ls = storage();
+    var raw = null;
+    try {
+      raw = ls && ls.getItem(SAVE_KEY);
+    } catch (e) {
+      raw = null;
+    }
+    if (!raw) return;
+    lastSaved = raw;
+    var saved;
+    try {
+      saved = JSON.parse(raw);
+    } catch (e) {
+      return;
+    }
+    if (!saved || typeof saved !== 'object') return;
+    Object.keys(saved).forEach(function (p) {
+      if (typeof saved[p] !== 'string' || /(^|\/)\.\.(\/|$)/.test(p) || p.charAt(0) === '/') return;
+      try {
+        var full = C.root + p;
+        py.FS.mkdirTree(full.slice(0, full.lastIndexOf('/')));
+        py.FS.writeFile(full, saved[p]);
+      } catch (e) {
+        /* skip this file */
+      }
+    });
+  }
+  function saveFiles(py, files) {
+    var ls = storage();
+    if (!ls) return;
+    var out = {};
+    var total = 0;
+    var count = 0;
+    function walk(dir, rel) {
+      var names;
+      try {
+        names = py.FS.readdir(dir);
+      } catch (e) {
+        return;
+      }
+      for (var i = 0; i < names.length && count < 200; i++) {
+        var n = names[i];
+        if (n === '.' || n === '..' || n === '__pycache__') continue;
+        var full = dir + n;
+        var r = rel + n;
+        var st;
+        try {
+          st = py.FS.stat(full);
+        } catch (e) {
+          continue;
+        }
+        if (py.FS.isDir(st.mode)) {
+          walk(full + '/', r + '/');
+          continue;
+        }
+        if (!py.FS.isFile(st.mode) || st.size > FILE_MAX * 3 || /\.py[co]$/.test(n)) continue;
+        var text;
+        try {
+          text = py.FS.readFile(full, { encoding: 'utf8' });
+        } catch (e) {
+          continue;
+        }
+        if (text === files[r] || text.length > FILE_MAX || /[\u0000\uFFFD]/.test(text)) continue;
+        if (total + r.length + text.length > SAVED_MAX) continue;
+        total += r.length + text.length;
+        count += 1;
+        out[r] = text;
+      }
+    }
+    walk(C.root, '');
+    var json = count ? JSON.stringify(out) : null;
+    if (json === lastSaved) return;
+    try {
+      if (json) ls.setItem(SAVE_KEY, json);
+      else ls.removeItem(SAVE_KEY);
+      lastSaved = json;
+    } catch (e) {
+      /* over the game's storage budget: keep what was saved before */
+    }
+  }
+
   async function main() {
     setStep('Downloading Python ' + C.version + ' (about 6 MB the first time)…');
     await load();
@@ -369,6 +467,7 @@ function pyBoot(C) {
       py.FS.mkdirTree(full.slice(0, full.lastIndexOf('/')));
       py.FS.writeFile(full, files[p]);
     });
+    restoreSaved(py, files);
     py.FS.mkdirTree(C.lib);
     if (C.turtle) py.FS.writeFile(C.lib + 'turtle.py', C.turtle);
     py.FS.chdir(C.root);
@@ -403,7 +502,16 @@ function pyBoot(C) {
         return;
       }
     }
-    var err = await py.runPythonAsync('_cx_main(' + JSON.stringify(C.entry) + ')', { filename: '<codehub>' });
+    var saver = setInterval(function () {
+      saveFiles(py, files);
+    }, 1000);
+    var err;
+    try {
+      err = await py.runPythonAsync('_cx_main(' + JSON.stringify(C.entry) + ')', { filename: '<codehub>' });
+    } finally {
+      clearInterval(saver);
+      saveFiles(py, files);
+    }
     var tail = (pending.out ? pending.out : '') + (pending.err ? pending.err : '');
     if (tail) {
       try {
@@ -442,6 +550,7 @@ export function pythonDoc(entry, files, { title = '', pyodideUrl = PYODIDE_URL }
     turtle: features.turtle ? TURTLE_PY : '',
     pygame: features.pygame,
     canvas: features.canvas,
+    saveKey: PY_FILES_KEY,
   };
   const html =
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
