@@ -201,6 +201,18 @@ reports/{rid}              { by, kind: game|user|shopItem|message|bot|addon, tar
 reportLog/{uid}            ts              // 1 report per 30 s, written in the same update as reports/{rid}
 announcements/current      { text<=280, level: info|warn, ts, by }   // signed-in read; admin write
 
+# Premium (feature 32, docs/features/premium.md), PLAINTEXT
+config/ownerPass           string >= 12    // owner passcode; console only, like adminPromo
+premium/{uid}              { at(=now), until(now+30d, within the minute before), m:'YYYYMM' }
+                                           // signed-in read one; admins list; created by uid only when
+                                           // premiumCodes/{m}/c === promoAttempts/{uid}/code (< 2 min old),
+                                           // from <= now < until, and m !== the stored m; uid or admins delete
+premiumCodes/{YYYYMM}      { c(8..64), from, until }   // UTC month window; read/write only by an app admin whose
+                                           // promoAttempts code === config/ownerPass and is < 15 min old
+upub/{uid}/premium/look    { tag?, tagA, tagB?, nameFx, fxA, fxB, cardFx, banner, frame }  // shown only while premium
+shop/items/{id}/premium    true            // premium-only item: inventory create needs premium/{uid}/until > now
+                                           // daily claim: +200 while premium/{uid}/until > now, else +100
+
 # Safety & notifications (F11, F12, F19), private to the owner, not E2EE
 blocks/{uid}/{otherUid}         true
 verified/{uid}/{peerUid}        { fp, ts }     // fp = keyFingerprint(peer pubKey) at verification
@@ -613,6 +625,10 @@ Sizes: main before round 3 was 98,594 bytes with the old minifier and is 95,052 
 (4,243 bytes left under the ceiling for all round 3 workstreams). Prefer the generic blocks over new paths.
 With seven workstreams merged (bots, add-ons, assistant, messaging, personal, community, shop) the rules were
 100,024 bytes; the integration pass's `bot|addon` report kinds bring them to 100,034 (calls not yet merged).
+Premium adds about 1.8 KB and a fifth minifier rewrite: in a `.validate` that is a plain `&&` chain, an
+`X.isString()` term directly followed by `X.val().length` / `X.val().matches(` is dropped (a type error fails the rule
+just as the dropped term did; emulator probes in `tests/rules/premium.test.mjs`), saving about 2.7 KB: 99,850 bytes
+with premium. The build also emits the minified rules as `rules.min.json` (Admin panel → Owner → Database rules).
 
 ### Integration pass notes
 - **Desktop alerts and Do Not Disturb.** `showNotification` (`src/lib/notify.js`) is the only way to show a
