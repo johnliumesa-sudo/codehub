@@ -1,7 +1,7 @@
 // Round 3 community shop: a member publishes an item from the shop (live immediately), another member
 // buys it, and the creator collects the earning. Everything goes through the real UI and the real rules
 // on the emulator; adminGet only checks the resulting database state.
-import { test, expect, uid, adminGet } from './fixtures.mjs';
+import { test, expect, uid, adminGet, adminPut, PASSWORD } from './fixtures.mjs';
 
 async function openShop(page) {
   await page.getByRole('button', { name: 'Add-on shop' }).click();
@@ -114,4 +114,18 @@ test('create an item, sell it, collect the earning', async ({ users }) => {
   await expect(row).toContainText('Off');
   await dave.getByRole('checkbox', { name: 'Owned only' }).check();
   await expect(dave.getByRole('article', { name: 'Pixel Fox' })).toBeVisible();
+
+  // Deleting Carol's account removes her community item and her uncollected earnings (one entry at a
+  // time). An uncollected sale is seeded here: a second real buyer would need another 60 s window.
+  await adminPut(`earnings/${carolUid}/zoe_${itemId}`, { price: 30, ts: Date.now() });
+  await carol.getByRole('button', { name: 'Settings', exact: true }).first().click();
+  await carol.locator('.settings-nav-item', { hasText: 'Account' }).click();
+  await carol.getByRole('button', { name: 'Delete account…' }).click();
+  await carol.getByLabel('Type DELETE to confirm').fill('DELETE');
+  await carol.getByLabel('Password', { exact: true }).fill(PASSWORD);
+  await carol.getByRole('button', { name: 'Delete my account' }).click();
+  await expect(carol.getByRole('button', { name: 'Create an account' })).toBeVisible({ timeout: 60_000 });
+  expect(await adminGet(`shop/items/${itemId}`)).toBeNull();
+  expect(await adminGet(`earnings/${carolUid}`)).toBeNull();
+  expect(await adminGet(`users/${carolUid}`)).toBeNull();
 });

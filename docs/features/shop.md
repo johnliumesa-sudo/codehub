@@ -123,7 +123,7 @@ creator deleted their account are no longer listed for new buyers.
 
 Rule bytes: 1,474 of the 1,500-byte budget (minified rules 99,631 bytes after this change, from 98,157).
 
-Not removed on account deletion (integrator: `src/lib/account.js` is not owned by this workstream): the
-user's community items in `shop/items` (they keep selling unless removed; the shop hides them from new
-buyers once the profile is gone) and uncollected `earnings/{uid}/*` (deletable by their owner, one entry at a
-time). `udata/{uid}` (sales history, `shop/last`) is already removed. `publishLog/{uid}` stays, as before.
+Account deletion (`src/lib/account.js`, integration pass) removes the user's community items in
+`shop/items` and their uncollected `earnings/{uid}/*`, one entry at a time (the rules allow each), along
+with `udata/{uid}` (sales history, `shop/last`). Coins already collected stay in `wallets/{uid}` and
+`publishLog/{uid}` stays, as before: no client can delete those.
