@@ -29,6 +29,11 @@ Other features:
 - **Add-on shop**: daily coins, app themes, editor themes, editor add-ons, name colors and badges. Any member can publish
   themes, editor themes, badges and name colors, and collects the coins buyers pay. Data only, plaintext.
 - **App admins** (promo code), **global announcement banner**, and **reports** to app admins.
+- **Premium membership**: 30 days per redemption of the owner's **monthly code** (Settings → Premium). Perks: double
+  daily coins, premium-only shop items, a premium badge, a custom role tag, animated profile banners, name, card and
+  avatar effects, and **agent mode** in codespaces (an Agent panel in code workspaces: Claude reads, searches and
+  edits the files with the member's own Anthropic API key, every change as a diff to approve, one-click undo). The owner manages codes and members in Admin panel → **Owner**.
+  See [docs/features/premium.md](docs/features/premium.md) and "Owner setup" below.
 - **Safety**:
   - blocking, enforced by the rules for DMs and friend requests;
   - verified contacts and key-change alerts;
@@ -113,6 +118,12 @@ security notes and limits.
 
 31. **Community shop**: any member publishes items; creators collect the coins buyers pay. [shop](docs/features/shop.md)
 
+**Premium**
+
+32. **Premium membership** with monthly codes, an owner dashboard (codes, members, database rules) and perks: double
+    daily coins, premium-only items, badge, custom role tag, banners and effects, and agent mode in code workspaces.
+    [premium](docs/features/premium.md)
+
 Privacy notes:
 
 - The assistant sends only what you choose to Anthropic, under your own API key, including decrypted messages from the
@@ -186,6 +197,27 @@ unreadable and unwritable for every client, so it can only be changed in the con
 
 After becoming an admin, open **Admin panel → Catalog → Seed defaults** to fill the shop with the bundled items.
 
+### Owner setup (premium codes)
+
+Premium codes are managed in **Admin panel → Owner**, which is locked by a second secret, the **owner passcode**.
+Only an app admin who also knows the passcode can see or create codes. To set it:
+
+1. Become an app admin first (above).
+2. Open **Firebase console → Realtime Database → Data**. Under **`config`** (next to `adminPromo`), add the child
+   **`ownerPass`** with a string value.
+3. Make it **at least 12 characters** (the rules refuse anything shorter), random, different from `adminPromo`, and
+   keep it in a password manager. Never commit it, put it in code or paste it in chat.
+4. In the app, open **Admin panel → Owner**, enter the passcode, then **Generate codes**. This creates one random code
+   per calendar month (UTC) for this month and the next 11. Copy this month's code and give it to members; each code
+   works only during its month and gives 30 days of premium.
+
+Entering the passcode unlocks the dashboard for 15 minutes (one try every 30 seconds). To change the passcode, edit
+`config/ownerPass` in the console. "Replace this month's code" makes the old one stop working at once; members who
+already redeemed keep their 30 days. **Revoke** ends one member's membership and writes the month to
+`premiumRevoked/{uid}` so that month's code can't restore it (next month's code works again); delete that entry in
+the console to undo it. The same dashboard has a **Database rules** panel with the current minified
+rules, their size against the 102,400-byte console limit, and a Copy button for Option B below.
+
 ### Test locally against emulators
 
 `npm run emulators` (needs Java) starts the Auth and Database emulators with `database.rules.json`;
@@ -217,13 +249,15 @@ The console cuts pastes off at 100 KiB (102,400 bytes) and `database.rules.json`
 that, so paste the minified copy instead:
 
 1. Run `npm run -s rules:min | pbcopy` (macOS; elsewhere redirect to a file). It prints the size and
-   warns if it is still too big, in which case use Option A.
+   warns if it is still too big, in which case use Option A. Or copy them from **Admin panel → Owner → Database
+   rules** in the deployed app (the build ships the same minified file as `rules.min.json`).
 2. Open **Firebase console → Realtime Database → Rules**.
 3. Replace the whole editor contents with the copied rules.
 4. Click **Publish**.
 
-The minifier strips whitespace, merges `.child()` chains, renames `$wildcards` to short names and writes
-`===`/`!==` as `==`/`!=` (identical in database rules). To check a minified copy, save it
+The minifier strips whitespace, merges `.child()` chains, renames `$wildcards` to short names, writes
+`===`/`!==` as `==`/`!=` (identical in database rules) and drops `isString()` checks that a following
+`.length`/`.matches()` already enforces in a `.validate`. To check a minified copy, save it
 to a file and run `RULES_PATH=<file> npm run test:rules`.
 
 ### Tests
@@ -415,6 +449,12 @@ How a promo code is checked: the client first writes your guess to `promoAttempt
 and it accepts at most one guess every 30 seconds per account. The client then creates `admins/{uid}`. The rules
 allow that only if the stored guess equals `config/adminPromo` and is less than two minutes old.
 
+Premium uses the same guess node twice: a member's monthly code is checked against `premiumCodes/{YYYYMM}/c` (which
+only the owner can read), and the owner passcode against `config/ownerPass`. App admins can list and revoke premium
+memberships (a revoke records the month in `premiumRevoked/{uid}`, so that month's code can't bring it back), but
+only an admin whose fresh guess equals `config/ownerPass` (15 minutes) can read or write the codes.
+Details: [docs/features/premium.md](docs/features/premium.md).
+
 ### What the database rules enforce
 
 Deny by default, then:
@@ -525,7 +565,8 @@ Deny by default, then:
     - your public games and your likes;
     - blocks, verifications, notification settings, snippets and equipped cosmetics;
     - round 3 data: everything under `udata/{uid}` and `upub/{uid}` (status, favorites, folders, notes,
-      reminders, add-on installs, templates, …), the bots, add-ons and discovery listings you published,
+      reminders, add-on installs, templates, premium look, …), your premium membership (`premium/{uid}`), the bots,
+      add-ons and discovery listings you published,
       your community shop items and uncollected earnings, the events, RSVPs and rules acceptance you
       wrote in servers you leave, and this browser's per-account data (assistant key, drafts).
   - Collab edits, checkpoints you saved and reactions you left stay.

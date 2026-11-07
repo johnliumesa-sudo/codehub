@@ -1,6 +1,7 @@
 // Wallet primitives shared by the shop, the Settings → Shop items tab, the catalog editor and the item form.
 import { useEffect, useState } from 'react';
-import { DAILY_COINS, claimDaily, formatCountdown, msUntilClaim, serverNow, useWallet } from '../../lib/shop.js';
+import { DAILY_COINS, PREMIUM_DAILY_COINS, claimDailyCoins, formatCountdown, msUntilClaim, serverNow, useWallet } from '../../lib/shop.js';
+import { usePremium } from '../../features/premium/lib/status.js';
 import { useToast } from '../layout/ui.jsx';
 import './shop.css';
 
@@ -36,6 +37,8 @@ function useServerClock(active, ms = 1000) {
 export function WalletBar({ uid, compact = false }) {
   const toast = useToast();
   const { wallet, loading } = useWallet(uid);
+  const { active: premium } = usePremium(uid);
+  const daily = premium && wallet ? PREMIUM_DAILY_COINS : DAILY_COINS;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const pending = wallet ? msUntilClaim(wallet) > 0 : false;
@@ -46,8 +49,8 @@ export function WalletBar({ uid, compact = false }) {
     setBusy(true);
     setError('');
     try {
-      const bal = await claimDaily(uid);
-      toast(`+${DAILY_COINS} coins. Balance: ${bal.toLocaleString()}`, 'success');
+      const { balance: bal, amount } = await claimDailyCoins(uid);
+      toast(`+${amount} coins${amount > DAILY_COINS ? ' (premium)' : ''}. Balance: ${bal.toLocaleString()}`, 'success');
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -64,7 +67,7 @@ export function WalletBar({ uid, compact = false }) {
       </div>
       <div className="shop-wallet-claim">
         <button className="btn primary sm" onClick={claim} disabled={busy || loading || wait > 0}>
-          {busy ? <span className="spinner shop-spinner-sm" /> : wait > 0 ? <>Next claim in {formatCountdown(wait)}</> : wallet ? `Claim daily coins (+${DAILY_COINS})` : `Claim ${DAILY_COINS} starter coins`}
+          {busy ? <span className="spinner shop-spinner-sm" /> : wait > 0 ? <>Next claim in {formatCountdown(wait)}</> : wallet ? `Claim daily coins (+${daily}${daily > DAILY_COINS ? ', premium' : ''})` : `Claim ${DAILY_COINS} starter coins`}
         </button>
         {error && <span className="error-text shop-wallet-error">{error}</span>}
       </div>

@@ -946,6 +946,7 @@ function WorkspaceFrame({ user }) {
       <Notifier me={me} sources={notifySources} activeScope={chatConv?.scope || null} reads={reads} onOpen={(src) => openConv(src.conv)} />
       {modal?.type === 'settings' && (
         <SettingsModal
+          key={modal.tab || ''}
           user={user}
           me={me}
           onClose={() => setModal(null)}

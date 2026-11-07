@@ -22,10 +22,13 @@ import { get, onValue, push, ref, remove, serverTimestamp, set, update } from 'f
 import { auth, db } from './firebase.js';
 import { DEFAULT_CATALOG, ITEM_ID_RE, NAME_MAX, SLOTS, normalizeItem, sanitizeItemInput } from './addons/registry.js';
 import { countCreatorItems, earningKey, earningsFrom, isPrice, parseEarningKey, salesFrom } from './addons/earnings.js';
+import { isPremiumActive } from '../features/premium/lib/status.js';
 
 export { countCreatorItems, earningKey, earningsFrom, parseEarningKey, salesFrom };
 
 export const DAILY_COINS = 100;
+/** Daily claim while premium is active (the rules check premium/{uid}). The first claim is always 100. */
+export const PREMIUM_DAILY_COINS = 200;
 export const CLAIM_INTERVAL_MS = 20 * 60 * 60 * 1000; // 72000000, same constant as the rules
 /** Community items one creator may have (client cap: the rules can't count children). */
 export const MAX_ITEMS_PER_CREATOR = 50;
@@ -244,7 +247,8 @@ export async function saveItem(itemId, input, current = null) {
   const clean = sanitizeItemInput(current ? { ...input, kind: current.kind } : input, { creator: !!current?.by });
   try {
     if (itemId) {
-      await update(ref(db, `shop/items/${itemId}`), itemRecord(clean));
+      // Unticking "Premium members only" removes the flag (update() leaves absent keys alone).
+      await update(ref(db, `shop/items/${itemId}`), { ...itemRecord(clean), premium: clean.premium ? true : null });
       return itemId;
     }
     const id = push(ref(db, 'shop/items')).key;
@@ -414,24 +418,38 @@ export function useCosmetics(uid) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Claim daily coins. First claim creates the wallet with 100; afterwards +100 at most every 20h.
- * Writes exactly { balance, lastClaim: serverTimestamp() } (lastItem is left untouched).
- * Returns the new balance.
+ * Claim daily coins. First claim creates the wallet with 100; afterwards +100 at most every 20h, or +200
+ * while premium is active. Writes exactly { balance, lastClaim: serverTimestamp() } (lastItem is left
+ * untouched). Resolves to { balance, amount }.
  */
-export async function claimDaily(uid) {
+export async function claimDailyCoins(uid) {
   requireUid(uid);
   const wRef = ref(db, `wallets/${uid}`);
-  const cur = (await get(wRef)).val();
+  const [cur, prem] = await Promise.all([
+    get(wRef).then((s) => s.val()),
+    // Unreadable before the premium rules are published: then nobody is premium.
+    get(ref(db, `premium/${uid}`)).then((s) => s.val(), () => null),
+  ]);
   const wallet = cur && typeof cur.balance === 'number' ? cur : null;
   const wait = msUntilClaim(wallet);
   if (wait > 0) throw new Error(`Next claim in ${formatCountdown(wait)}`);
-  const balance = (wallet ? wallet.balance : 0) + DAILY_COINS;
-  try {
-    await update(wRef, { balance, lastClaim: serverTimestamp() });
-  } catch (e) {
-    throw friendly(e, 'Not yet. Your next daily claim isn\'t ready');
+  const amounts = wallet && isPremiumActive(prem) ? [PREMIUM_DAILY_COINS, DAILY_COINS] : [DAILY_COINS];
+  for (let i = 0; ; i += 1) {
+    const amount = amounts[i];
+    const balance = (wallet ? wallet.balance : 0) + amount;
+    try {
+      await update(wRef, { balance, lastClaim: serverTimestamp() });
+      return { balance, amount };
+    } catch (e) {
+      // +200 refused: the membership just ended, or the published rules predate premium.
+      if (!isDenied(e) || i + 1 >= amounts.length) throw friendly(e, 'Not yet. Your next daily claim isn\'t ready');
+    }
   }
-  return balance;
+}
+
+/** claimDailyCoins, resolving to the new balance only. */
+export async function claimDaily(uid) {
+  return (await claimDailyCoins(uid)).balance;
 }
 
 /** Add a free (price 0) item to your inventory. Inventory-only write. */
@@ -442,7 +460,7 @@ export async function getFree(uid, item) {
   try {
     await set(ref(db, `inventory/${uid}/${item.id}`), { at: serverTimestamp(), price: 0 });
   } catch (e) {
-    throw friendly(e, 'Couldn\'t add this item. You may already own it, or it changed');
+    throw friendly(e, item.premium ? 'This item is for premium members only' : 'Couldn\'t add this item. You may already own it, or it changed');
   }
 }
 
@@ -473,7 +491,7 @@ export async function buy(uid, item) {
   try {
     await update(ref(db), updates);
   } catch (e) {
-    throw friendly(e, 'Purchase rejected. The price may have changed or your balance moved; try again');
+    throw friendly(e, item.premium ? 'Purchase rejected. This item is for premium members only' : 'Purchase rejected. The price may have changed or your balance moved; try again');
   }
 }
 

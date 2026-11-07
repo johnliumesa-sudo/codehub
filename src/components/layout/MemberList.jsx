@@ -8,6 +8,7 @@ import RoleBadge, { TimeoutMark } from '../roles/RoleBadge.jsx';
 import MemberRoleControls from '../roles/MemberRoleControls.jsx';
 import { CosmeticBadge, CosmeticName, useNameColor } from '../shop/Cosmetics.jsx';
 import AdminBadge from '../admin/AdminBadge.jsx';
+import { PremiumAvatar, PremiumBanner, PremiumCardFx, PremiumName, PremiumNameBits } from '../../features/premium/components/PremiumBits.jsx';
 import ReportButton from '../admin/ReportButton.jsx';
 import BlockButton from '../safety/BlockButton.jsx';
 import { ProfileSections } from '../ext/WorkspaceExt.jsx';
@@ -34,12 +35,14 @@ function ProfileCard({ uid, profile, role, presence, pos, isMe, onMessage, onClo
   const style = window.innerWidth < 560 ? { left: 12, right: 12, top } : { top, left: Math.max(12, pos.left - 300) };
   return (
     <div ref={ref} className="ly-profile-card" style={style} role="dialog" aria-label={profile?.name}>
-      <div className="ly-profile-banner" style={{ background: profile?.color || 'var(--accent)' }} />
+      <PremiumCardFx uid={uid} />
+      <PremiumBanner uid={uid} className="ly-profile-banner" style={{ background: profile?.color || 'var(--accent)' }} />
       <div className="ly-profile-body">
-        <Avatar profile={profile} size={64} presence={presence} ring="var(--bg-2)" />
+        <PremiumAvatar uid={uid}><Avatar profile={profile} size={64} presence={presence} ring="var(--bg-2)" /></PremiumAvatar>
         <div className="ly-profile-name">
-          <span style={nameColor ? { color: nameColor } : undefined}>{profile?.name || '…'}</span>
+          <span style={nameColor ? { color: nameColor } : undefined}><PremiumName uid={uid}>{profile?.name || '…'}</PremiumName></span>
           <CosmeticBadge uid={uid} size="md" />
+          <PremiumNameBits uid={uid} size={15} />
           {ROLE_ICON[role] && <span className={`ly-role-tag ${role}`}><Icon name={ROLE_ICON[role]} size={12} /> {role}</span>}
           {member?.role === 'member' && <RoleBadge member={member} roles={roles} small />}
           <AdminBadge uid={uid} size={14} />
@@ -130,8 +133,9 @@ export default function MemberList({ members, loading, myUid, onMessage, sid, me
                         <span className="ly-dm-text">
                           <span className="ly-member-name">
                             <CosmeticName uid={m.uid} fallbackColor={roles[m.roleId]?.color || (m.role !== 'member' ? p?.color : undefined)}>
-                              {p?.name || '…'}
+                              <PremiumName uid={m.uid}>{p?.name || '…'}</PremiumName>
                             </CosmeticName>
+                            <PremiumNameBits uid={m.uid} />
                             {ROLE_ICON[m.role] && <Icon name={ROLE_ICON[m.role]} size={13} className={`ly-role-icon ${m.role}`} title={m.role} />}
                             <AdminBadge uid={m.uid} />
                             <TimeoutMark until={timeouts[m.uid]} />
