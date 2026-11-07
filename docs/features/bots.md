@@ -90,7 +90,12 @@ are escaped too (a bot never mass-pings). Output is capped at 4000 characters an
   `{ v: 1, name, glyph, desc, commands: [{ name, usage, desc, response }], triggers: [{ id, match, response, cooldown }], welcome }`.
   `ver` starts at 1 and increases with every saved edit. `img` is base64 WebP/JPEG/PNG from the
   shared image pipeline (`processImage`: re-encoded, metadata stripped, ≤ 128 px, ≤ 14 KB so it fits a
-  20000-char leaf), `imgType` its MIME type.
+  20000-char leaf), `imgType` its MIME type. Publishing a new bot (`putPub`) is one update that also
+  stamps the shared one-per-minute publish window (`publishLog/{uid}` = now, `udata/{uid}/pub/last` =
+  the bot id; round 3 security review R1); a second new bot (or add-on, listing, game or shop item)
+  within a minute is refused with "Try again in N seconds". Saving a new version is not rate-limited.
+  The rules accept only the fields above (plus the other `pub` kinds' fields) and cap every field
+  except `def` and `img` at 1000 characters.
 - Reports use the existing `reports` flow (`submitReport`, one per 30 s, app admins only) with kind
   `bot`, `target` = the bot id (`pub/bots/{botId}`) and the note prefixed with the reported version
   (`[vN]`). The admin reports queue shows the bot (avatar, name, version, publisher) and a "Remove bot"
@@ -139,15 +144,19 @@ itself):
   `udata/{me}/botWelcome/{sid}~{botId}` with a transaction (so two tabs can't both post) and posts the
   bot's welcome (`via: 'welcome'`). Once per member per bot; at most 3 welcome messages per join (any
   further bots' welcomes are skipped). In a slowmode channel the welcome is shown to the new member
-  only (an "Only you can see this" card) instead of being posted.
+  only (an "Only you can see this" card) instead of being posted. Because the newcomer didn't choose to
+  send it, a welcome never mentions anyone (round 3 security review a7): `welcomeDraft` escapes every
+  `@mention` outside code (`escapeMentions`: `@name` becomes `\@name`, which shows "@name" as plain
+  text and notifies nobody, the newcomer's own `{mention}` included; e-mail-like `a@b` and code are left
+  alone), and the builder's preview and hint show the same.
 
 **How a bot message looks.** `messageBadges` entry `bots.badge`: for a bot installed in this server
 the header reads "🛠 **Helper** · BOT · via @Alice" (the installed copy's name and icon, chosen by the
 server's managers; the plain author name is hidden because "via @Alice" names the real author), and
 bot messages start their own header group. A message whose `bot` names a bot this server doesn't have
 (uninstalled since, or forged by a member) keeps the real author first and is marked "(not installed
-here)". A small note under the message says "used /hello", "replied to a keyword" or "welcome
-message".
+here)". A small note under the message says "used /hello", "replied to a keyword", or for a welcome
+"Automatic bot welcome, posted from Bob's account when they joined. They didn't write it." (italic).
 
 **Data paths.**
 - `sconf/{sid}/bots/{botId}` (generic `sconf` block; members read; owner, admins and `manageApps`

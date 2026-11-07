@@ -34,7 +34,7 @@ register('messageBadges', {
 });
 register('messageExtras', {
   id: 'bots.note',
-  render: (m) => (m.body?.cmd || m.body?.bot ? h(CommandNote, { m }) : null),
+  render: (m, ctx) => (m.body?.cmd || m.body?.bot ? h(CommandNote, { m, ctx }) : null),
 });
 
 // 3. Bots in servers: the composer host (commands, trigger replies, welcome messages, /poll and

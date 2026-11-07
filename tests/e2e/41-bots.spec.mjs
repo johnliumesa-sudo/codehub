@@ -161,6 +161,18 @@ test('bot builder, directory, install, commands, keyword triggers, update and un
   expect(helper.img.length).toBeLessThanOrEqual(20000);
   expect(JSON.parse(helper.def).commands[0]).toMatchObject({ name: 'hello', usage: '<text>' });
 
+  // One new bot (or add-on, listing, game, shop item) per minute: a second one right away is refused
+  // with a clear message (the rules require the publishLog stamp on every pub create).
+  await alice.getByRole('button', { name: 'Create a bot' }).click();
+  await alice.getByLabel('Name', { exact: true }).fill('Second');
+  await alice.getByRole('button', { name: 'Add command' }).click();
+  await alice.getByLabel('Command 1 name').fill('two');
+  await alice.getByLabel('Command 1 response').fill('two');
+  await alice.getByRole('button', { name: 'Publish bot' }).click();
+  await expect(alice.locator('.bt-errors')).toContainText(/one new bot, add-on, server listing, game or shop item per minute\. Try again in \d+ seconds?\./);
+  await alice.locator('.bt-builder').getByRole('button', { name: 'Cancel' }).click();
+  expect(Object.values(await adminGet('pub/bots')).filter((b) => b.by === helper.by)).toHaveLength(1);
+
   // The directory lists it with its details.
   await alice.getByRole('tab', { name: 'Directory' }).click();
   await alice.getByLabel('Search bots').fill('ping-pong');
@@ -268,7 +280,9 @@ test('welcome message for a new member, reporting a bot and app-admin removal', 
   const welcome = bob.locator('.msg', { hasText: 'Welcome @Bob to Welcomeland!' });
   await expect(welcome).toHaveCount(1, { timeout: 30_000 });
   await expect(welcome.locator('.bt-badge')).toContainText('via @Bob');
-  await expect(welcome.locator('.bt-cmd-note')).toHaveText('welcome message');
+  await expect(welcome.locator('.bt-cmd-note')).toHaveText("Automatic bot welcome, posted from Bob's account when they joined. They didn't write it.");
+  // The welcome never mentions anyone (posted automatically from Bob's account): no mention chip.
+  await expect(welcome.locator('.mention')).toHaveCount(0);
   await expect(alice.locator('.msg', { hasText: 'Welcome @Bob to Welcomeland!' })).toHaveCount(1, { timeout: 30_000 });
   await expect.poll(async () => Object.keys((await adminGet(`udata/${bobUid}/botWelcome`)) || {})).toEqual([`${sid}~-Ngreeter0000000001`]);
   await bob.reload();
