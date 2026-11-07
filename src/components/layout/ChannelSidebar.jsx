@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { channelScope } from '../../lib/servers.js';
 import { isMuted, useNotifPrefs } from '../../lib/notify.js';
 import MuteMenu from '../safety/MuteMenu.jsx';
@@ -9,6 +9,7 @@ import CallIcon from '../calls/CallIcon.jsx';
 import { useCategories } from '../../lib/serverx/categories.js';
 import { CategorizedChannels } from '../serverx/CategorizedChannels.jsx';
 import { CategoryManager } from '../serverx/CategoryManager.jsx';
+import { SidebarSections } from '../ext/WorkspaceExt.jsx';
 
 function ChannelRow({ sid, ch, active, unread, canEdit, onSelect, onEdit }) {
   const label = ch.failed ? 'undecryptable' : ch.name;
@@ -80,6 +81,11 @@ export default function ChannelSidebar({
   const code = channels.filter((c) => c.type === 'code');
   const voice = channels.filter((c) => c.type === 'voice');
   const toggle = (k) => setCollapsed((c) => ({ ...c, [k]: !c[k] }));
+  // sidebarSections ctx extra for the server view
+  const extExtra = useMemo(
+    () => ({ view: 'server', sid, server: { meta, channels, perms: perms || {}, myRole, tab, activeCid } }),
+    [sid, meta, channels, perms, myRole, tab, activeCid],
+  );
 
   const row = (ch) => (
     <ChannelRow
@@ -150,6 +156,7 @@ export default function ChannelSidebar({
           </div>
         )}
         {error && <div className="ly-callout danger">Couldn't load channels: {String(error.message || error)}</div>}
+        {!loading && !meta.nameFailed && <SidebarSections extra={extExtra} />}
         {loading && (
           <div className="ly-skel-group">
             {[70, 55, 80, 60].map((w, i) => <span key={i} className="ly-skel-line" style={{ width: `${w}%` }} />)}

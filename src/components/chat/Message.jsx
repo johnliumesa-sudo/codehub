@@ -13,6 +13,7 @@ import PollCard from '../chatx/PollCard.jsx';
 import ForwardedTag from '../chatx/ForwardedTag.jsx';
 import { Emote } from '../media/EmoteText.jsx';
 import { addBookmark } from '../../lib/chatx/bookmarks.js';
+import { MessageExtActions, MessageExtBadges, MessageExtExtras } from '../ext/ChatExt.jsx';
 
 function fmtTime(ts) {
   if (typeof ts !== 'number') return '';
@@ -141,6 +142,7 @@ function Message(props) {
               <span className="msg-author" style={{ color: nameColor || author?.color || 'var(--text)' }}>{author?.name || '…'}</span>
               <CosmeticBadge uid={m.uid} />
               <AdminBadge uid={m.uid} />
+              <MessageExtBadges m={m} />
               <span className="msg-time" title={fmtFull(m.ts)}>{isSending ? 'sending…' : fmtTime(m.ts)}</span>
               {m.pinned && <span className="msg-pin-flag" title="Pinned">📌</span>}
             </div>
@@ -174,6 +176,7 @@ function Message(props) {
               {invite && <InviteCard invite={invite} name={m.body?.invite?.name} mine={m.uid === me.uid} />}
               {m.editedAt && <span className="msg-edited" title={`Edited ${fmtFull(m.editedAt)}`}>(edited)</span>}
               {grouped && m.pinned && <span className="msg-pin-flag" title="Pinned">📌</span>}
+              <MessageExtExtras m={m} />
             </>
           )}
 
@@ -270,6 +273,7 @@ function Message(props) {
               <TrashIcon />
             </button>
           )}
+          <MessageExtActions m={m} />
         </div>
       )}
       {m.error && canDelete && (

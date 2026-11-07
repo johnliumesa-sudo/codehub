@@ -10,6 +10,7 @@ import { CosmeticBadge, CosmeticName, useNameColor } from '../shop/Cosmetics.jsx
 import AdminBadge from '../admin/AdminBadge.jsx';
 import ReportButton from '../admin/ReportButton.jsx';
 import BlockButton from '../safety/BlockButton.jsx';
+import { ProfileSections } from '../ext/WorkspaceExt.jsx';
 
 const ROLE_ICON = { owner: 'crown', admin: 'shield' };
 
@@ -45,6 +46,7 @@ function ProfileCard({ uid, profile, role, presence, pos, isMe, onMessage, onClo
         <div className="muted ly-profile-presence">{PRESENCE_LABEL[presence]}</div>
         {profile?.status && <div className="ly-profile-status">{profile.status}</div>}
         <ProfileExtrasCard profile={profile} />
+        <ProfileSections uid={uid} extra={{ sid, member, isMe, close: onClose }} />
         {!isMe && (
           <>
             <button className="btn primary" onClick={() => onMessage(uid)}>

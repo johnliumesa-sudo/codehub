@@ -2,6 +2,8 @@ import { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo,
 import Message from './Message.jsx';
 import BlockedGate from '../safety/BlockedGate.jsx';
 import { messageTarget } from '../../lib/reports.js';
+import { useRegistry } from '../../lib/ext/registry.js';
+import { messageGroupKey } from '../ext/ChatExt.jsx';
 
 const GROUP_WINDOW = 7 * 60 * 1000;
 
@@ -33,6 +35,7 @@ const MessageList = forwardRef(function MessageList(props, ref) {
   const [showJump, setShowJump] = useState(false);
   const [highlight, setHighlight] = useState(null);
   const loadingOlderRef = useRef(false);
+  const badgeEntries = useRegistry('messageBadges');
   // First visible message and its offset from the viewport top. Restoring it is idempotent, so it
   // composes with the browser's own scroll anchoring (Chrome/Firefox) instead of doubling it, and
   // covers browsers without anchoring (Safari) and the scrollTop = 0 case anchoring skips.
@@ -162,12 +165,13 @@ const MessageList = forwardRef(function MessageList(props, ref) {
       }
       if (m.mid === unreadMid) out.push({ type: 'unread', key: 'unread' });
       const grouped = !!prev && prev.uid === m.uid && !m.replyTo && !prev.deleted && !m.deleted
-        && ts - (typeof prev.ts === 'number' ? prev.ts : ts) < GROUP_WINDOW && m.mid !== unreadMid;
+        && ts - (typeof prev.ts === 'number' ? prev.ts : ts) < GROUP_WINDOW && m.mid !== unreadMid
+        && messageGroupKey(prev, badgeEntries) === messageGroupKey(m, badgeEntries); // e.g. a bot reply starts its own header
       out.push({ type: 'msg', key: m.mid, m, grouped });
       prev = m;
     }
     return out;
-  }, [items, unreadMid]);
+  }, [items, unreadMid, badgeEntries]);
 
   if (loading) {
     return (

@@ -5,6 +5,9 @@ import { dmScope } from '../../lib/servers.js';
 import { Avatar, Icon } from './ui.jsx';
 import GroupList from '../groups/GroupList.jsx';
 import { isMuted, useNotifPrefs } from '../../lib/notify.js';
+import { SidebarSections } from '../ext/WorkspaceExt.jsx';
+
+const HOME_EXT = { view: 'home' }; // sidebarSections ctx extra (stable)
 
 function relTime(ts) {
   if (!ts) return '';
@@ -41,6 +44,7 @@ export default function DmSidebar({ dms, loading, error, activeDmId, reads, myUi
         </div>
       </header>
       <div className="ly-side-scroll">
+        <SidebarSections extra={HOME_EXT} />
         <button className={`ly-friends-link ${activeDmId || activeGid ? '' : 'active'}`} onClick={onFriends}>
           <Icon name="users" size={18} /> Friends
           {friendRequests > 0 && <span className="fr-badge" title="Pending friend requests">{friendRequests}</span>}

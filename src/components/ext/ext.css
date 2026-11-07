@@ -1,0 +1,66 @@
+/* Round 3 extension slots. Only design tokens, so dark and light themes both work. */
+
+.ext-icon { display: inline-grid; place-items: center; min-width: 18px; line-height: 1; font-size: 15px; }
+
+/* Message toolbar "More actions" menu (portal, fixed) */
+.msg.ext-menu-open .msg-toolbar { display: flex; }
+.ext-menu {
+  position: fixed; z-index: 1000; min-width: 180px; max-width: min(320px, calc(100vw - 16px));
+  max-height: min(360px, calc(100vh - 16px)); overflow-y: auto;
+  padding: 4px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface-pop, var(--bg-1)); box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
+}
+.ext-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.ext-menu-item:hover, .ext-menu-item:focus-visible { background: var(--bg-hover); outline: none; }
+.ext-menu-item.danger { color: var(--danger-text, var(--danger)); }
+
+.ext-msg-extras { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; min-width: 0; }
+.ext-msg-extras:empty { display: none; }
+
+/* Chat panels reuse .chat-side (overlay below 900px) */
+.ext-panel .chat-side-head h3:focus { outline: none; }
+.ext-panel .chat-side-head h3:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.ext-panel-body { overflow-wrap: anywhere; }
+
+/* Local-only notices above the composer */
+.ext-ephemeral-stack { display: flex; flex-direction: column; gap: 6px; padding: 0 16px 6px; max-height: 40vh; overflow-y: auto; flex: none; }
+.ext-ephemeral {
+  border: 1px dashed var(--line-strong, var(--border)); border-radius: 10px; background: var(--bg-1);
+  padding: 8px 10px; font-size: 13px; color: var(--text-body, var(--text));
+}
+.ext-ephemeral-head { display: flex; align-items: center; gap: 8px; }
+.ext-ephemeral-note { color: var(--text-faint); font-size: 11.5px; }
+.ext-ephemeral-x {
+  margin-left: auto; border: 0; background: transparent; color: var(--text-dim); cursor: pointer;
+  width: 26px; height: 26px; border-radius: 6px; flex: none;
+}
+.ext-ephemeral-x:hover, .ext-ephemeral-x:focus-visible { background: var(--bg-hover); color: var(--text); }
+.ext-ephemeral-text { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ext-ephemeral-list { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.ext-ephemeral-list li { overflow-wrap: anywhere; }
+.ext-ephemeral-list code { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+
+/* Slash command autocomplete rows */
+.suggest-slash { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 700; flex: none; }
+.suggest-args { color: var(--text-faint); font-family: var(--mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.suggest-item .suggest-hint.slash { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+.composer-usage { font-size: 11.5px; color: var(--text-dim); padding: 4px 4px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-usage code { font-family: var(--mono); font-size: 11px; color: var(--text); }
+
+/* Sidebar / profile / settings slots */
+.ext-sidebar-sections { display: flex; flex-direction: column; gap: 4px; padding-bottom: 4px; }
+.ext-sidebar-sections:empty { display: none; }
+.ext-profile-sections { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.ext-profile-sections:empty { display: none; }
+.ext-tab-body { min-width: 0; }
+.ext-failed {
+  padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-1);
+  color: var(--danger-text, var(--danger)); font-size: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ext-menu { animation: none !important; }
+}

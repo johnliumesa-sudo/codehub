@@ -30,7 +30,7 @@ import SafetyNumberModal from './SafetyNumberModal.jsx';
 import SidePanel from './SidePanel.jsx';
 import ConfirmModal from './ConfirmModal.jsx';
 import GroupAvatar from '../groups/GroupAvatar.jsx';
-import { can, useServerRoles } from '../../lib/roles.js';
+import { can, permsFor, useServerRoles } from '../../lib/roles.js';
 import { useMyTimeout } from '../../lib/moderation.js';
 import TimeoutBanner from '../roles/TimeoutBanner.jsx';
 import MuteMenu from '../safety/MuteMenu.jsx';
@@ -46,6 +46,9 @@ import { useServerEmotes } from '../media/EmoteText.jsx';
 import { DropZone } from '../media/Attachments.jsx';
 import ForwardModal from '../chatx/ForwardModal.jsx';
 import { deleteAttachments } from '../../lib/media/attachments.js';
+import { ChatContext } from '../../lib/ext/chatContext.js';
+import { draftToBody, runSendHooks } from '../../lib/ext/send.js';
+import { ChatExtPanel, ChatHeaderExtButtons, EphemeralStack } from '../ext/ChatExt.jsx';
 
 // Uploaded images of a message that never got stored would otherwise be left behind.
 const dropUploads = (conv, body) => {
@@ -89,7 +92,7 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
   const [members, setMembers] = useState({}); // uid -> { role }
   const [replyTo, setReplyTo] = useState(null); // mid
   const [editingMid, setEditingMid] = useState(null);
-  const [panel, setPanel] = useState(null); // 'search' | 'pins' | null
+  const [panel, setPanel] = useState(null); // 'search' | 'pins' | 'ext:{chatPanels id}' | null
   const [typingUids, setTypingUids] = useState([]);
   const [unreadSince, setUnreadSince] = useState(null);
   const [showSafety, setShowSafety] = useState(false);
@@ -100,8 +103,12 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
   const [pendingJump, setPendingJump] = useState(null);
   const [keyConfirm, setKeyConfirm] = useState(null); // body pending a key-change confirmation
   const [forwarding, setForwarding] = useState(null); // { body, fromName }
+  const [ephemeral, setEphemeral] = useState([]); // local-only notices (ctx.ephemeral)
   const listRef = useRef(null);
   const composerRef = useRef(null);
+  const ctxRef = useRef(null); // current ChatContext value, for the send pipeline
+  const extOpener = useRef(null); // header button that opened the extension panel
+  const ephSeq = useRef(0);
 
   const flash = useCallback((text, kind = 'error') => {
     setToast({ text, kind, id: Date.now() });
@@ -345,6 +352,41 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
     return true;
   }, [conv, me, replyTo, tPath, flash, keyAck.mustConfirm, byMid, members, profiles]);
 
+  // Round 3: every send (composer, snippets, GIFs, polls, ctx.send) runs the sendHooks pipeline before
+  // encryption; slash commands are its first hook. opts.raw skips the hooks (no command re-entry).
+  const sendDraft = useCallback(async (draft, opts = {}) => {
+    if (!draft || typeof draft !== 'object') return false;
+    let final = draft;
+    if (!opts.raw) {
+      const res = await runSendHooks(draft, ctxRef.current);
+      if (res.handled || res.cancel) {
+        dropUploads(conv, draft); // a command or a cancelled send never uses the uploaded images
+        if (res.cancel && res.reason) flash(res.reason);
+        return !!res.handled;
+      }
+      final = res.draft;
+    }
+    return handleSend(draftToBody(final));
+  }, [conv, flash, handleSend]);
+
+  const showEphemeral = useCallback((entry) => {
+    if (!entry || typeof entry !== 'object') return () => {};
+    const token = ++ephSeq.current;
+    const key = typeof entry.id === 'string' && entry.id ? `id:${entry.id}` : `n:${token}`;
+    setEphemeral((list) => [...list.filter((x) => x.key !== key), { key, token, entry }].slice(-3));
+    return () => setEphemeral((list) => list.filter((x) => x.token !== token));
+  }, []);
+  const dismissEphemeral = useCallback((key) => setEphemeral((list) => list.filter((x) => x.key !== key)), []);
+
+  const toggleExtPanel = useCallback((id, opener) => {
+    extOpener.current = opener || null;
+    setPanel((p) => (p === `ext:${id}` ? null : `ext:${id}`));
+  }, []);
+  const closeExtPanel = useCallback((refocus) => {
+    setPanel((p) => (p && p.startsWith('ext:') ? null : p));
+    if (refocus) requestAnimationFrame(() => extOpener.current?.focus?.());
+  }, []);
+
   const handleEditSave = useCallback(async (mid, body) => {
     try {
       await editMessage(conv, mid, body, me.uid);
@@ -418,7 +460,37 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
       : `Message #${conv.title || 'channel'}`;
   const peerName = peer?.name || conv.title;
 
+  // ---------- Round 3: ChatContext (see src/lib/ext/chatContext.js for every field) ----------
+  const chatPerms = useMemo(
+    () => (conv.kind === 'channel' ? permsFor(meMember, roles) : null),
+    [conv.kind, meMember.role, meMember.roleId, roles], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const canSend = !!key && !keyError && !(timedOutUntil > 0) && !iBlockedPeer;
+  const extPanelId = panel && panel.startsWith('ext:') ? panel.slice(4) : null;
+  const chatCtx = useMemo(() => ({
+    conv: { ...conv, name: conv.title || peer?.name || '' },
+    me,
+    perms: chatPerms,
+    members,
+    messages: items,
+    profiles,
+    canSend,
+    hasMore,
+    send: sendDraft,
+    insertText: (text) => composerRef.current?.insertText?.(String(text ?? '')),
+    jumpTo,
+    reply: onReply,
+    loadOlder,
+    openPanel: (id) => setPanel(`ext:${id}`),
+    closePanel: () => closeExtPanel(false),
+    panel: extPanelId,
+    toast: (text, kind) => flash(String(text ?? ''), kind === 'ok' || kind === 'success' ? 'ok' : 'error'),
+    ephemeral: showEphemeral,
+  }), [conv, peer?.name, me, chatPerms, members, items, profiles, canSend, hasMore, sendDraft, jumpTo, onReply, loadOlder, closeExtPanel, extPanelId, flash, showEphemeral]);
+  ctxRef.current = chatCtx;
+
   return (
+    <ChatContext.Provider value={chatCtx}>
     <div className="chat-root">
       <header className="chat-header">
         <div className="chat-header-title">
@@ -482,6 +554,7 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
           >
             <SearchIcon />
           </button>
+          <ChatHeaderExtButtons panel={extPanelId} onTogglePanel={toggleExtPanel} />
         </div>
       </header>
       {conv.kind === 'dm' && (
@@ -542,6 +615,7 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
             />
           )}
 
+          {!keyError && <EphemeralStack items={ephemeral} onDismiss={dismissEphemeral} />}
           {!keyError && timedOutUntil > 0 && <TimeoutBanner until={timedOutUntil} />}
           {!keyError && !timedOutUntil && iBlockedPeer && (
             <div className="sf-composer-blocked">
@@ -557,7 +631,7 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
                 conv={conv}
                 disabled={!key}
                 placeholder={placeholder}
-                onSend={handleSend}
+                onSend={sendDraft}
                 onTyping={onTyping}
                 onStopTyping={onStopTyping}
                 replyItem={replyItem}
@@ -576,7 +650,8 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
           )}
         </DropZone>
 
-        {panel && (
+        {extPanelId && <ChatExtPanel id={extPanelId} onClose={closeExtPanel} />}
+        {panel && !extPanelId && (
           <SidePanel
             kind={panel}
             conv={conv}
@@ -613,7 +688,7 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
           initial={typeof showSnippet === 'object' ? showSnippet : undefined}
           onClose={() => setShowSnippet(false)}
           onSubmit={async (body) => {
-            const ok = await handleSend(body);
+            const ok = await sendDraft(body);
             if (ok) setShowSnippet(false);
             return ok;
           }}
@@ -671,6 +746,7 @@ function ChatInner({ conv, me, onOpenGroupSettings, forwardTargets }) {
       )}
       {toast && <div key={toast.id} className={`chat-toast ${toast.kind}`}>{toast.text}</div>}
     </div>
+    </ChatContext.Provider>
   );
 }
 
