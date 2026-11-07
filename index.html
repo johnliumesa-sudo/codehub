@@ -7,6 +7,8 @@
     <title>Codehub</title>
     <!-- Set data-theme before the CSS paints (no dark flash for light-mode users). Must equal THEME_BOOT_SNIPPET in src/lib/theme.js; tests/unit/theme-boot.test.mjs checks it. -->
     <script>(function(){try{var t=localStorage.getItem('codehub.theme');if(t!=='dark'&&t!=='light')t='system';var l=t==='light'||(t==='system'&&matchMedia('(prefers-color-scheme: light)').matches);var r=l?'light':'dark';document.documentElement.setAttribute('data-theme',r);document.documentElement.style.colorScheme=r;}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
+    <!-- Appearance settings (density, font size, motion, focus rings, chat width, clock) before the first paint. Must equal APPEARANCE_BOOT_SNIPPET in src/features/personal/lib/appearanceCore.js; tests/unit/personal.test.mjs checks it. -->
+    <script>(function(){try{var a=null,d=document.documentElement,c=d.classList;try{a=JSON.parse(localStorage.getItem('codehub.appearance')||'{}');}catch(e){}if(!a||typeof a!=='object')a={};var f=Math.round(+a.font);if(a.density==='compact')c.add('ap-compact');if(f>=90&&f<=130&&f!==100){c.add('ap-font');d.style.setProperty('--ap-font-scale',String(f/100));}if(a.reduceMotion===true||matchMedia('(prefers-reduced-motion: reduce)').matches)c.add('ap-reduce-motion');if(a.focusRings===true)c.add('ap-focus-rings');if(a.chatWidth==='wide'||a.chatWidth==='medium'||a.chatWidth==='narrow')d.setAttribute('data-ap-width',a.chatWidth);if(a.clock==='12'||a.clock==='24')d.setAttribute('data-ap-clock',a.clock);}catch(e){}})();</script>
   </head>
   <body>
     <div id="root"></div>

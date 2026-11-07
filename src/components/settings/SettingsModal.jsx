@@ -14,6 +14,7 @@ import PromoTab from '../admin/PromoTab.jsx';
 import PrivacyTab from '../safety/PrivacyTab.jsx';
 import NotificationsTab from '../safety/NotificationsTab.jsx';
 import ThemeToggle from '../theme/ThemeToggle.jsx';
+import AppearanceSettings from '../../features/personal/components/AppearanceSettings.jsx';
 import { AvatarUploader } from '../media/Uploaders.jsx';
 import { useWorkspaceCtx } from '../../lib/ext/workspaceContext.js';
 import { ExtTabBody, useExtTabs } from '../ext/WorkspaceExt.jsx';
@@ -517,7 +518,12 @@ export default function SettingsModal({ user, onClose, initialTab = 'profile', o
                 <ProfileTab user={user} />
               </>
             )}
-            {shown === 'appearance' && <ThemeToggle />}
+            {shown === 'appearance' && (
+              <>
+                <ThemeToggle />
+                <AppearanceSettings />
+              </>
+            )}
             {shown === 'security' && <SecurityTab />}
             {shown === 'privacy' && <PrivacyTab user={user} />}
             {shown === 'notifications' && <NotificationsTab user={user} describeScope={describeScope} />}
