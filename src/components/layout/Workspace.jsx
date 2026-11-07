@@ -430,6 +430,13 @@ function WorkspaceFrame({ user }) {
     if (mobile) setNavOpen(false);
   };
 
+  // Voice channels are drop-in rooms: show the server, join (never ring) and open the call view, the
+  // same as clicking the channel in the sidebar. Resolves once joined; rejects with the join error.
+  const openVoice = (s, cid) => {
+    enterServer(s);
+    return joinCall(voiceScope(s, cid), uid, { kind: 'audio', ring: false }).then(() => setCallOpen(true));
+  };
+
   // ---------- calls ----------
   const openCall = (scope) => {
     const p = scope ? parseScope(scope) : null;
@@ -480,10 +487,7 @@ function WorkspaceFrame({ user }) {
       case 'channel':
         if (t.channelType === 'voice') {
           // Same as clicking a voice channel in the sidebar: join (never ring) and show the call.
-          enterServer(t.sid);
-          joinCall(voiceScope(t.sid, t.cid), uid, { kind: 'audio', ring: false })
-            .then(() => setCallOpen(true))
-            .catch((e) => toast(errMsg(e), 'error'));
+          openVoice(t.sid, t.cid).catch((e) => toast(errMsg(e), 'error'));
         } else {
           enterServer(t.sid, t.cid, t.channelType);
         }
@@ -526,7 +530,7 @@ function WorkspaceFrame({ user }) {
   // Round 3: WorkspaceContext (see src/lib/ext/workspaceContext.js). Functions read the latest
   // closures through a ref so the value only changes with me / nav / servers.
   const wsFns = useRef({});
-  wsFns.current = { openConv, toast, sid };
+  wsFns.current = { openConv, openVoice, toast, sid };
   const wsCtx = useMemo(() => ({
     me,
     nav,
@@ -537,6 +541,7 @@ function WorkspaceFrame({ user }) {
       if (wsFns.current.sid) setModal({ type: 'server', tab: typeof tab === 'string' ? tab : undefined });
     },
     openConv: (c) => wsFns.current.openConv(c || {}),
+    openVoice: (s, cid) => wsFns.current.openVoice(s, cid),
     toast: (text, kind) => wsFns.current.toast(String(text ?? ''), kind === 'error' || kind === 'success' ? kind : 'info'),
   }), [me, nav, servers]);
   const extPalette = useRegistry('paletteActions');

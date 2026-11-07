@@ -1,7 +1,10 @@
 // Round 3 community workstream in the real UI: server templates (+ save as template), the welcome
 // screen and database-enforced rules gate, events with RSVP / sidebar / panel / reminders,
 // AutoMod (block and hide), and server discovery (list, discover, join through the invite flow, unlist).
-import { test, expect, createServer, makeInvite, joinServer, send, adminGet, uid } from './fixtures.mjs';
+import { test, expect, createServer, makeInvite, joinServer, send, adminGet, adminPut, uid } from './fixtures.mjs';
+
+// "Join voice" really joins the event's voice channel (fake microphone).
+test.use({ launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] }, permissions: ['microphone'] });
 
 const composer = (page) => page.locator('textarea[aria-label^="Message"]');
 
@@ -113,16 +116,37 @@ test('events: /event, announcement card, RSVP, sidebar, panel, reminder, edit an
   const link = await makeInvite(alice);
   const bob = await users('bob');
   await joinServer(bob, link, 'Event Club');
+  // Bob has desktop alerts on but is in Do Not Disturb: count desktop notifications instead of showing them.
+  const bobUid = await uid(bob);
+  await adminPut(`notifPrefs/${bobUid}/settings`, { desktop: true, preview: true, mentionsOnly: false });
+  await bob.evaluate(() => {
+    window.__notes = [];
+    window.Notification = class {
+      static permission = 'granted';
+      static requestPermission() { return Promise.resolve('granted'); }
+      constructor(title) { window.__notes.push(title); }
+      close() {}
+    };
+  });
+  await adminPut(`udata/${bobUid}/status/mode`, 'dnd');
+  await expect(bob.getByRole('button', { name: /^Status: .*Change status$/ })).toHaveAccessibleName(/Do not disturb/);
   const bobCard = bob.locator('.msg .cm-event', { hasText: 'Launch party' });
   await bobCard.getByRole('button', { name: /^Going/ }).click();
   await expect(bobCard.getByRole('button', { name: /^Going/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(card.getByRole('button', { name: /^Going/ })).toContainText('1');
 
-  // Bob is going and the event starts within 15 minutes: the reminder card appears (tab open).
+  // Bob is going and the event starts within 15 minutes: the reminder card appears (tab open), but Do Not
+  // Disturb keeps the desktop notification quiet.
   const reminder = bob.getByRole('region', { name: 'Reminder: Launch party' });
   await expect(reminder).toBeVisible({ timeout: 20_000 });
-  await expect(reminder.getByRole('button', { name: /Join voice/ })).toBeVisible();
-  await reminder.getByRole('button', { name: 'Dismiss reminder' }).click();
+  await bob.waitForTimeout(1000);
+  expect(await bob.evaluate(() => window.__notes)).toEqual([]);
+  // "Join voice" joins the event's voice channel and opens its call view, like clicking the channel.
+  await reminder.getByRole('button', { name: /Join voice/ }).click();
+  await expect(bob.getByRole('region', { name: 'Call' })).toBeVisible({ timeout: 30_000 });
+  await expect(reminder).toHaveCount(0);
+  await bob.getByRole('region', { name: 'Call' }).getByRole('button', { name: 'Leave call' }).click();
+  await expect(bob.getByRole('region', { name: 'Call' })).toHaveCount(0);
   await bob.reload();
   await expect(bob.locator('.msg .cm-event', { hasText: 'Launch party' })).toBeVisible({ timeout: 30_000 });
   await expect(bob.getByRole('region', { name: 'Reminder: Launch party' })).toHaveCount(0); // fires once

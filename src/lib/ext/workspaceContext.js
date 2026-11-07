@@ -8,6 +8,8 @@
 //   openSettings(tabId?)        open user settings (a built-in tab id or a userSettingsTabs id)
 //   openServerSettings(tabId?)  open the current server's settings (built-in or serverSettingsTabs id)
 //   openConv(conv)              navigate to { kind: 'channel', sid, cid } | { kind: 'dm', dmId } | { kind: 'group', gid }
+//   openVoice(sid, cid) -> Promise   join a voice channel and show its call view, like clicking it in
+//                               the sidebar (never rings); rejects with the join error
 //   toast(text, kind?)          'success' | 'error' | 'info'
 import { createContext, useContext } from 'react';
 

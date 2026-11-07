@@ -2,8 +2,7 @@
 import { useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { permsFor } from '../../../lib/roles.js';
-import { joinCall } from '../../../lib/calls/useCall.js';
-import { voiceScope } from '../../../lib/calls/core.js';
+import { closeEventDetail } from '../lib/bus.js';
 import { Modal } from '../../../components/layout/ui.jsx';
 import { useLive } from '../lib/live.js';
 
@@ -23,11 +22,14 @@ export function useServerPerms(sid, uid) {
   }, [member.value, member.loading, roles.value, uid]);
 }
 
-/** Join a voice channel like clicking it in the sidebar (never rings) and show its server. */
+/**
+ * "Join voice": exactly like clicking the voice channel in the sidebar (WorkspaceContext.openVoice:
+ * shows the server, joins without ringing and opens the call view). Closes an open event detail
+ * dialog so the call is in front.
+ */
 export async function joinVoiceChannel(ws, sid, cid) {
-  await joinCall(voiceScope(sid, cid), ws.me.uid, { kind: 'audio', ring: false });
-  if (ws.nav?.sid !== sid || ws.nav?.view) ws.setNav((n) => ({ ...n, sid, dmId: null, gid: null, view: null }));
-  ws.toast('Joined the voice channel. Open the call from the bar above your name.', 'success');
+  await ws.openVoice(sid, cid);
+  closeEventDetail();
 }
 
 /** The layout Modal, portalled to <body> so it stacks above the workspace's own modals. */

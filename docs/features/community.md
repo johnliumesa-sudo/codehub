@@ -44,12 +44,13 @@ cover color) and answer Going / Maybe / Can't go.
 - `appMounts` `community.host`: the creator, a detail modal and the reminder scheduler.
 - `paletteActions`: "New server event", "Show server events".
 - Cards: RSVP buttons with counts, who is coming, "Join voice" from 10 minutes before the start until
-  the end (joins like clicking the voice channel; the call bar appears above the user panel), "Add to
+  the end (exactly like clicking the voice channel: `WorkspaceContext.openVoice` shows the server, joins
+  without ringing and opens the call view; an open event dialog closes), "Add to
   calendar" (a local `.ics` download), "Share in chat", and Edit / Cancel event / Delete for the
   organizer and members with `manageMessages`.
 - Reminders: 15 minutes before the start of an event I'm going to, an in-app card (Join voice / View
-  event / Dismiss) and, if desktop notifications are on in my notification settings, a desktop
-  notification (the title only when message previews are on; never the description). They fire while a Codehub tab is open; a reminder missed
+  event / Dismiss) and, if desktop notifications are on in my notification settings and I'm not in Do
+  Not Disturb, a desktop notification (the title only when message previews are on; never the description). They fire while a Codehub tab is open; a reminder missed
   while offline fires on the next load as long as the event has not started. Fired reminders are
   remembered per device in `localStorage['codehub.eventReminders']` (ids only, pruned after 3 days).
 
