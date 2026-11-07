@@ -1,2 +1,3 @@
 // Workstream: addons (published sandboxed add-ons, personal panel, server add-ons).
-export {};
+// Registrations live in register.jsx; docs in docs/features/addons.md.
+import './register.jsx';

@@ -5,6 +5,8 @@ import { useProfile } from '../../lib/profiles.js';
 import { KIND_LABEL, REPORT_REASONS, dismissReport, dismissReports, parseMessageTarget, useReports } from '../../lib/reports.js';
 import { deleteGame } from '../../lib/games.js'; // WS4 export (0.8)
 import { ConfirmButton } from '../layout/ui.jsx';
+import { useRegistry } from '../../lib/ext/registry.js';
+import { ExtRender, passes } from '../ext/ExtRender.jsx';
 import './admin.css';
 
 const REASON_LABEL = Object.fromEntries(REPORT_REASONS);
@@ -32,9 +34,17 @@ function UserName({ uid }) {
   return <span className="adm-user" style={{ color: p?.color }}>{p?.name || '…'}</span>;
 }
 
-function TargetInfo({ r }) {
+// Round 3: `reportTargets` entries { id, label, match(r), render(r), actions?(r, { act, dismiss }) } describe
+// reports whose target a feature owns (e.g. `addon:{id}` filed under an existing kind).
+function useReportExt(r) {
+  const entries = useRegistry('reportTargets');
+  return entries.find((e) => typeof e.match === 'function' && typeof e.render === 'function' && passes(e.match, r)) || null;
+}
+
+function TargetInfo({ r, ext }) {
   const gameTitle = usePublicField(r.kind === 'game' ? `games/${r.target}/title` : null);
-  const itemName = usePublicField(r.kind === 'shopItem' ? `shop/items/${r.target}/name` : null);
+  const itemName = usePublicField(r.kind === 'shopItem' && !ext ? `shop/items/${r.target}/name` : null);
+  if (ext) return <ExtRender entry={ext} args={[r]} label={ext.label} />;
   if (r.kind === 'game') {
     return (
       <span>
@@ -71,6 +81,7 @@ function TargetInfo({ r }) {
 
 function ReportCard({ r, dupes, onOpenGame, onError }) {
   const [busy, setBusy] = useState(false);
+  const ext = useReportExt(r);
   async function act(fn) {
     setBusy(true);
     try {
@@ -83,12 +94,12 @@ function ReportCard({ r, dupes, onOpenGame, onError }) {
   return (
     <li className={`adm-report reason-${r.reason}`}>
       <div className="adm-report-head">
-        <span className="adm-pill kind">{KIND_LABEL[r.kind] || r.kind}</span>
+        <span className="adm-pill kind">{ext?.label || KIND_LABEL[r.kind] || r.kind}</span>
         <span className={`adm-pill reason ${r.reason}`}>{REASON_LABEL[r.reason] || r.reason}</span>
         {dupes > 1 && <span className="adm-pill dupes" title="Open reports for this same target">{dupes} reports</span>}
         <span className="muted adm-report-time">{fmt(r.ts)}</span>
       </div>
-      <div className="adm-report-target"><TargetInfo r={r} /></div>
+      <div className="adm-report-target"><TargetInfo r={r} ext={ext} /></div>
       <div className="adm-report-by muted">Reported by <UserName uid={r.by} /></div>
       {r.note && <p className="adm-report-note">{r.note}</p>}
       {r.excerpt && (
@@ -113,6 +124,7 @@ function ReportCard({ r, dupes, onOpenGame, onError }) {
             Unpublish game
           </ConfirmButton>
         )}
+        {ext?.actions && <ExtRender fn={ext.actions} args={[r, { act, dismiss: () => dismissReport(r.rid), busy }]} label={ext.label} />}
         <button type="button" className="btn ghost sm" disabled={busy} onClick={() => act(() => dismissReport(r.rid))}>Dismiss</button>
         {dupes > 1 && (
           <button type="button" className="btn ghost sm" disabled={busy} onClick={() => act(() => dismissReports(r.sameTarget))}>

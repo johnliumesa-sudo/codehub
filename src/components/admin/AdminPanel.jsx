@@ -9,6 +9,8 @@ import { ConfirmButton, ErrorBoundary } from '../layout/ui.jsx';
 import ReportsQueue from './ReportsQueue.jsx';
 import AnnouncementEditor from './AnnouncementEditor.jsx';
 import { AdminMediaConfig } from '../media/AdminMediaConfig.jsx';
+import { useRegistry } from '../../lib/ext/registry.js'; // Round 3: `adminTabs` { id, label, render({ me }) }
+import { ExtRender } from '../ext/ExtRender.jsx';
 import './admin.css';
 
 const TABS = [
@@ -188,7 +190,10 @@ function GamesTab({ onOpenGame }) {
  */
 export default function AdminPanel({ me, onClose, onOpenGame, initialTab = 'overview' }) {
   const { isAdmin, loading } = useAppAdminState();
-  const [tab, setTab] = useState(TABS.some(([id]) => id === initialTab) ? initialTab : 'overview');
+  const extTabs = useRegistry('adminTabs').filter((e) => e.label && typeof e.render === 'function' && !TABS.some(([id]) => id === e.id));
+  const allTabs = [...TABS, ...extTabs.map((e) => [e.id, String(e.label)])];
+  const [tab, setTab] = useState(allTabs.some(([id]) => id === initialTab) ? initialTab : 'overview');
+  const extTab = extTabs.find((e) => e.id === tab);
   const boxRef = useRef(null);
 
   useEffect(() => {
@@ -221,7 +226,7 @@ export default function AdminPanel({ me, onClose, onOpenGame, initialTab = 'over
             </div>
           </div>
           {isAdmin &&
-            TABS.map(([id, label]) => (
+            allTabs.map(([id, label]) => (
               <button key={id} type="button" className={`adm-nav-item${tab === id ? ' on' : ''}`} onClick={() => setTab(id)}>
                 {label}
               </button>
@@ -230,7 +235,7 @@ export default function AdminPanel({ me, onClose, onOpenGame, initialTab = 'over
         <section className="adm-body">
           <header className="adm-head">
             <div className="adm-head-text">
-              <h2>{isAdmin ? TABS.find(([id]) => id === tab)[1] : 'Admin panel'}</h2>
+              <h2>{isAdmin ? (allTabs.find(([id]) => id === tab) || TABS[0])[1] : 'Admin panel'}</h2>
               <span className="adm-head-note">{E2EE_STATEMENT}</span>
             </div>
             <button type="button" className="adm-close" onClick={onClose} aria-label="Close admin panel">
@@ -253,6 +258,7 @@ export default function AdminPanel({ me, onClose, onOpenGame, initialTab = 'over
                 {tab === 'reports' && <ReportsQueue onOpenGame={openGame} />}
                 {tab === 'announcement' && <AnnouncementEditor />}
                 {tab === 'media' && <AdminMediaConfig />}
+                {extTab && <ExtRender entry={extTab} args={[{ me }]} label={extTab.label} notice resetKey={extTab.id} />}
               </ErrorBoundary>
             )}
           </div>
