@@ -1,0 +1,124 @@
+/* Assistant (Claude) UI. Design tokens only, so dark and light themes both work. */
+
+.asst-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.asst-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.asst-row.end { justify-content: flex-end; }
+.asst-push { margin-left: auto; }
+.asst-check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--text-dim); cursor: pointer; }
+.asst-check input { margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+.asst-field { display: grid; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.asst-select { width: auto; min-width: 0; padding: 4px 8px; font-size: 12.5px; }
+.asst-select.tiny { padding: 2px 4px; }
+.asst-link {
+  border: 0; background: transparent; color: var(--link, var(--accent)); font: inherit; font-size: 12px;
+  padding: 2px 4px; border-radius: 4px; cursor: pointer;
+}
+.asst-link:hover { text-decoration: underline; }
+.asst-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---------- panel ---------- */
+.asst-panel { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; font-size: 13.5px; }
+.asst-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.asst-toolbar .btn.sm { white-space: nowrap; }
+.asst-log {
+  flex: 1; min-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+  padding: 2px 2px 4px; border-radius: 8px;
+}
+.asst-log:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.asst-empty { color: var(--text-body, var(--text)); display: grid; gap: 6px; padding: 6px 2px; }
+.asst-empty p { margin: 0; line-height: 1.45; }
+.asst-empty code { font-family: var(--mono); font-size: 12px; background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
+.asst-turn { display: grid; gap: 4px; min-width: 0; }
+.asst-turn.user { align-self: flex-end; max-width: 92%; background: var(--accent-soft); border-radius: 10px 10px 2px 10px; padding: 7px 10px; }
+.asst-turn.bot { border-left: 2px solid var(--accent-2, var(--accent)); padding: 2px 0 2px 10px; }
+.asst-turn.bot.error, .asst-turn.bot.refusal { border-left-color: var(--danger); }
+.asst-who { font-size: 11.5px; font-weight: 600; color: var(--text-dim); }
+.asst-user-text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.asst-md { font-size: 13.5px; }
+.asst-md h1, .asst-md h2 { font-size: 15px; margin: 10px 0 4px; }
+.asst-md h3, .asst-md h4, .asst-md h5, .asst-md h6 { font-size: 14px; margin: 8px 0 3px; }
+.asst-md .md-code { max-width: 100%; }
+.asst-thinking { margin: 0; color: var(--text-faint); font-style: italic; }
+.asst-caret {
+  display: inline-block; width: 7px; height: 14px; background: var(--accent); border-radius: 2px;
+  animation: asst-blink 1s steps(2, start) infinite;
+}
+@keyframes asst-blink { to { visibility: hidden; } }
+.asst-note { margin: 0; font-size: 12px; color: var(--text-dim); }
+.asst-note.warn { color: var(--warn-text, var(--warn)); }
+.asst-error { font-size: 12.5px; color: var(--danger-text, var(--danger)); overflow-wrap: anywhere; }
+.asst-actions { display: flex; flex-wrap: wrap; gap: 2px; margin-left: -6px; }
+.asst-actions .btn.sm { padding: 3px 7px; font-size: 11.5px; color: var(--text-dim); }
+.asst-actions .btn.sm:hover, .asst-actions .btn.sm:focus-visible { color: var(--text); }
+.asst-input { display: flex; gap: 6px; align-items: flex-end; }
+.asst-input textarea { resize: vertical; min-height: 40px; max-height: 200px; font: inherit; font-size: 13.5px; padding: 7px 9px; }
+.asst-input .btn { flex: none; }
+.asst-context { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); }
+.asst-context .asst-check { align-items: center; font-size: 12px; }
+.asst-context .asst-check input { margin: 0; }
+.asst-foot { margin: 0; font-size: 11px; color: var(--text-faint); line-height: 1.35; }
+
+/* setup / unlock card */
+.asst-gate {
+  display: grid; gap: 6px; padding: 10px 12px; border-radius: 10px;
+  border: 1px dashed var(--line-strong, var(--border)); background: var(--bg-2);
+}
+.asst-gate p { margin: 0; font-size: 12.5px; color: var(--text-dim); line-height: 1.4; }
+.asst-gate .btn { justify-self: start; }
+.asst-gate.compact { background: var(--bg-1); }
+
+/* ---------- message slots ---------- */
+.asst-translation {
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-1);
+  padding: 6px 10px; max-width: 760px; display: grid; gap: 4px;
+}
+.asst-translation-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 6px; }
+.asst-translation-tag { font-size: 11px; color: var(--text-faint); padding-top: 3px; }
+.asst-translation-btns { display: flex; gap: 2px; }
+.asst-translation .error-text { margin: 0; }
+.asst-badge {
+  display: inline-flex; align-items: center; padding: 0 5px; height: 16px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--accent);
+  background: var(--accent-soft); border: 1px solid var(--accent-soft); vertical-align: 1px;
+}
+
+/* ---------- composer writing help ---------- */
+.asst-compose-btn span { font-size: 15px; line-height: 1; }
+.asst-write-body { display: grid; gap: 10px; }
+.asst-draft { font-size: 13px; color: var(--text-dim); }
+.asst-draft summary { cursor: pointer; }
+.asst-draft p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow-y: auto; }
+.asst-write-out { font: inherit; font-size: 13.5px; text-transform: none; letter-spacing: normal; resize: vertical; min-height: 120px; color: var(--text); }
+.asst-write .ly-modal-foot { gap: 8px; flex-wrap: wrap; }
+
+/* ---------- sidebar toggle ---------- */
+.asst-side-toggle {
+  display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); margin: 4px 8px 0;
+  padding: 6px 10px; border-radius: 8px; border: 1px solid transparent; background: transparent;
+  color: var(--text-dim); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.asst-side-toggle:hover { background: var(--bg-hover); color: var(--text); }
+.asst-side-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.asst-side-toggle.on { color: var(--text); background: var(--accent-soft); border-color: var(--accent-soft); }
+.asst-side-glyph { width: 18px; text-align: center; }
+
+/* ---------- settings ---------- */
+.asst-settings .settings-card p { line-height: 1.45; }
+.asst-keyform { display: grid; gap: 12px; }
+.asst-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.asst-keystate { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.asst-keystate code { font-family: var(--mono); font-size: 12px; background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
+.asst-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); flex: none; }
+.asst-keystate.ready .asst-dot { background: var(--ok); }
+.asst-keystate.locked .asst-dot { background: var(--warn); }
+.asst-usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 0; }
+.asst-usage div { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+.asst-usage dt { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
+.asst-usage dd { margin: 2px 0 0; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .asst-caret { animation: none; }
+}
