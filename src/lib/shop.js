@@ -1,23 +1,36 @@
-// Add-on shop: catalog CRUD (app admins), wallet + daily coins, purchases, inventory, equip.
+// Add-on shop: official catalog (app admins) + community items (any signed-in user), wallet + daily
+// coins, purchases, creator earnings, inventory, equip.
 //
 // Everything here is PLAINTEXT BY DESIGN (no E2EE): the catalog is public to signed-in users,
-// `equipped/{uid}` is public so others can render your badge/name color, and `wallets/{uid}` +
-// `inventory/{uid}` are readable only by their owner. No real money is involved, ever.
-// Every economic rule (claim interval, prices, balance, no double-buy, ownership before equip) is
-// enforced by database.rules.json; the client only mirrors it for a friendly UI.
+// `equipped/{uid}` is public so others can render your badge/name color, and `wallets/{uid}`,
+// `inventory/{uid}` and `earnings/{uid}` are readable only by their owner. No real money is involved, ever.
+// Every economic rule (claim interval, prices, balance, no double-buy, ownership before equip, earnings
+// that never mint coins) is enforced by database.rules.json; the client only mirrors it for a friendly UI.
+// See docs/features/shop.md.
 //
 // DB:
-//   shop/items/{itemId}       { name, desc, kind, price, data, active, updatedAt, updatedBy }
-//   wallets/{uid}             { balance, lastClaim, lastItem? }          (never deletable)
-//   inventory/{uid}/{itemId}  { at, price }                              (never deletable)
+//   shop/items/{itemId}       { name, desc, kind, price, data, active, updatedAt, updatedBy, by?, createdAt? }
+//   wallets/{uid}             { balance, lastClaim, lastItem?, lastEarn? }   (never deletable)
+//   inventory/{uid}/{itemId}  { at, price }                                  (never deletable)
+//   earnings/{creator}/{buyerUid}_{itemId}  { price, ts }                    (creator reads; collect deletes)
 //   equipped/{uid}            { theme?, editorTheme?, badge?, nameColor?: itemId, ext?: {itemId: true} }
+//   udata/{uid}/shop/last     id of the item being created (binds one item to one publishLog stamp)
+//   udata/{uid}/shopSales/{earningKey}  { item, price, at }  collected sales (history for sales counts)
+//   publishLog/{uid}          shared 60 s publish window (games and shop items)
 import { useEffect, useMemo, useState } from 'react';
 import { get, onValue, push, ref, remove, serverTimestamp, set, update } from 'firebase/database';
 import { auth, db } from './firebase.js';
-import { DEFAULT_CATALOG, ITEM_ID_RE, SLOTS, normalizeItem, sanitizeItemInput } from './addons/registry.js';
+import { DEFAULT_CATALOG, ITEM_ID_RE, NAME_MAX, SLOTS, normalizeItem, sanitizeItemInput } from './addons/registry.js';
+import { countCreatorItems, earningKey, earningsFrom, isPrice, parseEarningKey, salesFrom } from './addons/earnings.js';
+
+export { countCreatorItems, earningKey, earningsFrom, parseEarningKey, salesFrom };
 
 export const DAILY_COINS = 100;
 export const CLAIM_INTERVAL_MS = 20 * 60 * 60 * 1000; // 72000000, same constant as the rules
+/** Community items one creator may have (client cap: the rules can't count children). */
+export const MAX_ITEMS_PER_CREATOR = 50;
+/** One new item per minute per user: the rules' shared publishLog window (games use it too). */
+export const CREATE_COOLDOWN_MS = 60_000;
 
 // ---------------------------------------------------------------------------------------------
 // Shared, ref-counted live values (one RTDB listener per path, however many components use it)
@@ -154,13 +167,27 @@ function requireUid(uid) {
 const catalogCache = new WeakMap(); // raw snapshot object -> { list, byId }
 const EMPTY_CATALOG = { list: [], byId: {} };
 
+// A creator's items beyond the cap (oldest first) are not listed, so a modified client that ignores the
+// cap can't flood the shop. Official items are never capped.
+function capPerCreator(list) {
+  const seen = new Map();
+  const out = [];
+  for (const item of [...list].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))) {
+    if (item.by) {
+      const n = (seen.get(item.by) || 0) + 1;
+      seen.set(item.by, n);
+      if (n > MAX_ITEMS_PER_CREATOR) continue;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
 function catalogFrom(raw) {
   if (!raw || typeof raw !== 'object') return EMPTY_CATALOG;
   let c = catalogCache.get(raw);
   if (!c) {
-    const list = Object.entries(raw)
-      .map(([id, v]) => normalizeItem(id, v))
-      .filter(Boolean)
+    const list = capPerCreator(Object.entries(raw).map(([id, v]) => normalizeItem(id, v)).filter(Boolean))
       .sort((a, b) => a.kind.localeCompare(b.kind) || a.price - b.price || a.name.localeCompare(b.name));
     c = { list, byId: Object.fromEntries(list.map((i) => [i.id, i])) };
     catalogCache.set(raw, c);
@@ -177,22 +204,93 @@ export function useCatalog() {
   }, [value, loading, error]);
 }
 
+/**
+ * My community items that exist in the database but don't pass the client checks any more (content policy,
+ * readability, shape), so they never show in the shop. Listed in My items so their creator can delete them.
+ * -> [{ id, name }]
+ */
+export function useCreatorHiddenItems(uid) {
+  const { value } = useShared(uid ? 'shop/items' : null);
+  const { byId } = useCatalog();
+  return useMemo(() => {
+    if (!uid || !value || typeof value !== 'object') return [];
+    return Object.entries(value)
+      .filter(([id, v]) => v && typeof v === 'object' && v.by === uid && !byId[id] && ITEM_ID_RE.test(id))
+      .map(([id, v]) => ({ id, name: typeof v.name === 'string' ? v.name.slice(0, NAME_MAX) : '' }));
+  }, [uid, value, byId]);
+}
+
 function itemRecord(clean) {
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error('You must be signed in');
   return { ...clean, updatedAt: serverTimestamp(), updatedBy: uid };
 }
 
-/** Create (itemId = null) or replace an item. App admins only (rules). Returns the item id. */
-export async function saveItem(itemId, item) {
+/** Raw catalog value: the live shared copy when it is loaded, else one read. */
+async function rawCatalog() {
+  const e = shared.get('shop/items');
+  if (e?.loaded && !e.error) return e.value || {};
+  return (await get(ref(db, 'shop/items'))).val() || {};
+}
+
+/**
+ * Save an existing item (any item for an app admin; your own community item for everyone else) or create
+ * an official item (itemId = null, app admins only). Updates keep `by` and `createdAt`, which the rules make
+ * immutable. `item` is the current normalized item when editing, so community items keep community limits.
+ * Returns the item id.
+ */
+export async function saveItem(itemId, input, current = null) {
   if (itemId != null && !ITEM_ID_RE.test(itemId)) throw new Error('Invalid item id');
-  const clean = sanitizeItemInput(item);
-  const id = itemId || push(ref(db, 'shop/items')).key;
+  const clean = sanitizeItemInput(current ? { ...input, kind: current.kind } : input, { creator: !!current?.by });
   try {
-    await set(ref(db, `shop/items/${id}`), itemRecord(clean));
+    if (itemId) {
+      await update(ref(db, `shop/items/${itemId}`), itemRecord(clean));
+      return itemId;
+    }
+    const id = push(ref(db, 'shop/items')).key;
+    await set(ref(db, `shop/items/${id}`), { ...itemRecord(clean), createdAt: serverTimestamp() });
+    return id;
   } catch (e) {
-    throw friendly(e, 'Only app admins can edit the shop catalog');
+    throw friendly(e, current?.by ? 'You can only edit your own items. An item an app admin switched off can only be deleted' : 'Only app admins can edit the shop catalog');
   }
+}
+
+let lastCreateAt = 0;
+/** Milliseconds until this tab may create another item (best effort; the rules have the final word). */
+export function createCooldownLeft() {
+  return Math.max(0, lastCreateAt + CREATE_COOLDOWN_MS - Date.now());
+}
+
+/**
+ * Publish a community item. ONE update: the item (by = me, createdAt = now), publishLog/{me} = now (the
+ * rules' one-publish-per-minute window, shared with games) and udata/{me}/shop/last = id (so one update
+ * can only ever create one item). Goes live immediately. Returns the new id.
+ */
+export async function createItem(uid, input) {
+  requireUid(uid);
+  const clean = sanitizeItemInput(input, { creator: true });
+  const wait = createCooldownLeft();
+  if (wait > 0) throw new Error(`You can publish one item per minute. Try again in ${formatCountdown(wait)}`);
+  let raw;
+  try {
+    raw = await rawCatalog();
+  } catch (e) {
+    throw friendly(e, 'You must be signed in to read the catalog');
+  }
+  if (countCreatorItems(raw, uid) >= MAX_ITEMS_PER_CREATOR) {
+    throw new Error(`You already have ${MAX_ITEMS_PER_CREATOR} items. Delete one to publish another`);
+  }
+  const id = push(ref(db, 'shop/items')).key;
+  try {
+    await update(ref(db), {
+      [`shop/items/${id}`]: { ...clean, by: uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: uid },
+      [`publishLog/${uid}`]: serverTimestamp(),
+      [`udata/${uid}/shop/last`]: id,
+    });
+  } catch (e) {
+    throw friendly(e, 'You can publish one item (or game) per minute. Wait a moment and try again');
+  }
+  lastCreateAt = Date.now();
   return id;
 }
 
@@ -203,7 +301,7 @@ export async function setItemActive(itemId, active) {
   try {
     await update(ref(db, `shop/items/${itemId}`), { active: !!active, updatedAt: serverTimestamp(), updatedBy: uid });
   } catch (e) {
-    throw friendly(e, 'Only app admins can edit the shop catalog');
+    throw friendly(e, active ? 'Only an app admin can switch this item back on' : 'You can only change your own items');
   }
 }
 
@@ -213,7 +311,7 @@ export async function deleteItem(itemId) {
   try {
     await remove(ref(db, `shop/items/${itemId}`));
   } catch (e) {
-    throw friendly(e, 'Only app admins can edit the shop catalog');
+    throw friendly(e, 'You can only delete your own items');
   }
 }
 
@@ -239,7 +337,13 @@ export async function seedDefaultCatalog({ overwrite = false } = {}) {
       continue;
     }
     const { id, ...rest } = def;
-    updates[`shop/items/${id}`] = itemRecord(sanitizeItemInput({ ...rest, active: has ? existing[id]?.active !== false : true }));
+    const record = itemRecord(sanitizeItemInput({ ...rest, active: has ? existing[id]?.active !== false : true }));
+    // Re-seeding keeps an existing item's createdAt (immutable in the rules); new ones get one.
+    if (has) {
+      for (const [k, v] of Object.entries(record)) updates[`shop/items/${id}/${k}`] = v;
+    } else {
+      updates[`shop/items/${id}`] = { ...record, createdAt: serverTimestamp() };
+    }
     if (has) updated += 1;
     else added += 1;
   }
@@ -346,7 +450,9 @@ export async function getFree(uid, item) {
  * Buy an item. Paid items are ONE atomic multi-path update:
  *   wallets/{uid}/balance = balance - price, wallets/{uid}/lastItem = itemId,
  *   inventory/{uid}/{itemId} = { at: serverTimestamp(), price }
- * Free items go through getFree. No refunds.
+ * plus, for someone else's community item, the creator's earning:
+ *   earnings/{by}/{uid}_{itemId} = { price, ts: serverTimestamp() }
+ * Free items go through getFree. No refunds. Buying your own item earns nothing.
  */
 export async function buy(uid, item) {
   requireUid(uid);
@@ -358,12 +464,14 @@ export async function buy(uid, item) {
   const wallet = wSnap.val();
   if (!wallet || typeof wallet.balance !== 'number') throw new Error('Claim your daily coins first to open a wallet');
   if (wallet.balance < item.price) throw new Error(`Not enough coins. You need ${item.price - wallet.balance} more`);
+  const updates = {
+    [`wallets/${uid}/balance`]: wallet.balance - item.price,
+    [`wallets/${uid}/lastItem`]: item.id,
+    [`inventory/${uid}/${item.id}`]: { at: serverTimestamp(), price: item.price },
+  };
+  if (item.by && item.by !== uid) updates[`earnings/${item.by}/${earningKey(uid, item.id)}`] = { price: item.price, ts: serverTimestamp() };
   try {
-    await update(ref(db), {
-      [`wallets/${uid}/balance`]: wallet.balance - item.price,
-      [`wallets/${uid}/lastItem`]: item.id,
-      [`inventory/${uid}/${item.id}`]: { at: serverTimestamp(), price: item.price },
-    });
+    await update(ref(db), updates);
   } catch (e) {
     throw friendly(e, 'Purchase rejected. The price may have changed or your balance moved; try again');
   }
@@ -396,4 +504,64 @@ export async function toggleExt(uid, itemId, on) {
 export async function unequipAll(uid) {
   requireUid(uid);
   await remove(ref(db, `equipped/${uid}`));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Creator earnings
+// ---------------------------------------------------------------------------------------------
+
+/** { entries: [{ key, buyer, itemId, price, ts }], total, loading, error } for my uncollected earnings. */
+export function useEarnings(uid) {
+  const { loading, value, error } = useShared(uid ? `earnings/${uid}` : null);
+  return useMemo(() => {
+    const entries = earningsFrom(value);
+    return { entries, total: entries.reduce((n, e) => n + e.price, 0), loading, error };
+  }, [value, loading, error]);
+}
+
+/** { byItem, count, total, loading } of my collected sales (kept in udata when collecting). */
+export function useSalesHistory(uid) {
+  const { loading, value } = useShared(uid ? `udata/${uid}/shopSales` : null);
+  return useMemo(() => ({ ...salesFrom(value), loading }), [value, loading]);
+}
+
+/**
+ * Collect ONE earning: ONE update that adds exactly its price to my balance, records `lastEarn`, deletes the
+ * entry and keeps a history row in udata (sales counts). Re-reads and retries when the balance moved in
+ * between (a claim or purchase in another tab). Resolves to the coins added (0 if it was already collected).
+ */
+export async function collectEarning(uid, key) {
+  requireUid(uid);
+  const k = parseEarningKey(key);
+  if (!k) throw new Error('Unknown sale');
+  for (let attempt = 0; ; attempt += 1) {
+    const [wSnap, eSnap] = await Promise.all([get(ref(db, `wallets/${uid}`)), get(ref(db, `earnings/${uid}/${key}`))]);
+    const entry = eSnap.val();
+    if (!entry || !isPrice(entry.price)) return 0;
+    const wallet = wSnap.val();
+    if (!wallet || typeof wallet.balance !== 'number') throw new Error('Claim your starter coins first to open a wallet');
+    try {
+      await update(ref(db), {
+        [`wallets/${uid}/balance`]: wallet.balance + entry.price,
+        [`wallets/${uid}/lastEarn`]: key,
+        [`earnings/${uid}/${key}`]: null,
+        [`udata/${uid}/shopSales/${key}`]: { item: k.itemId, price: entry.price, at: serverTimestamp() },
+      });
+      return entry.price;
+    } catch (e) {
+      if (!isDenied(e) || attempt >= 2) throw friendly(e, 'Couldn\'t collect this sale. Try again');
+    }
+  }
+}
+
+/** "Collect all": one collect per entry, in sequence. -> { coins, collected }. Stops at the first error. */
+export async function collectAll(uid, keys, onProgress) {
+  let coins = 0;
+  let collected = 0;
+  for (const key of keys) {
+    coins += await collectEarning(uid, key);
+    collected += 1;
+    onProgress?.(collected, keys.length);
+  }
+  return { coins, collected };
 }
