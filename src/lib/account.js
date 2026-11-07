@@ -7,8 +7,10 @@
 //   2. friend links (both sides) are removed;
 //   3. my profile is removed — the rules then let me wipe whole DM threads I'm in (both
 //      people's messages) and the peer's index entry for them;
-//   4. my private nodes (vault, presence, reads, indexes, saved messages) are removed;
-//   5. the Firebase Auth user is deleted.
+//   4. what I published (bots, add-ons, discovery listings, community shop items) and my uncollected
+//      shop earnings are removed;
+//   5. my private nodes (vault, presence, reads, indexes, saved messages, round 3 udata/upub) are removed;
+//   6. the Firebase Auth user is deleted.
 // Each step tolerates data that is already gone, so a retry after a partial failure finishes the job.
 import {
   EmailAuthProvider,
@@ -29,6 +31,17 @@ import { deleteMyGames } from './games.js';
 const CHUNK = 500; // paths per multi-path update
 
 const val = async (path) => (await get(ref(db, path))).val();
+
+/** Best effort: remove each path in its own write (one refused path must not block the others). */
+async function removeEach(paths) {
+  for (const p of paths) {
+    try {
+      await remove(ref(db, p));
+    } catch {
+      /* already gone, or not mine any more */
+    }
+  }
+}
 
 async function removePaths(paths) {
   for (let i = 0; i < paths.length; i += CHUNK) {
@@ -71,6 +84,16 @@ async function wipeServer(sid, uid, onStep) {
     return deleteServer(sid, uid);
   }
   onStep?.('Removing your messages from a server…');
+  // Round 3 server items I wrote (events, RSVPs, the rules-accepted marker, …): the author may delete
+  // each one, and only while still a member (members-only read).
+  try {
+    const items = (await val(`sitems/${sid}`)) || {};
+    await removeEach(Object.entries(items).flatMap(([feat, byId]) => Object.entries(byId || {})
+      .filter(([, it]) => it && it.by === uid)
+      .map(([id]) => `sitems/${sid}/${feat}/${id}`)));
+  } catch {
+    /* best effort */
+  }
   const channels = (await val(`servers/${sid}/channels`)) || {};
   for (const cid of Object.keys(channels)) {
     const mine = await get(query(ref(db, `messages/${sid}/${cid}`), orderByChild('uid'), equalTo(uid)));
@@ -148,11 +171,37 @@ export async function deleteAccount(onStep) {
     }
   }
 
+  // Round 3 public catalog entries I published (bots, add-ons and their code, server listings).
+  onStep?.('Removing what you published…');
+  for (const kind of ['bots', 'addons', 'addonCode', 'servers']) {
+    try {
+      const mine = await get(query(ref(db, `pub/${kind}`), orderByChild('by'), equalTo(uid)));
+      await removePaths(Object.keys(mine.val() || {}).map((id) => `pub/${kind}/${id}`));
+    } catch {
+      /* best effort: nothing published, or already gone */
+    }
+  }
+  // Community shop items I created (the creator may delete them, also after an admin took one down),
+  // then my uncollected earnings, one entry at a time (that is all the rules allow). Collected coins
+  // stay in wallets/{uid}, which no client can delete.
+  try {
+    const items = (await val('shop/items')) || {};
+    await removeEach(Object.entries(items).filter(([, it]) => it && it.by === uid).map(([id]) => `shop/items/${id}`));
+  } catch {
+    /* best effort */
+  }
+  try {
+    await removeEach(Object.keys((await val(`earnings/${uid}`)) || {}).map((k) => `earnings/${uid}/${k}`));
+  } catch {
+    /* best effort */
+  }
+
   onStep?.('Removing your keys and settings…');
   // userDms, userServers and friends were cleared entry by entry above (the rules only allow that).
   // wallets/{uid}, inventory/{uid}, publishLog/{uid}, promoAttempts/{uid}, reportLog/{uid},
-  // attLog/{uid} (upload rate window) and admins/{uid} are not deletable by any client, by design
-  // (see README). Emotes I added stay with their server: they belong to it, not to me.
+  // attLog/{uid} (upload rate window), notifLog/{uid} (notification rate window) and admins/{uid} are
+  // not deletable by any client, by design (see README). notifLog used to be in this batch, and the
+  // rules' refusal failed the whole batch, so the account itself was never deleted. Emotes I added stay with their server: they belong to it, not to me.
   await removePaths([
     `reads/${uid}`,
     `presence/${uid}`,
@@ -164,13 +213,18 @@ export async function deleteAccount(onStep) {
     `snippets/${uid}`,
     `adminBadges/${uid}`,
     `notifs/${uid}`,
-    `notifLog/${uid}`,
     `avatars/${uid}`,
     `bookmarks/${uid}`,
   ]);
+  // Round 3 per-user data. Separate, best-effort writes: until the round 3 rules are published these
+  // paths don't exist in the rules, and one refused path would fail the whole batch above.
+  await Promise.all([`udata/${uid}`, `upub/${uid}`].map((p) => update(ref(db), { [p]: null }).catch(() => {})));
   try {
     localStorage.removeItem('codehub.trustedDomains');
     sessionStorage.removeItem('codehub.keyChangeAck');
+    // Per-account browser data keyed by my uid (round 3: the assistant's API key and settings, sealed
+    // drafts, …). Device-wide preferences (theme, appearance) stay.
+    for (const k of Object.keys(localStorage)) if (k.startsWith('codehub.') && k.includes(uid)) localStorage.removeItem(k);
   } catch {
     /* ignore */
   }

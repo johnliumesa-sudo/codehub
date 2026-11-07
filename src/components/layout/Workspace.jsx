@@ -76,6 +76,11 @@ import { parseScope, voiceScope } from '../../lib/calls/core.js';
 import { joinCall, useActiveCall } from '../../lib/calls/useCall.js';
 import NotificationBell from '../notifications/NotificationBell.jsx';
 import { targetOfNotif } from '../../lib/notifications.js';
+// Round 3 extension points
+import { WorkspaceContext } from '../../lib/ext/workspaceContext.js';
+import { get as getExt, useRegistry } from '../../lib/ext/registry.js';
+import { AppMounts } from '../ext/WorkspaceExt.jsx';
+import { passes, runSafe } from '../ext/ExtRender.jsx';
 
 const CollabView = lazy(() => import('../collab/CollabView.jsx'));
 const CodespacesHome = lazy(() => import('../codespaces/CodespacesHome.jsx'));
@@ -425,6 +430,13 @@ function WorkspaceFrame({ user }) {
     if (mobile) setNavOpen(false);
   };
 
+  // Voice channels are drop-in rooms: show the server, join (never ring) and open the call view, the
+  // same as clicking the channel in the sidebar. Resolves once joined; rejects with the join error.
+  const openVoice = (s, cid) => {
+    enterServer(s);
+    return joinCall(voiceScope(s, cid), uid, { kind: 'audio', ring: false }).then(() => setCallOpen(true));
+  };
+
   // ---------- calls ----------
   const openCall = (scope) => {
     const p = scope ? parseScope(scope) : null;
@@ -475,10 +487,7 @@ function WorkspaceFrame({ user }) {
       case 'channel':
         if (t.channelType === 'voice') {
           // Same as clicking a voice channel in the sidebar: join (never ring) and show the call.
-          enterServer(t.sid);
-          joinCall(voiceScope(t.sid, t.cid), uid, { kind: 'audio', ring: false })
-            .then(() => setCallOpen(true))
-            .catch((e) => toast(errMsg(e), 'error'));
+          openVoice(t.sid, t.cid).catch((e) => toast(errMsg(e), 'error'));
         } else {
           enterServer(t.sid, t.cid, t.channelType);
         }
@@ -493,7 +502,10 @@ function WorkspaceFrame({ user }) {
         openCodespace(t.csid);
         break;
       case 'action':
-        if (t.id.startsWith('theme:')) themeActions.find((a) => a.id === `action:${t.id}`)?.run();
+        if (t.id.startsWith('ext:')) {
+          const a = getExt('paletteActions', t.id.slice(4));
+          if (a && typeof a.run === 'function') runSafe(a.run, [wsCtx], (msg) => toast(msg, 'error'));
+        } else if (t.id.startsWith('theme:')) themeActions.find((a) => a.id === `action:${t.id}`)?.run();
         else if (t.id === 'settings') setModal({ type: 'settings' });
         else if (t.id === 'snippets') setModal({ type: 'snippets' });
         else if (t.id === 'create-server') setModal({ type: 'createJoin' });
@@ -514,6 +526,25 @@ function WorkspaceFrame({ user }) {
         break;
     }
   };
+
+  // Round 3: WorkspaceContext (see src/lib/ext/workspaceContext.js). Functions read the latest
+  // closures through a ref so the value only changes with me / nav / servers.
+  const wsFns = useRef({});
+  wsFns.current = { openConv, openVoice, toast, sid };
+  const wsCtx = useMemo(() => ({
+    me,
+    nav,
+    setNav,
+    servers,
+    openSettings: (tab) => setModal({ type: 'settings', tab: typeof tab === 'string' ? tab : undefined }),
+    openServerSettings: (tab) => {
+      if (wsFns.current.sid) setModal({ type: 'server', tab: typeof tab === 'string' ? tab : undefined });
+    },
+    openConv: (c) => wsFns.current.openConv(c || {}),
+    openVoice: (s, cid) => wsFns.current.openVoice(s, cid),
+    toast: (text, kind) => wsFns.current.toast(String(text ?? ''), kind === 'error' || kind === 'success' ? kind : 'info'),
+  }), [me, nav, servers]);
+  const extPalette = useRegistry('paletteActions');
 
   const paletteExtra = useMemo(
     () => [
@@ -548,14 +579,17 @@ function WorkspaceFrame({ user }) {
       { id: 'snippets', title: 'Snippet library', hint: 'Your private code snippets', keywords: ['code', 'vault'] },
       { id: 'new-codespace', title: 'New codespace', hint: 'Create an encrypted workspace', keywords: ['create'] },
       { id: 'new-group', title: 'New group chat', hint: 'Private, end-to-end encrypted', keywords: ['create', 'group'] },
-      { id: 'shop', title: 'Open shop', hint: 'Add-ons and cosmetics', keywords: ['store', 'addons'] },
+      { id: 'shop', title: 'Open shop', hint: 'Themes, badges and other cosmetics', keywords: ['store', 'addons', 'cosmetics'] },
       { id: 'arcade', title: 'Open arcade', hint: 'Public games', keywords: ['games', 'play'] },
       { id: 'toggle-preview', title: 'Toggle preview', hint: 'Live preview of the open workspace', keywords: ['run', 'sandbox', 'console'] },
       { id: 'create-server', title: 'Create or join a server', keywords: ['invite', 'new'] },
       { id: 'new-dm', title: 'New direct message', keywords: ['dm', 'message'] },
       ...themeActions.map((a) => ({ id: a.id.replace(/^action:/, ''), title: a.title, hint: a.subtitle, keywords: a.keywords })),
+      ...extPalette
+        .filter((a) => a.title && typeof a.run === 'function' && passes(a.when, wsCtx))
+        .map((a) => ({ id: `ext:${a.id}`, title: String(a.title), hint: a.hint, keywords: Array.isArray(a.keywords) ? a.keywords : [] })),
     ],
-    [themeActions],
+    [themeActions, extPalette, wsCtx],
   );
   const describeScope = useCallback((s) => notifySources.find((x) => x.scope === s)?.title, [notifySources]);
 
@@ -734,8 +768,10 @@ function WorkspaceFrame({ user }) {
       : null;
 
   return (
+    <WorkspaceContext.Provider value={wsCtx}>
     <div className={`ly-app ${mobile ? 'mobile' : ''} ${navOpen ? 'nav-open' : ''}`}>
       <AddonRuntime uid={uid} />
+      <AppMounts />
       <div className="ly-nav" ref={navRef}>
         <ServerRail
           servers={servers}
@@ -919,6 +955,7 @@ function WorkspaceFrame({ user }) {
           }}
           onOpenAdmin={() => setModal({ type: 'admin' })}
           describeScope={describeScope}
+          initialTab={modal.tab}
         />
       )}
       {modal?.type === 'admin' && <AdminPanel me={me} onClose={() => setModal(null)} onOpenGame={openGame} />}
@@ -1070,5 +1107,6 @@ function WorkspaceFrame({ user }) {
         />
       )}
     </div>
+    </WorkspaceContext.Provider>
   );
 }

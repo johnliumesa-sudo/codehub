@@ -2,10 +2,21 @@
 //
 // Shop items are DATA ONLY. An item never carries a URL, CSS, HTML or JS. All behavior comes from the
 // first-party modules named here by `builtinId` (editorThemes.js / editorExts.js); unknown builtinIds
-// are ignored. This file deliberately imports nothing from CodeMirror so it can live in the main bundle
-// (Cosmetics, ShopView) while the editor implementations stay in the lazily loaded collab chunk.
+// are ignored. An editor theme may instead carry eleven color tokens that the first-party generator in
+// editorPalette.js turns into a CodeMirror theme. This file deliberately imports nothing from CodeMirror
+// so it can live in the main bundle (Cosmetics, ShopView) while the editor implementations stay in the
+// lazily loaded collab chunk.
+//
+// Community items (round 3): any signed-in user may create `theme`, `badge`, `nameColor` and token-based
+// `editorTheme` items; they carry `by` (creator uid) and `createdAt`. Items without `by` are the official
+// catalog, written only by app admins, and are the only ones that may name a bundled module (`builtinId`).
+import { contrast } from './color.js';
+import { cleanEditorTokens, editorTokensProblem } from './editorPalette.js';
 
 export const KINDS = ['theme', 'editorTheme', 'editorExt', 'badge', 'nameColor'];
+
+/** Kinds any signed-in user may create (editor themes only as color tokens; editorExt stays admin-only). */
+export const CREATOR_KINDS = ['theme', 'editorTheme', 'badge', 'nameColor'];
 
 export const KIND_LABELS = {
   theme: 'App theme',
@@ -82,6 +93,7 @@ export const BASE_TOKENS = {
 };
 
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+export const UID_RE = /^[A-Za-z0-9]{1,128}$/; // Firebase Auth uids never contain '_' (earning keys rely on it)
 export const BUILTIN_RE = /^[a-z0-9-]{1,32}$/;
 export const ITEM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 export const NAME_MAX = 48;
@@ -230,6 +242,21 @@ function cleanTokens(tokens) {
   return Object.keys(out).length ? out : null;
 }
 
+// App themes are authored for the dark base (light mode derives a variant, see lightVariants.js): body text
+// must stay readable on every surface it sits on. Missing tokens fall back to the stylesheet defaults.
+const THEME_TEXT_ON = ['bg1', 'bg2', 'bg3'];
+
+/** Human message when an app theme would make text hard to read, else null. */
+export function themeTokensProblem(tokens) {
+  const t = { ...BASE_TOKENS, ...(tokens || {}) };
+  for (const bg of THEME_TEXT_ON) {
+    if (contrast(t.text, t[bg]) < 4.5) return `Text needs more contrast with “${TOKEN_LABELS[bg]}”`;
+  }
+  if (contrast(t.textDim, t.bg2) < 3) return 'Text (dim) needs more contrast with the main background';
+  if (contrast(t.accent, t.bg2) < 2) return 'Accent is almost invisible on the main background';
+  return null;
+}
+
 function cleanData(kind, data) {
   const d = data && typeof data === 'object' ? data : {};
   switch (kind) {
@@ -237,7 +264,13 @@ function cleanData(kind, data) {
       const tokens = cleanTokens(d.tokens);
       return tokens ? { tokens } : null;
     }
-    case 'editorTheme':
+    case 'editorTheme': {
+      if (d.tokens !== undefined) {
+        const tokens = cleanEditorTokens(d.tokens);
+        return tokens ? { tokens } : null;
+      }
+      return typeof d.builtinId === 'string' && BUILTIN_RE.test(d.builtinId) ? { builtinId: d.builtinId } : null;
+    }
     case 'editorExt':
       return typeof d.builtinId === 'string' && BUILTIN_RE.test(d.builtinId) ? { builtinId: d.builtinId } : null;
     case 'badge': {
@@ -254,44 +287,65 @@ function cleanData(kind, data) {
 /** Is the item's behavior shipped in this build? (Unknown builtinIds are ignored, never executed.) */
 export function isSupported(item) {
   if (!item) return false;
-  if (item.kind === 'editorTheme') return isKnownEditorTheme(item.data.builtinId);
+  if (item.kind === 'editorTheme') return item.data.tokens ? true : isKnownEditorTheme(item.data.builtinId);
   if (item.kind === 'editorExt') return isKnownEditorExt(item.data.builtinId);
   return true;
 }
 
+/** Problem with a cleaned item's colors (an unreadable app or editor theme), else null. */
+export function colorProblem(kind, data) {
+  if (kind === 'theme') return themeTokensProblem(data.tokens);
+  if (kind === 'editorTheme' && data.tokens) return editorTokensProblem(data.tokens);
+  return null;
+}
+
 /**
  * Normalize a raw `shop/items/{id}` value read from the database into a safe, typed item, or null
- * when it doesn't match any known shape. Only whitelisted fields survive.
+ * when it doesn't match any known shape. Only whitelisted fields survive. Community items (with `by`)
+ * also go through the content policy again on every read: a name or description that carries a link or
+ * markup, or a theme that would make text unreadable, hides the item (it never renders or applies).
  */
 export function normalizeItem(id, raw) {
   if (!raw || typeof raw !== 'object' || typeof id !== 'string' || !ITEM_ID_RE.test(id)) return null;
   if (!KINDS.includes(raw.kind)) return null;
+  const by = typeof raw.by === 'string' && UID_RE.test(raw.by) ? raw.by : null;
+  if (raw.by !== undefined && !by) return null;
+  // Bundled modules (builtinId) are official-only; the rules enforce it, the client never trusts it either.
+  if (by && (raw.kind === 'editorExt' || (raw.kind === 'editorTheme' && raw.data?.tokens === undefined))) return null;
   const data = cleanData(raw.kind, raw.data);
   if (!data) return null;
   const price = isInt(raw.price) && raw.price >= 0 && raw.price <= PRICE_MAX ? raw.price : null;
   if (price === null) return null;
   const name = typeof raw.name === 'string' ? raw.name.slice(0, NAME_MAX) : '';
   if (!name.trim()) return null;
+  const desc = typeof raw.desc === 'string' ? raw.desc.slice(0, DESC_MAX) : '';
+  if (by && (findForbidden(name) || findForbidden(desc) || colorProblem(raw.kind, data))) return null;
   const item = {
     id,
     name,
-    desc: typeof raw.desc === 'string' ? raw.desc.slice(0, DESC_MAX) : '',
+    desc,
     kind: raw.kind,
     price,
     data,
     active: raw.active === true,
+    by,
+    official: !by,
+    createdAt: isInt(raw.createdAt) && raw.createdAt > 0 ? raw.createdAt : 0,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0,
     updatedBy: typeof raw.updatedBy === 'string' ? raw.updatedBy : null,
   };
   item.supported = isSupported(item);
+  // A community item an app admin switched off stays off: only an admin can switch it back on (rules).
+  item.heldByAdmin = !!by && !item.active && !!item.updatedBy && item.updatedBy !== by;
   return item;
 }
 
 /**
- * Validate admin input for saving. Returns the exact object to store (minus updatedAt/updatedBy),
- * or throws an Error with a human-readable message.
+ * Validate item input for saving. Returns the exact object to store (minus updatedAt/updatedBy and the
+ * creator fields), or throws an Error with a human-readable message. `creator: true` applies the community
+ * limits: CREATOR_KINDS only and editor themes as color tokens (no bundled modules).
  */
-export function sanitizeItemInput(input) {
+export function sanitizeItemInput(input, { creator = false } = {}) {
   const name = String(input?.name ?? '').trim();
   const desc = String(input?.desc ?? '').trim();
   const kind = input?.kind;
@@ -302,15 +356,20 @@ export function sanitizeItemInput(input) {
   const bad = findForbidden(name) || findForbidden(desc);
   if (bad) throw new Error(bad);
   if (!KINDS.includes(kind)) throw new Error('Pick a kind');
+  if (creator && !CREATOR_KINDS.includes(kind)) throw new Error('Editor add-ons can only be published by app admins');
   if (!isInt(price) || price < 0 || price > PRICE_MAX) throw new Error(`Price must be a whole number from 0 to ${PRICE_MAX}`);
   const data = cleanData(kind, input?.data);
   if (!data) {
     if (kind === 'theme') throw new Error('A theme needs at least one valid #rrggbb color');
     if (kind === 'badge') throw new Error(`The badge glyph must be 1–${GLYPH_MAX} characters of plain text (an emoji)`);
     if (kind === 'nameColor') throw new Error('Pick a #rrggbb color');
+    if (kind === 'editorTheme' && input?.data?.tokens !== undefined) throw new Error('Every editor color must be a #rrggbb color');
     throw new Error('Pick a bundled module');
   }
-  if (kind === 'editorTheme' && !isKnownEditorTheme(data.builtinId)) throw new Error('Unknown editor theme');
+  if (creator && data.builtinId !== undefined) throw new Error('Bundled editor themes can only be published by app admins');
+  if (kind === 'editorTheme' && !data.tokens && !isKnownEditorTheme(data.builtinId)) throw new Error('Unknown editor theme');
+  const colors = colorProblem(kind, data);
+  if (colors) throw new Error(colors);
   if (kind === 'editorExt' && !isKnownEditorExt(data.builtinId)) throw new Error('Unknown editor add-on');
   return { name, desc, kind, price, data, active: input?.active !== false };
 }
@@ -327,7 +386,10 @@ export function equippedItem(equipped, byId, slot) {
   return item && item.kind === slot && item.supported ? item : null;
 }
 
-/** -> { theme: builtinId|null, exts: [builtinId] (sorted, unique) } for the editor. */
+/**
+ * -> { theme: builtinId|null, palette: {editor color tokens}|null, exts: [builtinId] (sorted, unique) }
+ * for the editor. A token-based editor theme sets `palette` (and `theme` stays null).
+ */
 export function resolveEditorAddons(equipped, byId) {
   const t = equippedItem(equipped, byId, 'editorTheme');
   const exts = new Set();
@@ -337,5 +399,5 @@ export function resolveEditorAddons(equipped, byId) {
     const item = byId?.[id];
     if (item && item.kind === 'editorExt' && item.supported) exts.add(item.data.builtinId);
   }
-  return { theme: t ? t.data.builtinId : null, exts: [...exts].sort() };
+  return { theme: t && !t.data.tokens ? t.data.builtinId : null, palette: t?.data.tokens || null, exts: [...exts].sort() };
 }

@@ -1,6 +1,7 @@
 // Static, data-driven preview of a shop item. Only validated `#rrggbb` values and plain text are
 // rendered; nothing from an item is ever interpreted as HTML/CSS.
 import { BASE_TOKENS, EDITOR_EXT_INFO, EDITOR_THEME_INFO } from '../../lib/addons/registry.js';
+import { cleanEditorTokens, editorPreview } from '../../lib/addons/editorPalette.js';
 
 function ThemePreview({ tokens }) {
   const c = { ...BASE_TOKENS, ...(tokens || {}) };
@@ -34,15 +35,18 @@ function ThemePreview({ tokens }) {
   );
 }
 
-function EditorThemePreview({ builtinId }) {
-  const p = EDITOR_THEME_INFO[builtinId]?.preview;
-  if (!p) return <div className="shop-pv-unknown">Not available in this version</div>;
+function EditorThemePreview({ builtinId, tokens }) {
+  const clean = tokens ? cleanEditorTokens(tokens) : null;
+  const p = clean ? editorPreview(clean) : EDITOR_THEME_INFO[builtinId]?.preview;
+  if (!p) return <div className="shop-pv-unknown">{tokens ? 'Pick a color for every token' : 'Not available in this version'}</div>;
+  const op = p.op || p.fg;
   return (
     <pre className="shop-pv-code" style={{ background: p.bg, color: p.fg }} aria-hidden="true">
       <span style={{ color: p.gutter }}>1 </span><span style={{ color: p.comment }}>{'// say hi'}</span>{'\n'}
       <span style={{ color: p.gutter }}>2 </span><span style={{ color: p.keyword }}>function</span> <span style={{ color: p.fn }}>hello</span>(name) {'{'}{'\n'}
-      <span style={{ color: p.gutter }}>3 </span>  <span style={{ color: p.keyword }}>const</span> n<span style={{ color: p.fg }}>: </span><span style={{ color: p.type }}>Int</span> = <span style={{ color: p.number }}>42</span>;{'\n'}
-      <span style={{ color: p.gutter }}>4 </span>  <span style={{ color: p.keyword }}>return</span> <span style={{ color: p.string }}>{"'hi '"}</span> + name;{'\n'}
+      <span style={{ color: p.gutter }}>3 </span>  <span style={{ color: p.keyword }}>const</span> n<span style={{ color: op }}>: </span><span style={{ color: p.type }}>Int</span> <span style={{ color: op }}>=</span> <span style={{ color: p.number }}>42</span>;{'\n'}
+      <span style={{ color: p.gutter }}>4 </span>  <span style={{ color: p.keyword }}>return</span> <span style={{ color: p.string }}>{"'hi '"}</span> <span style={{ color: op }}>+</span>{' '}
+      {p.sel ? <span style={{ background: p.sel }}>name</span> : 'name'}{p.caret && <span className="shop-pv-caret" style={{ background: p.caret }} />};{'\n'}
       <span style={{ color: p.gutter }}>5 </span>{'}'}
     </pre>
   );
@@ -66,7 +70,7 @@ export default function ItemPreview({ item, me }) {
     case 'theme':
       return <ThemePreview tokens={item.data?.tokens} />;
     case 'editorTheme':
-      return <EditorThemePreview builtinId={item.data?.builtinId} />;
+      return <EditorThemePreview builtinId={item.data?.builtinId} tokens={item.data?.tokens} />;
     case 'editorExt':
       return <ExtPreview builtinId={item.data?.builtinId} />;
     case 'badge':

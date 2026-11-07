@@ -55,7 +55,10 @@ export default function AnnouncementEditor() {
       () => setAnnouncement({ text: clean, level, notify: notifyAll }),
       (res) => (notifyAll ? `Announcement published; ${res?.notified || 0} users notified.` : 'Announcement published to everyone.'),
     );
-    if (ok && mounted.current) setText('');
+    if (ok && mounted.current) {
+      setText('');
+      setNotifyAll(false); // opt-in per announcement, never sticky
+    }
   }
 
   return (

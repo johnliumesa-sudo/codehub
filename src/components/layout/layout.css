@@ -290,6 +290,9 @@ label.field .input { text-transform: none; letter-spacing: 0; font-size: 14px; c
 /* server settings */
 .ly-settings .ly-modal-body { padding-top: 0; }
 .ly-tabs-line { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 6px -22px 18px; padding: 0 18px; overflow-x: auto; }
+/* Server settings has a dozen tabs with round 3 (bots, add-ons, welcome, AutoMod, …): wrap instead of hiding
+   most of them off to the side. */
+.ly-settings .ly-tabs-line { flex-wrap: wrap; column-gap: 2px; overflow-x: visible; }
 .ly-tabline { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: var(--text-dim); padding: 10px 10px; cursor: pointer; font-weight: 600; font-size: 13.5px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
 .ly-tabline:hover { color: var(--text); }
 .ly-tabline.on { color: var(--text); border-bottom-color: var(--accent); }

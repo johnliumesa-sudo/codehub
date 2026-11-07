@@ -1,5 +1,5 @@
 import PollComposer from '../chatx/PollComposer.jsx';
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { mentionToken, searchEmoji } from '../../lib/markdown.js';
 import { MAX_TEXT } from '../../lib/messages.js';
 import EmojiPopover from './EmojiPopover.jsx';
@@ -9,12 +9,21 @@ import { fenced } from '../../lib/snippets.js';
 import { AttachmentButton, AttachmentTray, useAttachmentDraft, usePasteFiles } from '../media/Attachments.jsx';
 import { GifPicker, useGifEnabled } from '../media/GifPicker.jsx';
 import { uploadAttachments } from '../../lib/media/attachments.js';
+import { useRegistry } from '../../lib/ext/registry.js';
+import { MentionStatus } from '../../features/personal/components/StatusBits.jsx';
+import { SLASH_GROUPS, commandGroup, commandsFor, matchCommands, parseSlash } from '../../lib/ext/send.js';
+import { ComposerExtButtons } from '../ext/ChatExt.jsx';
 
 const TYPING_THROTTLE = 3000;
+const STACK_BELOW = 520; // px of composer width
 
-// Find an autocomplete trigger (":sho" or "@na") right before the caret.
-function findTrigger(value, caret) {
+// Find an autocomplete trigger ("/cmd" at the very start, ":sho" or "@na") right before the caret.
+function findTrigger(value, caret, slash) {
   const before = value.slice(0, caret);
+  if (slash) {
+    const s = /^\/([A-Za-z0-9_-]{0,32})$/.exec(before);
+    if (s) return { kind: 'slash', query: s[1].toLowerCase(), start: 0 };
+  }
   let m = /(^|[\s(]):([a-z0-9_+-]{2,30})$/i.exec(before);
   if (m) return { kind: 'emoji', query: m[2].toLowerCase(), start: caret - m[2].length - 1 };
   m = /(^|[\s(])@([\p{L}\p{N}_.-]{0,30})$/u.exec(before);
@@ -42,6 +51,8 @@ const Composer = forwardRef(function Composer(props, ref) {
   const ta = useRef(null);
   const lastTypingRef = useRef(0);
   const pickerClosedAt = useRef(0);
+  const listId = useId();
+  const slashCmds = useRegistry('slashCommands');
 
   // Insert text at the caret on its own line (snippet library), then refocus.
   const insertBlock = useCallback((text) => {
@@ -63,9 +74,38 @@ const Composer = forwardRef(function Composer(props, ref) {
       el?.setSelectionRange(caret, caret);
     });
   }, []);
+  // Insert text at the caret inline (ChatContext.insertText), then refocus.
+  const insertInline = useCallback((text) => {
+    const el = ta.current;
+    const s0 = el ? el.selectionStart : null;
+    const e0 = el ? el.selectionEnd : null;
+    let caret = 0;
+    setValue((v) => {
+      const s = Math.min(s0 ?? v.length, v.length);
+      const e = Math.min(e0 ?? v.length, v.length);
+      caret = s + text.length;
+      return `${v.slice(0, s)}${text}${v.slice(e)}`;
+    });
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(caret, caret);
+    });
+  }, []);
   // addFiles: images dropped anywhere on the chat pane (ChatView's DropZone) join the draft.
   const addFiles = draft.add;
-  useImperativeHandle(ref, () => ({ focus: () => ta.current?.focus(), insert: insertBlock, addFiles: conv ? addFiles : () => {} }), [insertBlock, addFiles, conv]);
+  useImperativeHandle(ref, () => ({ focus: () => ta.current?.focus(), insert: insertBlock, insertText: insertInline, addFiles: conv ? addFiles : () => {} }), [insertBlock, insertInline, addFiles, conv]);
+
+  // A narrow composer (phone, or a side panel open beside the chat) puts the text box on its own row:
+  // with every feature's buttons in one row it was squeezed to a few characters.
+  const boxRef = useRef(null);
+  const [stacked, setStacked] = useState(false);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(([e]) => setStacked(e.contentRect.width < STACK_BELOW));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Autosize
   useEffect(() => {
@@ -81,6 +121,19 @@ const Composer = forwardRef(function Composer(props, ref) {
 
   const suggestions = useMemo(() => {
     if (!trigger) return [];
+    if (trigger.kind === 'slash') {
+      // Every matching command (the list scrolls), grouped: built-in, features, this server's bots.
+      return matchCommands(trigger.query, conv?.kind || 'channel', slashCmds).map((c) => ({
+        id: `slash:${c.name}`,
+        slash: true,
+        group: commandGroup(c),
+        name: c.name,
+        label: `/${c.name}`,
+        args: typeof c.args === 'string' ? c.args : '',
+        hint: typeof c.description === 'string' ? c.description : '',
+        insert: `/${c.name}`,
+      }));
+    }
     if (trigger.kind === 'emoji') {
       // Server emotes first (inserted as :name:, rendered as images), then standard emoji.
       const custom = (emotes || [])
@@ -101,17 +154,35 @@ const Composer = forwardRef(function Composer(props, ref) {
       if (list.length >= 8) break;
     }
     return list;
-  }, [trigger, members, allowEveryone, emotes]);
+  }, [trigger, members, allowEveryone, emotes, conv?.kind, slashCmds]);
 
-  useEffect(() => { setSel(0); }, [trigger?.kind, trigger?.query]);
+  // A fully typed command name starts selected (Enter runs it), else the first entry.
+  useEffect(() => {
+    const exact = trigger?.kind === 'slash' ? suggestions.findIndex((s) => s.name === trigger.query) : -1;
+    setSel(exact > 0 ? exact : 0);
+  }, [trigger?.kind, trigger?.query]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Keep the active row visible while arrowing through a long (scrolling) list.
+  const suggestOpen = !!trigger && suggestions.length > 0;
+  useEffect(() => {
+    if (suggestOpen) document.getElementById(`${listId}-${sel}`)?.scrollIntoView({ block: 'nearest' });
+  }, [suggestOpen, sel, listId]);
 
-  const updateTrigger = (val, caret) => setTrigger(findTrigger(val, caret));
+  const updateTrigger = (val, caret) => setTrigger(findTrigger(val, caret, !!conv));
+
+  // "/name …" with a known command: show its usage instead of the keyboard hint.
+  const usage = useMemo(() => {
+    if (!conv || !/^\/\S+\s/.test(value)) return null;
+    const p = parseSlash(value);
+    return p ? commandsFor(conv.kind, slashCmds).find((c) => c.name === p.name) || null : null;
+  }, [value, conv, slashCmds]);
 
   const applySuggestion = useCallback((s) => {
     if (!trigger || !s) return;
     const el = ta.current;
     const caret = el?.selectionStart ?? value.length;
-    const next = `${value.slice(0, trigger.start)}${s.insert} ${value.slice(caret)}`;
+    // A command replaces the whole first word; emoji and mentions insert at the caret.
+    const rest = trigger.kind === 'slash' ? value.slice(caret).replace(/^\S*\s*/, '') : value.slice(caret);
+    const next = `${value.slice(0, trigger.start)}${s.insert} ${rest}`;
     const pos = trigger.start + s.insert.length + 1;
     setValue(next);
     setTrigger(null);
@@ -167,7 +238,18 @@ const Composer = forwardRef(function Composer(props, ref) {
     if (trigger && suggestions.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => (s + 1) % suggestions.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => (s - 1 + suggestions.length) % suggestions.length); return; }
-      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); applySuggestion(suggestions[sel]); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const s = suggestions[sel];
+        // Enter on a fully typed command sends it; Tab (or Enter on a partial name) completes.
+        if (e.key === 'Enter' && trigger.kind === 'slash' && s?.name === trigger.query) {
+          setTrigger(null);
+          submit();
+          return;
+        }
+        applySuggestion(s);
+        return;
+      }
       if (e.key === 'Escape') { e.preventDefault(); setTrigger(null); return; }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -204,6 +286,26 @@ const Composer = forwardRef(function Composer(props, ref) {
 
   const over = value.trim().length > MAX_TEXT;
 
+  const renderSuggestion = (s, i) => (
+    <button
+      type="button"
+      key={s.id}
+      id={`${listId}-${i}`}
+      tabIndex={-1}
+      role="option"
+      aria-selected={i === sel}
+      className={`suggest-item${i === sel ? ' active' : ''}`}
+      onMouseEnter={() => setSel(i)}
+      onMouseDown={(e) => { e.preventDefault(); applySuggestion(s); }}
+    >
+      {s.slash ? <span className="suggest-slash" aria-hidden="true">/</span> : s.img ? <img className="suggest-emoji md-emote" src={s.img} alt="" width={22} height={22} /> : s.icon ? <span className="suggest-emoji">{s.icon}</span> : s.profile ? <Avatar profile={s.profile} size={22} /> : <span className="suggest-at">@</span>}
+      <span className="suggest-label">{s.label}</span>
+      {s.profile && <MentionStatus uid={s.id} />}
+      {s.slash && s.args && <span className="suggest-args">{s.args}</span>}
+      {s.hint && <span className={`suggest-hint${s.slash ? ' slash' : ''}`}>{s.hint}</span>}
+    </button>
+  );
+
   return (
     <div className={`composer${disabled ? ' disabled' : ''}`}>
       {conv && <AttachmentTray files={draft.files} progress={draft.progress} onRemove={draft.remove} notice={upErr || draft.notice} busy={sending} />}
@@ -226,23 +328,25 @@ const Composer = forwardRef(function Composer(props, ref) {
         />
       )}
       {trigger && suggestions.length > 0 && (
-        <div className="composer-suggest" role="listbox">
-          <div className="composer-suggest-title">{trigger.kind === 'emoji' ? `Emoji matching :${trigger.query}` : 'Members'}</div>
-          {suggestions.map((s, i) => (
-            <button
-              type="button"
-              key={s.id}
-              role="option"
-              aria-selected={i === sel}
-              className={`suggest-item${i === sel ? ' active' : ''}`}
-              onMouseEnter={() => setSel(i)}
-              onMouseDown={(e) => { e.preventDefault(); applySuggestion(s); }}
-            >
-              {s.img ? <img className="suggest-emoji md-emote" src={s.img} alt="" width={22} height={22} /> : s.icon ? <span className="suggest-emoji">{s.icon}</span> : s.profile ? <Avatar profile={s.profile} size={22} /> : <span className="suggest-at">@</span>}
-              <span className="suggest-label">{s.label}</span>
-              {s.hint && <span className="suggest-hint">{s.hint}</span>}
-            </button>
-          ))}
+        <div
+          className="composer-suggest"
+          role="listbox"
+          id={listId}
+          aria-label={trigger.kind === 'slash' ? 'Commands' : trigger.kind === 'emoji' ? 'Emoji' : 'Members'}
+        >
+          <div className="composer-suggest-title">{trigger.kind === 'slash' ? 'Commands' : trigger.kind === 'emoji' ? `Emoji matching :${trigger.query}` : 'Members'}</div>
+          {trigger.kind === 'slash'
+            ? SLASH_GROUPS.map((g) => {
+              const rows = suggestions.map((s, i) => [s, i]).filter(([s]) => s.group === g.id);
+              if (!rows.length) return null;
+              return (
+                <div key={g.id} role="group" aria-labelledby={`${listId}-g-${g.id}`} className="composer-suggest-group">
+                  <div id={`${listId}-g-${g.id}`} className="composer-suggest-group-title" role="presentation">{g.label}</div>
+                  {rows.map(([s, i]) => renderSuggestion(s, i))}
+                </div>
+              );
+            })
+            : suggestions.map((s, i) => renderSuggestion(s, i))}
         </div>
       )}
 
@@ -256,7 +360,7 @@ const Composer = forwardRef(function Composer(props, ref) {
         </div>
       )}
 
-      <div className={`composer-box${replyItem ? ' has-reply' : ''}`}>
+      <div ref={boxRef} className={`composer-box${replyItem ? ' has-reply' : ''}${stacked ? ' stacked' : ''}`}>
         <button type="button" className="composer-btn" title="Share code snippet" onClick={onOpenSnippet} disabled={disabled}>
           <CodeIcon />
         </button>
@@ -280,6 +384,7 @@ const Composer = forwardRef(function Composer(props, ref) {
         {conv && gifOn && (
           <button type="button" className="composer-btn" onClick={() => setGifOpen((o) => !o)} aria-label="Send a GIF" title="GIF">GIF</button>
         )}
+        {conv && <ComposerExtButtons disabled={disabled} />}
         <textarea
           onPaste={conv ? onPasteFiles : undefined}
           ref={ta}
@@ -293,6 +398,9 @@ const Composer = forwardRef(function Composer(props, ref) {
           onClick={(e) => updateTrigger(value, e.currentTarget.selectionStart)}
           onBlur={() => setTimeout(() => setTrigger(null), 120)}
           aria-label={placeholder}
+          aria-autocomplete="list"
+          aria-controls={trigger && suggestions.length > 0 ? listId : undefined}
+          aria-activedescendant={trigger && suggestions.length > 0 ? `${listId}-${sel}` : undefined}
           spellCheck
         />
         {over && <span className="composer-count over">{value.trim().length}/{MAX_TEXT}</span>}
@@ -310,9 +418,16 @@ const Composer = forwardRef(function Composer(props, ref) {
           <SendIcon />
         </button>
       </div>
-      <div className="composer-hint">
-        <span><kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>↑</kbd> edit last · Markdown & <code>```code```</code> supported</span>
-      </div>
+      {usage ? (
+        <div className="composer-usage" aria-live="polite">
+          <code>/{usage.name}{typeof usage.args === 'string' && usage.args ? ` ${usage.args}` : ''}</code>
+          {usage.description ? ` — ${usage.description}` : ''}
+        </div>
+      ) : (
+        <div className="composer-hint">
+          <span><kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>↑</kbd> edit last · <kbd>/</kbd> commands · Markdown & <code>```code```</code> supported</span>
+        </div>
+      )}
 
       {pickerRect && (
         <EmojiPopover

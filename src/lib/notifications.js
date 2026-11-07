@@ -14,7 +14,7 @@ import { get, limitToLast, onValue, orderByKey, query, ref, remove, update } fro
 import { db } from './firebase.js';
 import { NOTIF_KINDS } from './notifSend.js';
 import { useBlocks } from './blocks.js';
-import { isMuted, notificationPermission, showNotification, useNotifPrefs } from './notify.js';
+import { desktopAlertsOn, isMuted, showNotification, useNotifPrefs } from './notify.js';
 import { useProfiles } from './profiles.js';
 import { setTitleCount } from './title.js';
 
@@ -155,6 +155,7 @@ export const KIND_LABEL = {
   gameLike: 'liked your game',
   call: 'is calling you',
   announcement: 'posted an announcement',
+  reminder: 'asked to be reminded about this',
 };
 
 /** Mute scope used by notify.js for this notification, or null. */
@@ -225,7 +226,7 @@ export function useNotificationAlerts({ me, state, onOpen }) {
       seen.current.add(n.id);
       if (n.read || bl.has(n.from)) return;
       const s = p?.settings;
-      if (!s?.desktop || notificationPermission() !== 'granted') return;
+      if (!desktopAlertsOn(s)) return; // DND: the bell still counts
       if (document.visibilityState === 'visible' && document.hasFocus()) return;
       const scope = scopeOfNotif(n);
       if (scope && isMuted(p, scope, Date.now(), { sid: n.ref.sid, mention: n.kind === 'mention' || n.kind === 'reply' })) return;

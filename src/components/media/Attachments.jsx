@@ -2,6 +2,8 @@
 // lazy ImageAttachment and Lightbox. Encryption/chunking/caching lives in src/lib/media/attachments.js.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAttachmentSrc } from '../../lib/media/attachments.js';
+import { cleanAudioAtt } from '../../lib/media/audio.js';
+import { AudioAttachment } from './AudioAttachment.jsx';
 import { Icon } from '../layout/ui.jsx';
 import { ACCEPT_IMAGES, MAX_ATTACHMENTS, isRasterImage } from './util.js';
 
@@ -174,14 +176,24 @@ export function ImageAttachment({ scope, att, maxW = 360, maxH = 320 }) {
   );
 }
 
-/** All attachments of a message. */
+/** All attachments of a message: images, then a voice message (kind 'audio', validated) if any. */
 export function MessageAttachments({ scope, attachments }) {
   if (!Array.isArray(attachments) || !attachments.length) return null;
+  const list = attachments.slice(0, MAX_ATTACHMENTS);
+  const images = list.filter((a) => a && typeof a === 'object' && a.kind === undefined);
+  const voice = list.map((a) => (a?.kind === 'audio' ? cleanAudioAtt(a) : null)).filter(Boolean).slice(0, 1);
   return (
-    <div className="md-atts">
-      {attachments.slice(0, MAX_ATTACHMENTS).map((a) => (
-        <ImageAttachment key={a.attId} scope={scope} att={a} />
+    <>
+      {images.length > 0 && (
+        <div className="md-atts">
+          {images.map((a) => (
+            <ImageAttachment key={a.attId} scope={scope} att={a} />
+          ))}
+        </div>
+      )}
+      {voice.map((a) => (
+        <AudioAttachment key={a.attId} scope={scope} att={a} />
       ))}
-    </div>
+    </>
   );
 }

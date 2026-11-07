@@ -10,6 +10,11 @@ export const box = { iv: 'a'.repeat(16), ct: 'Y2lwaGVy' };
 export const epk = { kty: 'EC', crv: 'P-256', x: 'xx', y: 'yy' };
 export const wrap = { epk, iv: 'b'.repeat(16), ct: 'd3JhcA' };
 export { assertFails, assertSucceeds };
+/**
+ * The paths a pub/{kind}/{id} create needs in the same update: the shared one-per-minute publish stamp
+ * (publishLog/{uid} = now) bound to that id (udata/{uid}/pub/last = id).
+ */
+export const pubStamp = (uid, id) => ({ [`publishLog/${uid}`]: TS, [`udata/${uid}/pub/last`]: id });
 
 let env;
 export async function getEnv() {

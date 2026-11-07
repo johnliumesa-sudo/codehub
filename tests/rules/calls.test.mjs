@@ -1,5 +1,6 @@
 // Calls (features 2–5): call meta, slot cap of 6, encrypted signaling inbox, voice channels.
 import { describe, it, before, after, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
 import { getEnv, cleanup, reset, db, admin, box, TS, assertFails, assertSucceeds } from './helpers.mjs';
 
 const ok = assertSucceeds, deny = assertFails;
@@ -91,5 +92,86 @@ describe('calls', () => {
 describe('calls: channel type', () => {
   it('DENY unknown channel type', async () => {
     await deny(db('alice').ref(`servers/${SID}/channels/chBADAAAAAAAAAAAAAAA`).set({ type: 'stage', enc: box, position: 4, createdAt: TS }));
+  });
+});
+
+// Round 3: slot heartbeat (`hb`) and removal of ghost slots left by crashed or frozen tabs.
+describe('calls: heartbeat and ghost slots', () => {
+  const live = (uid, hb = TS) => ({ ...slot(uid), hb });
+  const seed = (path, s) => admin((d) => d.ref(path).set(s));
+  it('ALLOW hb = server time (also from onDisconnect, with away = true); DENY any other value', async () => {
+    await ok(db('dave').ref('calls/dm_dave_zoe').update(meta('dave')));
+    await ok(db('dave').ref('calls/dm_dave_zoe/slots/0').set(live('dave')));
+    await ok(db('dave').ref('calls/dm_dave_zoe/slots/0').update({ hb: TS }));
+    await ok(db('dave').ref('calls/dm_dave_zoe/slots/0').update({ hb: TS, away: true }));
+    await ok(db('dave').ref('calls/dm_dave_zoe/slots/0').update({ hb: TS, away: null }));
+    await deny(db('dave').ref('calls/dm_dave_zoe/slots/0/hb').set(0), 'hb = 0 made a slot prunable at once');
+    await deny(db('dave').ref('calls/dm_dave_zoe/slots/0/away').set(false));
+    await deny(db('dave').ref('calls/dm_dave_zoe/slots/0/hb').set(Date.now() - 60000));
+    await deny(db('dave').ref('calls/dm_dave_zoe/slots/0/hb').set('now'));
+    await deny(db('zoe').ref('calls/dm_dave_zoe/slots/0/hb').set(TS));
+    await ok(db('bob').ref(`vcalls/${vc}`).update(meta('bob')));
+    await ok(db('bob').ref(`vcalls/${vc}/slots/0`).set(live('bob')));
+    await deny(db('bob').ref(`vcalls/${vc}/slots/0/hb`).set(12345));
+  });
+  it('ALLOW a member to remove a slot whose heartbeat is 45 s old; DENY a fresh one (away or not) or one without hb', async () => {
+    await ok(db('dave').ref('calls/dm_dave_zoe').update(meta('dave')));
+    await seed('calls/dm_dave_zoe/slots/0', { ...slot('dave'), joinedAt: 1, hb: Date.now() - 10000 });
+    await deny(db('zoe').ref('calls/dm_dave_zoe/slots/0').remove());
+    await seed('calls/dm_dave_zoe/slots/0', { ...slot('dave'), joinedAt: 1 });
+    await deny(db('zoe').ref('calls/dm_dave_zoe/slots/0').remove()); // older clients' slots: only onDisconnect removes them
+    await seed('calls/dm_dave_zoe/slots/0', { ...slot('dave'), joinedAt: 1, hb: Date.now() - 46000 });
+    await deny(db('erin').ref('calls/dm_dave_zoe/slots/0').remove()); // not in the DM
+    await ok(db('zoe').ref('calls/dm_dave_zoe/slots/0').remove());
+    // A brief blip: onDisconnect stamped hb with the server time and away = true. Nobody may prune it
+    // during the 45 s grace; after that, any member may.
+    await admin((d) => d.ref('calls/grp_g1').update({ id: 'call12345678', startedBy: 'erin', ts: 1, kind: 'audio' }));
+    await seed('calls/grp_g1/slots/1', { ...slot('erin'), joinedAt: 1, hb: Date.now() - 1000, away: true });
+    await deny(db('dave').ref('calls/grp_g1/slots/1').remove());
+    await seed('calls/grp_g1/slots/1', { ...slot('erin'), joinedAt: 1, hb: Date.now() - 40000, away: true });
+    await deny(db('dave').ref('calls/grp_g1/slots/1').remove());
+    await seed('calls/grp_g1/slots/1', { ...slot('erin'), joinedAt: 1, hb: Date.now() - 46000, away: true });
+    await deny(db('zoe').ref('calls/grp_g1/slots/1').remove());
+    await ok(db('dave').ref('calls/grp_g1/slots/1').remove());
+  });
+  it('voice channels: stale slot removable by members (not outsiders), fresh one only by its owner or moderators', async () => {
+    await ok(db('alice').ref(`vcalls/${vc}`).update(meta('alice')));
+    await seed(`vcalls/${vc}/slots/2`, { ...slot('carol'), joinedAt: 1, hb: Date.now() - 5000 });
+    await deny(db('dave').ref(`vcalls/${vc}/slots/2`).remove());
+    await seed(`vcalls/${vc}/slots/2`, { ...slot('carol'), joinedAt: 1, hb: Date.now() - 50000 });
+    await deny(db('hank').ref(`vcalls/${vc}/slots/2`).remove());
+    await ok(db('dave').ref(`vcalls/${vc}/slots/2`).remove());
+    // The freed index can be reclaimed at once.
+    await ok(db('dave').ref(`vcalls/${vc}/slots/2`).set(live('dave')));
+  });
+  it('a dangling onDisconnect never recreates a removed or reassigned slot', async () => {
+    const dave = db('dave');
+    await ok(dave.ref('calls/grp_g1').update(meta('dave')));
+    await ok(dave.ref('calls/grp_g1/slots/0').set(live('dave')));
+    await dave.ref('calls/grp_g1/slots/0').onDisconnect().update({ hb: TS, away: true });
+    await ok(dave.ref('calls/grp_g1/slots/0').remove());
+    const erin = db('erin');
+    await ok(erin.ref('calls/grp_g1/slots/0').set(live('erin')));
+    dave.goOffline();
+    await new Promise((r) => setTimeout(r, 1500));
+    let v;
+    await admin(async (d) => { v = (await d.ref('calls/grp_g1/slots/0').get()).val(); });
+    assert.equal(v.uid, 'erin');
+    assert.equal(v.away, undefined, "erin's slot untouched");
+  });
+  it('onDisconnect marks my slot away with the server time, and the slot keeps its 45 s grace', async () => {
+    const dave = db('dave');
+    await ok(dave.ref('calls/grp_g1').update(meta('dave')));
+    await ok(dave.ref('calls/grp_g1/slots/2').set(live('dave')));
+    await dave.ref('calls/grp_g1/slots/2').onDisconnect().update({ hb: TS, away: true });
+    const before = Date.now();
+    dave.goOffline();
+    await new Promise((r) => setTimeout(r, 1500));
+    let v;
+    await admin(async (d) => { v = (await d.ref('calls/grp_g1/slots/2').get()).val(); });
+    assert.equal(v.uid, 'dave');
+    assert.equal(v.away, true);
+    assert.ok(v.hb >= before - 5000 && v.hb <= Date.now() + 5000, `hb is the disconnect time (${v.hb})`);
+    await deny(db('erin').ref('calls/grp_g1/slots/2').remove(), 'away for a moment: not prunable yet');
   });
 });

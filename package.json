@@ -11,13 +11,13 @@
     "emulators": "npx firebase-tools emulators:start --only auth,database --project codehub-dc9a4",
     "deploy": "npx firebase-tools deploy --only database",
     "rules:min": "node scripts/minify-rules.mjs",
-    "test:rules": "firebase emulators:exec --only database --project demo-codehub \"node --test --test-concurrency=1 tests/rules/*.test.mjs\"",
-    "test:e2e": "playwright test -c tests/e2e/playwright.config.mjs",
+    "test:rules": "node scripts/test-env.mjs rules",
+    "test:e2e": "node scripts/test-env.mjs e2e",
     "test:unit": "node --test tests/unit/*.test.mjs",
-    "test": "npm run test:unit && npm run test:rules && npm run test:e2e",
-    "pretest:e2e": "pkill -f firebase-database-emulator; pkill -f \"firebase emulators:start\"; true"
+    "test": "npm run test:unit && npm run test:rules && npm run test:e2e"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
     "@codemirror/lang-cpp": "^6.0.2",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.9",

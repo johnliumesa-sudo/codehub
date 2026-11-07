@@ -165,7 +165,9 @@ export function getPublicKey(uid) {
       if (!s.exists()) throw new Error('User has no encryption key yet');
       return s.val();
     });
-    p.catch(() => state.pubKeys.delete(uid));
+    p.catch(() => {
+      if (state.pubKeys.get(uid) === p) state.pubKeys.delete(uid);
+    });
     state.pubKeys.set(uid, p);
   }
   return state.pubKeys.get(uid);
@@ -180,7 +182,11 @@ export function getServerKey(sid) {
       if (!s.exists()) throw new Error('No key for this server');
       return unwrapKey(state.privKey, s.val(), wrapContext(sid, state.uid));
     });
-    p.catch(() => state.serverKeys.delete(sid));
+    // Forget only this failed attempt: a key cached meanwhile (cacheServerKey right after creating
+    // or joining the server, while this read was still in flight) must survive.
+    p.catch(() => {
+      if (state.serverKeys.get(sid) === p) state.serverKeys.delete(sid);
+    });
     state.serverKeys.set(sid, p);
   }
   return state.serverKeys.get(sid);

@@ -86,7 +86,8 @@ export default function NotificationsTab({ user, me, describeScope }) {
   };
 
   const test = () => {
-    const n = showNotification('Codehub', { body: s.preview ? 'This is what a message preview looks like.' : 'Sent you a message', tag: 'codehub-test' });
+    // An explicit test shows even during Do Not Disturb (which silences every other alert).
+    const n = showNotification('Codehub', { body: s.preview ? 'This is what a message preview looks like.' : 'Sent you a message', tag: 'codehub-test', force: true });
     setTestMsg(n ? 'Sent — check your system notifications.' : 'Your browser refused to show it (some mobile browsers need an installed app).');
     setTimeout(() => setTestMsg(''), 4000);
   };

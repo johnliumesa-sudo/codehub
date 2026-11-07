@@ -3,12 +3,15 @@
 //   useCallMeta(scope)    → live `calls/{scope}` (participants) for headers and voice channels.
 //   useCall(scope)        → both, scoped: { meta, participants, active, inThisCall, join(kind), leave }.
 //   useIncomingCalls(me)  → ringing call notifs still live (for IncomingCallModal).
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { endAt, onValue, query, ref, orderByChild, startAt, update } from 'firebase/database';
 import { db } from '../firebase.js';
 import { onLock } from '../keystore.js';
 import { CallSession } from './mesh.js';
-import { RING_MS, STALE_MS, callPath, cleanupIfEmpty, scopeFromRef } from './core.js';
+import { RING_MS, STALE_MS, callPath, cleanupIfEmpty, removeSlot, scopeFromRef, serverNow } from './core.js';
+import { VIEWER_AWAY_MS, slotLiveness } from './health.js';
+import { orderHands } from './events.js';
+import { loadPrefs, subscribePrefs } from './prefs.js';
 
 let session = null;
 let snap = null;
@@ -26,12 +29,22 @@ function snapshot(s) {
     mic: s.mic,
     deafened: s.deafened,
     camOn: s.camOn,
+    camPending: !!s.camPending,
     screenOn: s.screenOn,
-    devices: s.devices,
+    devices: s.prefs,
     slots: s.slots,
     speaking: new Set(s.speaking),
     localVideo: s.videoOut,
-    peers: [...s.peers.values()].map((p) => ({ uid: p.uid, stream: p.stream, state: p.state, tracks: p.stream.getTracks().length })),
+    micStream: s.micStream,
+    ptt: s.ptt,
+    pttHeld: s.pttHeld,
+    transmitting: s.transmitting,
+    rejoining: s.rejoining,
+    hands: orderHands(s.hands),
+    reactions: s.reactions,
+    peers: [...s.peers.values()].map((p) => ({
+      uid: p.uid, stream: p.stream, state: p.pc?.connectionState || 'new', status: p.status, tracks: p.stream.getTracks().length,
+    })),
   };
 }
 
@@ -87,9 +100,18 @@ export const callActions = {
   toggleCam: () => session?.toggleCam(),
   toggleScreen: () => session?.toggleScreen(),
   setDevices: (patch) => session?.setDevices(patch),
+  raiseHand: (up) => session?.raiseHand(up),
+  react: (emoji) => session?.react(emoji) ?? false,
+  setPtt: (on) => session?.setPtt(on),
+  pttPress: (down) => session?.pttPress(down),
   leave: leaveCall,
   dismiss: dismissCall,
 };
+
+/** Voice & video prefs (devices, processing, push-to-talk), live across the settings tab and the call. */
+export function useCallPrefs() {
+  return useSyncExternalStore(subscribePrefs, loadPrefs, loadPrefs);
+}
 
 // Locking the vault (sign-out) ends the call: keys are gone.
 onLock(() => {
@@ -101,36 +123,78 @@ if (typeof window !== 'undefined') {
   });
 }
 
+/** The active call snapshot outside React (null when none). */
+export const getActiveCall = () => snap;
+
 export function useActiveCall() {
   return useSyncExternalStore(subscribe, () => snap, () => null);
 }
 
-/** Live call meta for a scope: `{ id, kind, ts, startedBy, participants: [slot…] }` or null. */
+// Ghost slots this tab already tried to remove (key -> true), shared by every useCallMeta instance.
+const ghostTried = new Set();
+
+/**
+ * Live call meta for a scope: `{ id, kind, ts, startedBy, participants: [slot…] }` or null.
+ * Participants whose slot has no heartbeat for 45 s are left out and removed (crashed or frozen tabs);
+ * those away (connection dropped) for 20 s while this list was showing are left out but not removed:
+ * the rules give them 45 s to come back.
+ */
 export function useCallMeta(scope) {
-  const [meta, setMeta] = useState(null);
+  const [raw, setRaw] = useState(null);
+  const [tick, setTick] = useState(0);
+  const awaySeen = useRef(new Map());
   useEffect(() => {
     if (!scope) return undefined;
-    setMeta(null);
-    let cleaned = false;
-    return onValue(
-      ref(db, callPath(scope)),
-      (s) => {
-        const v = s.val();
-        if (!v?.id) return setMeta(null);
-        const participants = Object.entries(v.slots || {})
-          .filter(([, x]) => x?.uid)
-          .map(([i, x]) => ({ index: Number(i), ...x }))
-          .sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
-        // Client-side stale cleanup: a call with no slots for 60 s is over.
-        if (!participants.length && typeof v.ts === 'number' && Date.now() - v.ts > STALE_MS && !cleaned) {
-          cleaned = true;
-          cleanupIfEmpty(scope).catch(() => {});
-        }
-        setMeta({ id: v.id, kind: v.kind === 'video' ? 'video' : 'audio', ts: v.ts, startedBy: v.startedBy, participants });
-      },
-      () => setMeta(null),
-    );
+    setRaw(null);
+    serverNow(); // start the clock listener
+    return onValue(ref(db, callPath(scope)), (s) => setRaw(s.val() || null), () => setRaw(null));
   }, [scope]);
+  const hasSlots = !!raw?.slots;
+  useEffect(() => {
+    if (!hasSlots) return undefined;
+    const t = setInterval(() => setTick((x) => x + 1), 5000);
+    return () => clearInterval(t);
+  }, [hasSlots]);
+  const { meta, ghosts } = useMemo(() => {
+    if (!raw?.id) return { meta: null, ghosts: [] };
+    const now = serverNow();
+    const local = Date.now();
+    const ghostList = [];
+    const participants = [];
+    for (const [i, x] of Object.entries(raw.slots || {})) {
+      if (!x?.uid) continue;
+      const live = slotLiveness(x, now);
+      const key = `${i}:${x.uid}:${x.joinedAt}:${x.hb}`;
+      if (live === 'away') {
+        if (!awaySeen.current.has(key)) awaySeen.current.set(key, local);
+        if (local - awaySeen.current.get(key) >= VIEWER_AWAY_MS) continue; // hidden, not removed
+      } else if (live === 'stale') {
+        ghostList.push({ index: Number(i), key });
+        continue;
+      }
+      participants.push({ index: Number(i), ...x });
+    }
+    participants.sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
+    return {
+      meta: { id: raw.id, kind: raw.kind === 'video' ? 'video' : 'audio', ts: raw.ts, startedBy: raw.startedBy, participants, empty: !raw.slots },
+      ghosts: ghostList,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raw, tick]);
+  useEffect(() => {
+    if (!scope) return;
+    for (const g of ghosts) {
+      const k = `${scope}/${g.key}`;
+      if (ghostTried.has(k)) continue;
+      ghostTried.add(k);
+      removeSlot(scope, g.index).catch(() => setTimeout(() => ghostTried.delete(k), 10_000));
+    }
+  }, [ghosts, scope]);
+  // Client-side stale cleanup: a call with no slots for 60 s is over.
+  const cleanable = !!meta && meta.empty && typeof meta.ts === 'number' && Date.now() - meta.ts > STALE_MS;
+  useEffect(() => {
+    if (cleanable && scope) cleanupIfEmpty(scope).catch(() => {});
+  }, [cleanable, scope]);
   return meta;
 }
 

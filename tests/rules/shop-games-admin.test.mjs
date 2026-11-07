@@ -179,6 +179,21 @@ describe('reports & announcements (F16, F17)', () => {
       'reports/rX': { by: 'mallory', kind: 'game', target: 'gm1', reason: 'malware', ts: TS }, 'reportLog/mallory': TS,
     }));
   });
+  it('ALLOW the round 3 report kinds bot and addon; DENY unknown kinds', async () => {
+    await ok(db('mallory').ref().update({
+      'reports/rB': { by: 'mallory', kind: 'bot', target: '-Nbot1', reason: 'spam', note: '[v2] spammy', ts: TS }, 'reportLog/mallory': TS,
+    }));
+    await ok(db('dave').ref().update({
+      'reports/rA': { by: 'dave', kind: 'addon', target: '-Naddon1', reason: 'malware', ts: TS }, 'reportLog/dave': TS,
+    }));
+    await ok(db('admin1').ref('reports/rB').once('value'));
+    await deny(db('zoe').ref().update({
+      'reports/rZ': { by: 'zoe', kind: 'server', target: 's1', reason: 'spam', ts: TS }, 'reportLog/zoe': TS,
+    }));
+    await deny(db('zoe').ref().update({
+      'reports/rZ': { by: 'zoe', kind: 'Bot', target: '-Nbot1', reason: 'spam', ts: TS }, 'reportLog/zoe': TS,
+    }));
+  });
   it('DENY report without reportLog / forged reporter', async () => {
     await deny(db('mallory').ref('reports/rX').set({ by: 'mallory', kind: 'game', target: 'gm1', reason: 'spam', ts: TS }));
     await deny(db('mallory').ref().update({

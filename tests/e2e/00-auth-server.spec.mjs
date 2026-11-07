@@ -3,7 +3,7 @@ import { NS, DB } from './global-setup.mjs';
 
 test('rules are enforced in the namespace the browser uses', async ({ users }) => {
   const alice = await users('alice');
-  const status = await alice.evaluate(async (ns) => (await fetch(`http://127.0.0.1:9000/users.json?ns=${ns}`)).status, NS);
+  const status = await alice.evaluate(async ([db, ns]) => (await fetch(`${db}/users.json?ns=${ns}`)).status, [DB, NS]);
   expect(status).toBe(401);
 });
 

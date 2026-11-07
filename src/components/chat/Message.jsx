@@ -13,10 +13,14 @@ import PollCard from '../chatx/PollCard.jsx';
 import ForwardedTag from '../chatx/ForwardedTag.jsx';
 import { Emote } from '../media/EmoteText.jsx';
 import { addBookmark } from '../../lib/chatx/bookmarks.js';
+import { MessageExtActions, MessageExtBadges, MessageExtExtras } from '../ext/ChatExt.jsx';
+import { useClockFormat } from '../../features/personal/lib/appearance.js';
+import { clockOptions } from '../../features/personal/lib/appearanceCore.js';
 
-function fmtTime(ts) {
+// clock: Settings -> Appearance -> Timestamps ('auto' | '12' | '24').
+function fmtTime(ts, clock) {
   if (typeof ts !== 'number') return '';
-  return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return new Date(ts).toLocaleTimeString(undefined, clockOptions(clock));
 }
 
 function fmtFull(ts) {
@@ -73,6 +77,7 @@ function Message(props) {
     onOpenReactPicker, onPin, onJump, onCopied, reportTarget, conv, emotes, onForward,
   } = props;
   const nameColor = useNameColor(m.uid);
+  const clock = useClockFormat();
 
   const text = m.body?.text || '';
   const html = useMemo(
@@ -130,7 +135,7 @@ function Message(props) {
       <div className="msg-row">
         <div className="msg-gutter">
           {grouped ? (
-            <span className="msg-hover-time" title={fmtFull(m.ts)}>{fmtTime(m.ts)}</span>
+            <span className="msg-hover-time" title={fmtFull(m.ts)}>{fmtTime(m.ts, clock)}</span>
           ) : (
             <Avatar profile={author} />
           )}
@@ -141,7 +146,8 @@ function Message(props) {
               <span className="msg-author" style={{ color: nameColor || author?.color || 'var(--text)' }}>{author?.name || '…'}</span>
               <CosmeticBadge uid={m.uid} />
               <AdminBadge uid={m.uid} />
-              <span className="msg-time" title={fmtFull(m.ts)}>{isSending ? 'sending…' : fmtTime(m.ts)}</span>
+              <MessageExtBadges m={m} />
+              <span className="msg-time" title={fmtFull(m.ts)}>{isSending ? 'sending…' : fmtTime(m.ts, clock)}</span>
               {m.pinned && <span className="msg-pin-flag" title="Pinned">📌</span>}
             </div>
           )}
@@ -174,6 +180,7 @@ function Message(props) {
               {invite && <InviteCard invite={invite} name={m.body?.invite?.name} mine={m.uid === me.uid} />}
               {m.editedAt && <span className="msg-edited" title={`Edited ${fmtFull(m.editedAt)}`}>(edited)</span>}
               {grouped && m.pinned && <span className="msg-pin-flag" title="Pinned">📌</span>}
+              <MessageExtExtras m={m} />
             </>
           )}
 
@@ -239,7 +246,7 @@ function Message(props) {
               title="Save (bookmark)"
               onClick={() => addBookmark(me.uid, conv, { mid: m.mid, uid: m.uid, ts: m.ts }, m.body, author?.name || '').then(
                 () => onCopied?.('Saved to bookmarks'),
-                (err) => onCopied?.(err?.message || 'Could not save'),
+                (err) => onCopied?.(err?.message || 'Could not save', 'error'),
               )}
             >
               🔖
@@ -270,6 +277,7 @@ function Message(props) {
               <TrashIcon />
             </button>
           )}
+          <MessageExtActions m={m} />
         </div>
       )}
       {m.error && canDelete && (

@@ -25,6 +25,10 @@ import { ColorPicker } from './modals.jsx';
 import { ServerIconUploader } from '../media/Uploaders.jsx';
 import { EmoteManager } from '../media/EmoteManager.jsx';
 import { Avatar, ConfirmButton, Icon, Modal, copyText, useToast } from './ui.jsx';
+import { useWorkspaceCtx } from '../../lib/ext/workspaceContext.js';
+import { ExtTabBody, useExtTabs } from '../ext/WorkspaceExt.jsx';
+
+const BUILTIN_TABS = ['overview', 'invites', 'members', 'roles', 'emotes', 'bans', 'audit'];
 
 const errMsg = (e) => String(e?.message || e).replace(/^Error:\s*/, '');
 
@@ -475,6 +479,13 @@ export default function ServerSettingsModal({
 }) {
   const staff = myRole === 'owner' || myRole === 'admin';
   const meM = meMember || { uid: me.uid, role: myRole };
+  // Round 3: serverSettingsTabs entries come after the built-in tabs (visible(ctx) filters them).
+  const ws = useWorkspaceCtx();
+  const extCtx = useMemo(
+    () => ({ ...(ws || {}), sid, perms, me, server: { meta, members, roles, timeouts, myRole, meMember: meM }, close: onClose }),
+    [ws, sid, perms, me, meta, members, roles, timeouts, myRole, meM.role, meM.roleId, onClose], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const extTabs = useExtTabs('serverSettingsTabs', BUILTIN_TABS, extCtx);
   const tabs = [
     ['overview', 'Overview', 'gear'],
     (staff || perms.manageInvites) && ['invites', 'Invites', 'link'],
@@ -483,11 +494,13 @@ export default function ServerSettingsModal({
     ['emotes', 'Emotes', 'hash'],
     (staff || perms.ban) && ['bans', 'Bans', 'ban'],
     (staff || perms.viewAudit) && ['audit', 'Audit log', 'key'],
+    ...extTabs.map((t) => [t.id, t.label, typeof t.icon === 'string' ? t.icon : 'gear']),
   ].filter(Boolean);
   const [tab, setTab] = useState(tabs.some((t) => t[0] === initialTab) ? initialTab : 'overview');
   const [autoInvite, setAutoInvite] = useState(initialTab === 'invites');
   // Perms can change live (role removed): never keep rendering a tab that is no longer offered.
   const shown = tabs.some((t) => t[0] === tab) ? tab : 'overview';
+  const extTab = extTabs.find((t) => t.id === shown);
 
   return (
     <Modal title={meta.name ? `${meta.name}` : 'Server settings'} onClose={onClose} wide className="ly-settings">
@@ -509,6 +522,7 @@ export default function ServerSettingsModal({
         {shown === 'roles' && <RolesTab sid={sid} me={meM} members={members} roles={roles} />}
         {shown === 'bans' && <Bans sid={sid} me={me} canUnban={can(meM, roles, 'ban')} />}
         {shown === 'audit' && <AuditLogTab sid={sid} canView={staff || can(meM, roles, 'viewAudit')} />}
+        {extTab && <ExtTabBody tab={extTab} ctx={extCtx} />}
       </div>
     </Modal>
   );

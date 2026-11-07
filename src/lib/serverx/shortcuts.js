@@ -8,7 +8,9 @@ export const SHORTCUT_GROUPS = [
     items: [
       { keys: ['?'], label: 'Show this overlay' },
       { keys: [MOD, 'K'], label: 'Open the command palette' },
-      { keys: ['Esc'], label: 'Close dialogs and menus' },
+      { keys: [MOD, 'Shift', 'P'], label: 'Open the command palette (alternative)' },
+      { keys: [MOD, 'Shift', 'Y'], label: 'Show or hide the assistant panel' },
+      { keys: ['Esc'], label: 'Close dialogs, menus and side panels' },
     ],
   },
   {
@@ -17,6 +19,8 @@ export const SHORTCUT_GROUPS = [
       { keys: ['Enter'], label: 'Send message' },
       { keys: ['Shift', 'Enter'], label: 'New line' },
       { keys: ['↑'], label: 'Edit your last message (empty composer)' },
+      { keys: ['/'], label: 'Slash commands (at the start of a message)' },
+      { keys: ['Tab'], label: 'Complete the highlighted suggestion' },
       { keys: [':'], label: 'Emoji and emote autocomplete' },
       { keys: ['@'], label: 'Mention someone' },
     ],

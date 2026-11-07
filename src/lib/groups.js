@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { equalTo, get, onValue, orderByChild, push, query, ref, remove, serverTimestamp, set, update } from 'firebase/database';
 import { db } from './firebase.js';
+import { updateWithCleanup } from './cleanupUpdate.js';
 import { decryptText, encryptText, generateRoomKey } from './crypto.js';
 import { AVATAR_COLORS } from './profiles.js';
 import { currentUid, onLock, unwrapForMe, wrapFor } from './keystore.js';
@@ -393,11 +394,11 @@ export async function deleteGroup(gid) {
     [`groupMessages/${gid}`]: null,
     [`typing/grp/${gid}`]: null,
     [`groups/${gid}`]: null,
-    [`votes/grp/${gid}`]: null, // the rules allow this once groups/{gid} is gone (same update)
     [`reads/${myUid}/${groupScope(gid)}`]: null,
   };
   for (const u of new Set([...Object.keys(members), myUid])) patch[`userGroups/${u}/${gid}`] = null;
-  await update(ref(db), patch);
+  // votes/grp/{gid}: the rules allow it once groups/{gid} is gone (same update, or after it).
+  await updateWithCleanup(patch, [`votes/grp/${gid}`]);
   forgetGroupCaches(gid);
 }
 

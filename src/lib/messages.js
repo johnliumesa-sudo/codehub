@@ -8,6 +8,8 @@
 //
 // Stored message: { uid, ts, iv, ct, editedAt?, replyTo?, deleted?, reactions?, pinned? }
 // The {iv, ct} box is AES-GCM over the JSON body { text, code?: { lang, content, filename? }, invite?: { name } }
+// plus round 3 extension keys (sendHooks `extra`, e.g. bot: { id, name }; see lib/ext/send.js). Extension
+// values are untrusted input like everything else: old clients ignore them, new ones validate before use.
 // with AAD `msg:{sid}/{cid}/{mid}:{uid}` (channels) or `dm:{dmId}/{mid}:{uid}` (DMs). Binding the
 // author uid means a server that rewrites `uid` makes the message undecryptable instead of
 // misattributed. Messages written before this change used the uid-less AAD and are still read.
@@ -34,6 +36,7 @@ import { cleanAttachments } from './media/attachments.js';
 import { cleanGif } from './media/giphy.js';
 import { sanitizePoll } from './chatx/polls.js';
 import { slowmodeExtras } from './serverx/slowmode.js';
+import { pickExtras } from './ext/send.js';
 
 export const PAGE_SIZE = 50;
 export const MAX_TEXT = 4000; // characters of message text
@@ -104,6 +107,8 @@ function cleanBody(body) {
   const poll = body.poll ? sanitizePoll(body.poll) : null;
   if (poll) out.poll = poll;
   if (body.fwd) out.fwd = { from: String(body.fwd.from || '').slice(0, 64) };
+  // Round 3 extension keys ride along unchanged (edits keep them); size is capped by validateBody.
+  Object.assign(out, pickExtras(body));
   return out;
 }
 

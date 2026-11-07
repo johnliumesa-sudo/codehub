@@ -1,0 +1,122 @@
+/* Messaging workstream (voice recorder, reminders, link chips, run code, export, drafts). Prefix mx-.
+   Design tokens only, so dark and light themes both work. */
+
+/* ---------- voice recorder (ephemeral card above the composer) ---------- */
+.mx-rec { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.mx-rec-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mx-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: none; animation: mx-pulse 1.2s ease-in-out infinite; }
+@keyframes mx-pulse { 50% { opacity: .35; } }
+.mx-rec-time { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--text); flex: none; }
+.mx-rec-live { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 60px; height: 26px; }
+.mx-rec-live span { flex: 1; min-width: 1px; border-radius: 2px; background: var(--accent); opacity: .85; }
+.mx-rec-left { font-size: 12px; color: var(--warn-text, var(--warn)); flex: none; }
+.mx-rec-status { margin: 0; font-size: 13px; color: var(--text-dim); }
+.mx-rec-error { margin: 0; font-size: 12.5px; color: var(--danger-text, var(--danger)); }
+.mx-rec-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
+.mx-rec-progress { position: relative; height: 6px; border-radius: 999px; background: var(--bg-3); overflow: hidden; }
+.mx-rec-progress > span { display: block; height: 100%; background: var(--accent); transition: width .15s; }
+.mx-rec-progress > span.indeterminate { animation: mx-slide 1.1s ease-in-out infinite; }
+@keyframes mx-slide { from { transform: translateX(-100%); } to { transform: translateX(700%); } }
+
+/* ---------- remind dialog ---------- */
+.mx-remind-modal { max-width: 440px; }
+.mx-remind-quote { margin: 0 0 12px; padding: 6px 10px; border-left: 3px solid var(--line-strong, var(--border)); color: var(--text-dim); font-size: 13px; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.mx-remind-quote strong { color: var(--text); font-size: 12.5px; }
+.mx-remind-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.mx-remind-field > span, .mx-remind-custom .field > span { font-size: 12.5px; color: var(--text-dim); }
+.mx-remind-presets { display: grid; gap: 6px; }
+.mx-remind-preset { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1px solid var(--border); }
+.mx-remind-preset .muted { font-size: 12px; }
+.mx-remind-custom { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
+.mx-remind-custom .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 200px; }
+.mx-remind-note { margin: 12px 0 0; }
+
+/* ---------- reminders panel ---------- */
+.mx-rem-panel { display: flex; flex-direction: column; gap: 14px; }
+.mx-rem-h { margin: 0 0 6px; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); }
+.mx-rem-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.mx-rem-item { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-2); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.mx-rem-item.due { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.mx-rem-item.done .mx-rem-summary { text-decoration: line-through; color: var(--text-faint); }
+.mx-rem-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mx-rem-summary { font-size: 13.5px; color: var(--text); overflow-wrap: anywhere; }
+.mx-rem-meta { font-size: 12px; color: var(--text-dim); }
+.mx-rem-excerpt { font-size: 12px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-rem-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.mx-rem-actions .btn.danger { color: var(--danger-text, var(--danger)); background: transparent; }
+
+/* ---------- due reminder cards (bottom-right) ---------- */
+.mx-due-stack { position: fixed; right: 20px; bottom: 104px; z-index: 900; display: flex; flex-direction: column; gap: 8px; width: min(340px, calc(100vw - 32px)); }
+.mx-due-card { background: var(--surface-pop, var(--bg-1)); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; box-shadow: 0 12px 32px rgba(0, 0, 0, .3); display: flex; flex-direction: column; gap: 6px; animation: mx-rise .18s ease-out; }
+@keyframes mx-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.mx-due-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.mx-due-icon { display: grid; place-items: center; color: var(--accent); }
+.mx-due-when { color: var(--text-faint); font-size: 12px; }
+.mx-due-x { margin-left: auto; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--text-dim); cursor: pointer; flex: none; }
+.mx-due-x:hover, .mx-due-x:focus-visible { background: var(--bg-hover); color: var(--text); }
+.mx-due-text { margin: 0; font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
+.mx-due-ctx { margin: 0; font-size: 12px; color: var(--text-dim); }
+.mx-due-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ---------- message link chips ---------- */
+.mx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mx-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-3); color: var(--link, var(--accent)); font: inherit; font-size: 12.5px; cursor: pointer; }
+.mx-chip:hover { background: var(--bg-hover); }
+.mx-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mx-chip-icon { flex: none; }
+.mx-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-chip-sub { color: var(--text-dim); }
+
+/* ---------- run code ---------- */
+.mx-run-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+.mx-run-btn { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-3); color: var(--text-dim); font: inherit; font-size: 12.5px; cursor: pointer; }
+.mx-run-btn:hover { color: var(--text); background: var(--bg-hover); }
+.mx-run-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mx-run { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-1); overflow: hidden; max-width: min(720px, 100%); }
+.mx-run-head { display: flex; align-items: center; gap: 2px; padding: 4px 6px 4px 10px; border-bottom: 1px solid var(--border); min-width: 0; }
+.mx-run-head .btn { flex: none; }
+.mx-run-status { font-size: 12.5px; color: var(--text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-run-status.done, .mx-run-status.live { color: var(--ok-text, var(--ok)); }
+.mx-run-status.timeout, .mx-run-status.busy { color: var(--warn-text, var(--warn)); }
+.mx-run-spacer { flex: 1; }
+.mx-run-frame { display: block; width: 100%; height: 240px; border: 0; border-bottom: 1px solid var(--border); background: #fff; resize: vertical; }
+.mx-run-frame.hidden { display: none; }
+.mx-run-log { margin: 0; max-height: 220px; overflow: auto; padding: 6px 10px; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-body, var(--text)); }
+.mx-run-line.warn { color: var(--warn-text, var(--warn)); }
+.mx-run-line.error { color: var(--danger-text, var(--danger)); }
+.mx-run-line.info { color: var(--text-dim); }
+.mx-run-empty { color: var(--text-faint); font-family: var(--font); }
+
+/* ---------- export panel ---------- */
+.mx-export { display: flex; flex-direction: column; gap: 12px; font-size: 13.5px; }
+.mx-export-warn { margin: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--warn); background: var(--bg-2); color: var(--text-body, var(--text)); }
+.mx-export-warn strong { color: var(--warn-text, var(--warn)); }
+.mx-export-group { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px 8px; margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mx-export-group legend { padding: 0 4px; font-size: 12px; color: var(--text-dim); }
+.mx-export-opt { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.mx-export-dates { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center; padding: 2px 0 4px 24px; }
+.mx-export-dates label { font-size: 12.5px; color: var(--text-dim); }
+.mx-export-actions { display: flex; gap: 8px; }
+.mx-export-progress { display: flex; flex-direction: column; gap: 4px; }
+.mx-export-progress p { margin: 0; }
+.mx-export-done { margin: 0; color: var(--ok-text, var(--ok)); }
+
+/* ---------- drafts (sidebar) ---------- */
+.mx-drafts { margin: 0 0 10px; }
+.mx-drafts-h { display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 4px 4px 8px; color: var(--text-faint); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.mx-drafts-count { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--bg-3); color: var(--text-dim); font-size: 10.5px; text-align: center; letter-spacing: 0; }
+.mx-drafts-list { list-style: none; margin: 0; padding: 0; }
+.mx-draft-row { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px; background: none; color: var(--text-dim); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.mx-draft-row:hover { background: var(--bg-hover); color: var(--text); }
+.mx-draft-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.mx-draft-pencil { display: grid; place-items: center; color: var(--accent); flex: none; }
+.mx-draft-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .mx-due-stack { right: 8px; left: 8px; bottom: 96px; width: auto; }
+  .mx-run-frame { height: 200px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mx-rec-dot, .mx-due-card, .mx-rec-progress > span.indeterminate { animation: none; }
+  .mx-rec-progress > span { transition: none; }
+}

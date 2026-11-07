@@ -21,6 +21,8 @@ import {
   updateChannel,
 } from '../../lib/servers.js';
 import { Avatar, ConfirmButton, Icon, Modal, useToast } from './ui.jsx';
+import { useRegistry } from '../../lib/ext/registry.js';
+import { ExtIcon, ExtRender } from '../ext/ExtRender.jsx';
 
 const errMsg = (e) => String(e?.message || e).replace(/^Error:\s*/, '');
 
@@ -66,6 +68,39 @@ export function CreateJoinModal({ me, onClose, onCreated, onJoined }) {
     }
   };
 
+  // Round 3 serverCreateOptions (e.g. templates): ctx.createWith(template) creates the server with the
+  // template's { name?, color?, channels? }, then awaits template.after({ sid, cids, generalCid,
+  // workspaceCid, uid }) and opens the server. Resolves to the result, or null when creation failed
+  // (the error is shown in the modal).
+  const createOptions = useRegistry('serverCreateOptions').filter((o) => o.label && typeof o.render === 'function');
+  const extOption = mode.startsWith('ext:') ? createOptions.find((o) => o.id === mode.slice(4)) : null;
+  const createWith = async (template = {}) => {
+    setBusy(true);
+    setError('');
+    let res;
+    try {
+      res = await createServer(me.uid, {
+        name: template.name || name,
+        color: template.color || color,
+        channels: Array.isArray(template.channels) ? template.channels : undefined,
+      });
+    } catch (err) {
+      setError(errMsg(err));
+      setBusy(false);
+      return null;
+    }
+    if (typeof template.after === 'function') {
+      try {
+        await template.after({ ...res, uid: me.uid });
+      } catch (err) {
+        console.error('[ext] server template setup failed', err);
+        setError(`The server was created, but part of the template could not be applied: ${errMsg(err)}`);
+      }
+    }
+    onCreated(res);
+    return res;
+  };
+
   const join = async (e) => {
     e.preventDefault();
     const inv = parseInviteLink(link);
@@ -81,7 +116,7 @@ export function CreateJoinModal({ me, onClose, onCreated, onJoined }) {
     }
   };
 
-  if (mode === 'choose') {
+  if (mode === 'choose' || (mode.startsWith('ext:') && !extOption)) {
     return (
       <Modal title="Add a server" onClose={onClose}>
         <p className="muted ly-lead">Servers are end-to-end encrypted: names, channels and messages are encrypted before they leave your device.</p>
@@ -94,7 +129,23 @@ export function CreateJoinModal({ me, onClose, onCreated, onJoined }) {
             <span className="ly-choice-icon alt"><Icon name="link" size={22} /></span>
             <span><strong>Join with an invite</strong><span className="muted">Paste a link someone shared with you</span></span>
           </button>
+          {createOptions.map((o) => (
+            <button key={o.id} className="ly-choice" onClick={() => setMode(`ext:${o.id}`)}>
+              <span className="ly-choice-icon">{o.icon ? <ExtIcon icon={o.icon} /> : <Icon name="plus" size={22} />}</span>
+              <span><strong>{String(o.label)}</strong>{o.description && <span className="muted">{String(o.description)}</span>}</span>
+            </button>
+          ))}
         </div>
+      </Modal>
+    );
+  }
+
+  if (extOption) {
+    const ctx = { me, name, color, busy, error, createWith, back: () => { setError(''); setMode('choose'); }, close: onClose };
+    return (
+      <Modal title={String(extOption.label)} onClose={onClose}>
+        <ExtRender entry={extOption} args={[ctx]} label={String(extOption.label)} notice />
+        {error && <p className="error-text">{error}</p>}
       </Modal>
     );
   }

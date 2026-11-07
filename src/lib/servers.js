@@ -3,6 +3,7 @@
 import { clearCategoryCache } from './serverx/categories.js';
 import { get, push, ref, remove, serverTimestamp, set, update } from 'firebase/database';
 import { db } from './firebase.js';
+import { updateWithCleanup } from './cleanupUpdate.js';
 import {
   decryptJSON,
   decryptText,
@@ -95,35 +96,51 @@ async function encChannel(key, sid, cid, name, topic) {
 
 // ---------- Servers ----------
 
+const DEFAULT_CHANNELS = [
+  { type: 'text', name: 'general', topic: 'Say hello 👋' },
+  { type: 'code', name: 'workspace', topic: 'Shared code workspace' },
+];
+export const MAX_TEMPLATE_CHANNELS = 50;
+
 /**
  * Create a server in ONE multi-path update:
- *   servers/{sid}/meta, members/{me}=owner, keys/{me}, channels/{general,workspace}, userServers/{me}/{sid}
- * Returns { sid, generalCid, workspaceCid }.
+ *   servers/{sid}/meta, members/{me}=owner, keys/{me}, channels, userServers/{me}/{sid}
+ * `channels` (optional, from a server template): [{ type: 'text'|'code'|'voice', name, topic? }] in order;
+ * default #general + a code workspace. Returns { sid, generalCid, workspaceCid, cids } where
+ * generalCid / workspaceCid are the first text / code channel (or null) and cids follows `channels`.
  */
-export async function createServer(uid, { name, color }) {
+export async function createServer(uid, { name, color, channels } = {}) {
   const clean = cleanServerName(name);
   if (!clean) throw new Error('Give your server a name');
+  const list = (Array.isArray(channels) && channels.length ? channels : DEFAULT_CHANNELS)
+    .slice(0, MAX_TEMPLATE_CHANNELS)
+    .map((c) => ({
+      type: c?.type === 'code' || c?.type === 'voice' ? c.type : 'text',
+      name: cleanChannelName(c?.name) || 'channel',
+      topic: cleanTopic(c?.topic),
+    }));
   const sid = newKey('servers');
-  const generalCid = newKey(`servers/${sid}/channels`);
-  const workspaceCid = newKey(`servers/${sid}/channels`);
+  const cids = list.map(() => newKey(`servers/${sid}/channels`));
   const key = await generateRoomKey();
-  const [nameEnc, wrapped, generalEnc, workspaceEnc] = await Promise.all([
+  const [nameEnc, wrapped, ...encs] = await Promise.all([
     encryptText(key, clean, aad.serverName(sid)),
     wrapServerKeyFor(sid, uid, key),
-    encChannel(key, sid, generalCid, 'general', 'Say hello 👋'),
-    encChannel(key, sid, workspaceCid, 'workspace', 'Shared code workspace'),
+    ...list.map((c, i) => encChannel(key, sid, cids[i], c.name, c.topic)),
   ]);
   const now = serverTimestamp();
-  await update(ref(db), {
+  const patch = {
     [`servers/${sid}/meta`]: { nameEnc, ownerId: uid, color: color || SERVER_COLORS[0], createdAt: now },
     [`servers/${sid}/members/${uid}`]: { role: 'owner', joinedAt: now },
     [`servers/${sid}/keys/${uid}`]: wrapped,
-    [`servers/${sid}/channels/${generalCid}`]: { type: 'text', enc: generalEnc, position: 0, createdAt: now },
-    [`servers/${sid}/channels/${workspaceCid}`]: { type: 'code', enc: workspaceEnc, position: 1, createdAt: now },
     [`userServers/${uid}/${sid}`]: { joinedAt: now },
+  };
+  list.forEach((c, i) => {
+    patch[`servers/${sid}/channels/${cids[i]}`] = { type: c.type, enc: encs[i], position: i, createdAt: now };
   });
+  await update(ref(db), patch);
   cacheServerKey(sid, key);
-  return { sid, generalCid, workspaceCid };
+  const first = (t) => cids[list.findIndex((c) => c.type === t)] || null;
+  return { sid, generalCid: first('text'), workspaceCid: first('code'), cids };
 }
 
 export async function updateServer(sid, { name, color }) {
@@ -142,7 +159,8 @@ export async function updateServer(sid, { name, color }) {
 // Other members' userServers entries become stale; their clients show the server as unavailable.
 // Server data kept outside servers/{sid}. The rules let anyone clear these once the server (or, per
 // channel, the channel) is gone, so they go in the same update that deletes it.
-const serverSidePaths = (sid) => [`emotes/${sid}`, `vcalls/${sid}`, `vsignal/${sid}`, `lastPost/${sid}`, `votes/ch/${sid}`];
+// Round 3: sconf/sitems are deletable once the server is gone; pub/servers/{sid} by its publisher (the owner).
+const serverSidePaths = (sid) => [`emotes/${sid}`, `vcalls/${sid}`, `vsignal/${sid}`, `lastPost/${sid}`, `votes/ch/${sid}`, `sconf/${sid}`, `sitems/${sid}`];
 const channelSidePaths = (sid, cid) => [`vcalls/${sid}/${cid}`, `vsignal/${sid}/${cid}`, `lastPost/${sid}/${cid}`, `votes/ch/${sid}/${cid}`];
 
 // Attachments are keyed by ids inside the encrypted messages; remove them while the messages (and my
@@ -160,14 +178,19 @@ export async function deleteServer(sid, uid) {
     /* not readable: nothing to purge */
   }
   await purgeChannelAttachments(sid, cids).catch(() => {});
-  await update(ref(db), {
-    [`messages/${sid}`]: null,
-    [`collab/${sid}`]: null,
-    [`audit/${sid}`]: null,
-    [`servers/${sid}`]: null,
-    [`userServers/${uid}/${sid}`]: null,
-    ...Object.fromEntries(serverSidePaths(sid).map((p) => [p, null])),
-  });
+  await updateWithCleanup(
+    {
+      [`messages/${sid}`]: null,
+      [`collab/${sid}`]: null,
+      [`audit/${sid}`]: null,
+      [`servers/${sid}`]: null,
+      [`userServers/${uid}/${sid}`]: null,
+    },
+    serverSidePaths(sid),
+  );
+  // A discovery listing is public and outlives the server unless removed; only its publisher (the
+  // owner) or an app admin can. Separate write: it may not exist.
+  await remove(ref(db, `pub/servers/${sid}`)).catch(() => {});
 }
 
 export async function leaveServer(sid, uid) {
@@ -372,12 +395,14 @@ export async function updateChannel(sid, cid, { name, topic }) {
 
 export async function deleteChannel(sid, cid) {
   await purgeChannelAttachments(sid, [cid]).catch(() => {});
-  await update(ref(db), {
-    [`messages/${sid}/${cid}`]: null,
-    [`collab/${sid}/${cid}`]: null,
-    [`servers/${sid}/channels/${cid}`]: null,
-    ...Object.fromEntries(channelSidePaths(sid, cid).map((p) => [p, null])),
-  });
+  await updateWithCleanup(
+    {
+      [`messages/${sid}/${cid}`]: null,
+      [`collab/${sid}/${cid}`]: null,
+      [`servers/${sid}/channels/${cid}`]: null,
+    },
+    channelSidePaths(sid, cid),
+  );
 }
 
 // ---------- DMs ----------

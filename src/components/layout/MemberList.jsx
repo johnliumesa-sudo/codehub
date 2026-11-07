@@ -10,6 +10,9 @@ import { CosmeticBadge, CosmeticName, useNameColor } from '../shop/Cosmetics.jsx
 import AdminBadge from '../admin/AdminBadge.jsx';
 import ReportButton from '../admin/ReportButton.jsx';
 import BlockButton from '../safety/BlockButton.jsx';
+import { ProfileSections } from '../ext/WorkspaceExt.jsx';
+import { NoteMark } from '../../features/personal/components/UserNote.jsx';
+import { CustomStatusText } from '../../features/personal/components/StatusBits.jsx';
 
 const ROLE_ICON = { owner: 'crown', admin: 'shield' };
 
@@ -45,6 +48,7 @@ function ProfileCard({ uid, profile, role, presence, pos, isMe, onMessage, onClo
         <div className="muted ly-profile-presence">{PRESENCE_LABEL[presence]}</div>
         {profile?.status && <div className="ly-profile-status">{profile.status}</div>}
         <ProfileExtrasCard profile={profile} />
+        <ProfileSections uid={uid} extra={{ sid, member, isMe, close: onClose }} />
         {!isMe && (
           <>
             <button className="btn primary" onClick={() => onMessage(uid)}>
@@ -131,8 +135,9 @@ export default function MemberList({ members, loading, myUid, onMessage, sid, me
                             {ROLE_ICON[m.role] && <Icon name={ROLE_ICON[m.role]} size={13} className={`ly-role-icon ${m.role}`} title={m.role} />}
                             <AdminBadge uid={m.uid} />
                             <TimeoutMark until={timeouts[m.uid]} />
+                            {m.uid !== myUid && <NoteMark uid={m.uid} />}
                           </span>
-                          {p?.status && <span className="ly-dm-status">{p.status}</span>}
+                          <CustomStatusText uid={m.uid} fallback={p?.status} />
                         </span>
                       </button>
                     );

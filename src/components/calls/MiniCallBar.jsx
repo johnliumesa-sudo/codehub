@@ -23,17 +23,17 @@ export default function MiniCallBar({ label, onOpen, hidden }) {
       <button className="call-mini-main" onClick={() => onOpen?.(call.scope)} title="Open call">
         <span className={`call-mini-dot ${call.status === 'live' ? 'live' : ''}`} />
         <span className="call-mini-text">
-          <strong>{call.status === 'joining' ? 'Joining…' : 'In call'}</strong>
+          <strong>{call.status === 'joining' ? 'Joining…' : call.rejoining ? 'Reconnecting…' : 'In call'}</strong>
           <span className="call-dim">{label ? `${label} · ` : ''}{n || 1} {n === 1 ? 'person' : 'people'}</span>
         </span>
       </button>
-      <button className={`call-ctl sm ${call.mic ? '' : 'off'}`} onClick={callActions.toggleMic} title={call.mic ? 'Mute' : 'Unmute'} disabled={call.status !== 'live'}>
+      <button className={`call-ctl sm ${call.mic ? '' : 'off'}`} onClick={callActions.toggleMic} title={call.mic ? 'Mute' : 'Unmute'} aria-label="Mute" aria-pressed={!call.mic} disabled={call.status !== 'live'}>
         <CallIcon name={call.mic ? 'mic' : 'micOff'} size={16} />
       </button>
-      <button className={`call-ctl sm ${call.deafened ? 'off' : ''}`} onClick={callActions.toggleDeafen} title={call.deafened ? 'Undeafen' : 'Deafen'} disabled={call.status !== 'live'}>
+      <button className={`call-ctl sm ${call.deafened ? 'off' : ''}`} onClick={callActions.toggleDeafen} title={call.deafened ? 'Undeafen' : 'Deafen'} aria-label="Deafen" aria-pressed={call.deafened} disabled={call.status !== 'live'}>
         <CallIcon name={call.deafened ? 'headsetOff' : 'headset'} size={16} />
       </button>
-      <button className="call-ctl sm hangup" onClick={callActions.leave} title="Leave call">
+      <button className="call-ctl sm hangup" onClick={callActions.leave} title="Leave call" aria-label="Leave call">
         <CallIcon name="hangup" size={16} />
       </button>
     </div>

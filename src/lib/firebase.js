@@ -19,7 +19,8 @@ export const auth = getAuth(app);
 export const db = getDatabase(app);
 
 // `npm run dev:emu` points the app at the local Auth + Database emulators (`npm run emulators`).
+// Browser tests on another port block (CODEHUB_PORT_BASE) pass VITE_EMU_AUTH_PORT / VITE_EMU_DB_PORT.
 if (import.meta.env.VITE_EMULATORS) {
-  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
-  connectDatabaseEmulator(db, '127.0.0.1', 9000);
+  connectAuthEmulator(auth, `http://127.0.0.1:${Number(import.meta.env.VITE_EMU_AUTH_PORT) || 9099}`, { disableWarnings: true });
+  connectDatabaseEmulator(db, '127.0.0.1', Number(import.meta.env.VITE_EMU_DB_PORT) || 9000);
 }

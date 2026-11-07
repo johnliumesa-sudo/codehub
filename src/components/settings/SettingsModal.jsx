@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { sendPasswordResetEmail, signOut, updateProfile } from 'firebase/auth';
 import { ref, update } from 'firebase/database';
 import { auth, db } from '../../lib/firebase.js';
@@ -14,7 +14,10 @@ import PromoTab from '../admin/PromoTab.jsx';
 import PrivacyTab from '../safety/PrivacyTab.jsx';
 import NotificationsTab from '../safety/NotificationsTab.jsx';
 import ThemeToggle from '../theme/ThemeToggle.jsx';
+import AppearanceSettings from '../../features/personal/components/AppearanceSettings.jsx';
 import { AvatarUploader } from '../media/Uploaders.jsx';
+import { useWorkspaceCtx } from '../../lib/ext/workspaceContext.js';
+import { ExtTabBody, useExtTabs } from '../ext/WorkspaceExt.jsx';
 import './settings.css';
 
 const STATUS_MAX = 128;
@@ -26,7 +29,7 @@ const TABS = [
   ['privacy', 'Privacy'],
   ['notifications', 'Notifications'],
   ['github', 'GitHub'],
-  ['addons', 'Add-ons'],
+  ['addons', 'Shop items'], // owned/equipped shop cosmetics; add-on apps have their own tab
   ['admin', 'Codes & admin'],
   ['account', 'Account'],
 ];
@@ -118,7 +121,7 @@ function ProfileTab({ user }) {
       </div>
 
       <label className="field">
-        <span className="settings-label-row">Status <span className="settings-count">{status.length}/{STATUS_MAX}</span></span>
+        <span className="settings-label-row">Profile status <span className="settings-count">{status.length}/{STATUS_MAX}</span></span>
         <input
           className="input"
           value={status}
@@ -127,7 +130,11 @@ function ProfileTab({ user }) {
           onChange={(e) => setStatus(e.target.value)}
         />
       </label>
-      <p className="settings-note">Your name, color and status are public to other Codehub users (not encrypted).</p>
+      <p className="settings-note">
+        Your name, color and profile status are public to other Codehub users (not encrypted). A custom status
+        (emoji, Do Not Disturb, clears itself), set from the status button next to your name, shows instead while
+        it is set.
+      </p>
 
       <div className="settings-actions">
         {msg && <span className={msg.ok ? 'settings-ok' : 'error-text'}>{msg.text}</span>}
@@ -458,11 +465,18 @@ function DeleteAccount({ user, disabled }) {
  *  - user: Firebase auth user (required)
  *  - onClose(): close the modal (required)
  *  - initialTab: optional id of a tab in TABS ('profile', 'security', 'appearance', 'privacy',
- *    'notifications', 'github', 'addons', 'admin' or 'account'); anything else opens 'profile'
+ *    'notifications', 'github', 'addons', 'admin' or 'account') or of a userSettingsTabs entry
+ *    (round 3 registry; listed after the built-in tabs); anything else opens 'profile'
  *  - onOpenShop, onOpenAdmin, describeScope: optional hooks used by the Add-ons, admin and Notifications tabs
  */
 export default function SettingsModal({ user, onClose, initialTab = 'profile', onOpenShop, onOpenAdmin, describeScope }) {
-  const [tab, setTab] = useState(TABS.some(([id]) => id === initialTab) ? initialTab : 'profile');
+  const ws = useWorkspaceCtx();
+  const extCtx = useMemo(() => ({ ...(ws || {}), user, close: onClose }), [ws, user, onClose]);
+  const extTabs = useExtTabs('userSettingsTabs', TABS.map(([id]) => id), extCtx);
+  const allTabs = [...TABS, ...extTabs.map((t) => [t.id, t.label])];
+  const [tab, setTab] = useState(allTabs.some(([id]) => id === initialTab) ? initialTab : 'profile');
+  const shown = allTabs.some(([id]) => id === tab) ? tab : 'profile'; // an extension tab may go away
+  const extTab = extTabs.find((t) => t.id === shown);
   const profile = useProfile(user?.uid);
 
   useEffect(() => {
@@ -487,35 +501,41 @@ export default function SettingsModal({ user, onClose, initialTab = 'profile', o
             </div>
           </div>
           <div className="settings-nav-label">User settings</div>
-          {TABS.map(([id, label]) => (
-            <button key={id} className={`settings-nav-item${tab === id ? ' on' : ''}`} onClick={() => setTab(id)}>
+          {allTabs.map(([id, label]) => (
+            <button key={id} className={`settings-nav-item${shown === id ? ' on' : ''}`} onClick={() => setTab(id)}>
               {label}
             </button>
           ))}
         </nav>
         <section className="settings-body">
           <header className="settings-head">
-            <h2>{TABS.find(([id]) => id === tab)[1]}</h2>
+            <h2>{allTabs.find(([id]) => id === shown)[1]}</h2>
             <button className="settings-close" onClick={onClose} aria-label="Close settings">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
             </button>
           </header>
           <div className="settings-scroll">
-            {tab === 'profile' && (
+            {shown === 'profile' && (
               <>
                 <h3>Profile picture</h3>
                 <AvatarUploader uid={user.uid} />
                 <ProfileTab user={user} />
               </>
             )}
-            {tab === 'appearance' && <ThemeToggle />}
-            {tab === 'security' && <SecurityTab />}
-            {tab === 'privacy' && <PrivacyTab user={user} />}
-            {tab === 'notifications' && <NotificationsTab user={user} describeScope={describeScope} />}
-            {tab === 'github' && <GithubTab />}
-            {tab === 'addons' && <AddonsTab me={{ ...(profile || {}), uid: user.uid }} onOpenShop={onOpenShop} />}
-            {tab === 'admin' && <PromoTab user={user} onOpenAdmin={onOpenAdmin} />}
-            {tab === 'account' && <AccountTab user={user} onClose={onClose} />}
+            {shown === 'appearance' && (
+              <>
+                <ThemeToggle />
+                <AppearanceSettings />
+              </>
+            )}
+            {shown === 'security' && <SecurityTab />}
+            {shown === 'privacy' && <PrivacyTab user={user} />}
+            {shown === 'notifications' && <NotificationsTab user={user} describeScope={describeScope} />}
+            {shown === 'github' && <GithubTab />}
+            {shown === 'addons' && <AddonsTab me={{ ...(profile || {}), uid: user.uid }} onOpenShop={onOpenShop} />}
+            {shown === 'admin' && <PromoTab user={user} onOpenAdmin={onOpenAdmin} />}
+            {shown === 'account' && <AccountTab user={user} onClose={onClose} />}
+            {extTab && <ExtTabBody tab={extTab} ctx={extCtx} />}
           </div>
         </section>
       </div>
