@@ -156,6 +156,7 @@ export const KIND_LABEL = {
   gameLike: 'liked your game',
   call: 'is calling you',
   announcement: 'posted an announcement',
+  reminder: 'asked to be reminded about this',
 };
 
 /** Mute scope used by notify.js for this notification, or null. */

@@ -4,7 +4,8 @@
 import { push, ref, serverTimestamp, update } from 'firebase/database';
 import { auth, db } from './firebase.js';
 
-export const NOTIF_KINDS = ['mention', 'reply', 'dm', 'groupAdd', 'friendReq', 'roleChange', 'gameLike', 'call', 'announcement'];
+// 'reminder' (round 3, messaging) is the only kind a user writes to their own list (from === to).
+export const NOTIF_KINDS = ['mention', 'reply', 'dm', 'groupAdd', 'friendReq', 'roleChange', 'gameLike', 'call', 'announcement', 'reminder'];
 export const NOTIF_MIN_GAP_MS = 3000;
 const REF_KEYS = ['sid', 'cid', 'gid', 'dmId', 'mid', 'gameId', 'callId'];
 
