@@ -12,6 +12,7 @@ One file per workstream. Feature numbers match the list in the main [README](../
 | [personal.md](personal.md) | 22 Custom status, Do Not Disturb and auto-idle · 23 Favorites and server folders · 24 Private user notes · 25 Appearance settings |
 | [community.md](community.md) | 26 Server events with RSVP · 27 Server templates · 28 Welcome screen and rules gate · 29 Server discovery · 30 AutoMod (client-enforced) |
 | [shop.md](shop.md) | 31 Community shop: creator items and earnings |
+| [sec-misc.md](sec-misc.md) | Security fixes from the round 3 review: size and rate limits on the generic blocks, AutoMod matching, discovery key warning, call slot grace, assistant names and sharing, bot welcomes |
 
 Most workstreams live in `src/features/<ws>/`; calls and the shop mainly extend existing code (`src/lib/calls/`,
 `src/components/calls/`; `src/lib/shop.js`, `src/lib/addons/`, `src/components/shop/`). The extension points,

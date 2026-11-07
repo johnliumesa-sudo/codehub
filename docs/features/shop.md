@@ -120,6 +120,17 @@ creator deleted their account are no longer listed for new buyers.
 | Price 0–10000, name ≤ 48, description ≤ 280, glyph ≤ 8 | rules + client |
 | Readable themes (contrast) | client (create, edit, render) |
 | "Popular" sort | not offered: sales are private to each creator, so there is no cheap public sales count |
+| Coins funnelled to one creator through throwaway accounts | not prevented (see below) |
+
+**Known limit: earnings can be farmed with throwaway accounts (round 3 security review a5).** Every new
+account can claim the starter coins and the daily coins, and buying a community item moves its price to
+the item's creator. Someone who creates many free accounts can therefore buy their own items from each of
+them and funnel those coins to one creator account. Nothing stops this: sign-up is open (Firebase Auth
+on the free plan, no server-side checks), and the rules can't tell a real buyer from a throwaway one. It
+is acceptable because the economy is cosmetic: coins only buy badges, name colors and themes, they can't
+be cashed out, transferred directly or used for anything that affects other people, and sales are
+visible only to the creator. Don't attach anything of value (rankings, rewards, payouts) to coins or
+sales counts without first adding a real cost to new accounts.
 
 Rule bytes: 1,474 of the 1,500-byte budget (minified rules 99,631 bytes after this change, from 98,157).
 
