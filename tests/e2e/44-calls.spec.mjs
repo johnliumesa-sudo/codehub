@@ -180,17 +180,24 @@ async function voiceRoom(users) {
     await page.getByTitle('Open call').click();
   }
   await waitUp([alice, bob]);
-  ctx.slots = async () => Object.values((await adminGet(`vcalls/${ctx.sid}/${ctx.cid}/slots`)) || {}).map((s) => s.uid);
+  // (The REST API returns numeric keys as an array, with null for a freed lower index.)
+  ctx.slots = async () => Object.values((await adminGet(`vcalls/${ctx.sid}/${ctx.cid}/slots`)) || {}).filter(Boolean).map((s) => s.uid);
   return ctx;
 }
 
 test('closing a tab removes its slot and tile; leaving cleans up slot and signaling inbox', async ({ users }) => {
+  test.setTimeout(180_000);
   const { alice, bob, a, b, sid, cid, slots } = await voiceRoom(users);
   expect((await slots()).sort()).toEqual([a, b].sort());
   await expect(tile(alice, b)).toBeVisible();
   await bob.close();
   await expect(tile(alice, b)).toHaveCount(0, { timeout: 20_000 });
-  await expect.poll(slots, { timeout: 20_000 }).toEqual([a]);
+  // The closing tab removes its slot on pagehide. When that write doesn't reach the server before the
+  // tab is gone, the server can't tell a closed tab from a network blip: its onDisconnect marks the
+  // slot away (hidden at once) and the others remove it after the 45 s grace.
+  const left = Object.values((await adminGet(`vcalls/${sid}/${cid}/slots`)) || {}).find((s) => s?.uid === b);
+  if (left) expect(left.away).toBe(true);
+  await expect.poll(slots, { timeout: 70_000, intervals: [1_000] }).toEqual([a]);
   // Explicit leave: slot and inbox are gone.
   await alice.getByRole('button', { name: 'Leave call' }).first().click();
   await expect.poll(slots, { timeout: 10_000 }).toEqual([]);
@@ -209,7 +216,7 @@ test('a crashed tab leaves no ghost: hidden at once, its slot removed by the oth
   // network blip must not drop anyone from the call).
   await expect(tile(alice, b)).toHaveCount(0, { timeout: 45_000 });
   await expect(alice.locator('.call-head')).toContainText('1 in call');
-  const away = Object.values((await adminGet(`vcalls/${sid}/${cid}/slots`)) || {}).find((s) => s.uid === b);
+  const away = Object.values((await adminGet(`vcalls/${sid}/${cid}/slots`)) || {}).find((s) => s?.uid === b);
   expect(away?.away).toBe(true);
   expect(typeof away.hb).toBe('number');
   const until = away.hb + 45_000;

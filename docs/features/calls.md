@@ -53,7 +53,9 @@ instead of sitting at "Connecting…".
   hide the tile, and the participant lists in headers and voice channels hide it after 20 s, but it
   reappears as soon as the owner beats again (`slotLiveness`, `canPruneSlot` in `health.js`). Joining
   or starting a call first removes stale slots and my own away slot (a crashed tab of mine; owners may
-  always delete their own slot), so a call left behind by crashed tabs rings again. A
+  always delete their own slot), so a call left behind by crashed tabs rings again. A tab that is
+  closed removes its own slot on `pagehide`; if that write doesn't reach the server before the tab is
+  gone, the server can't tell it from a blip, so the slot is hidden at once and removed after 45 s. A
   client never judges others while its own copy may be out of date: not while it is offline, and not
   for 5 s after reconnecting or after its own tab was stalled (the rules would refuse a wrong removal
   anyway, since they compare `hb` with the server clock).
