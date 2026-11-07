@@ -57,7 +57,14 @@ export function useServerMeta(sid, nonce) {
   const [dec, setDec] = useState({ key: null, name: null, error: null });
 
   useEffect(() => {
-    if (!cacheKey || peekPlain(plainKey) !== undefined) return undefined;
+    if (!cacheKey) return undefined;
+    // Another component may have filled the shared cache after this render read it (e.g. the
+    // notifier decrypting a new server's names): adopt that value, or the name would stay blank.
+    const hit = peekPlain(plainKey);
+    if (hit !== undefined) {
+      setDec((d) => (d.key === cacheKey && d.name === hit ? d : { key: cacheKey, name: hit, error: null }));
+      return undefined;
+    }
     let alive = true;
     decryptServerName(sid, box).then(
       (name) => alive && setDec({ key: cacheKey, name, error: null }),
@@ -96,11 +103,19 @@ export function useChannels(sid, nonce) {
   useEffect(() => {
     if (!value) return undefined;
     let alive = true;
-    const put = (k, v) => setDecSt((d) => ({ nonce, map: { ...(d.nonce === nonce ? d.map : {}), [k]: v } }));
+    // Unchanged state is returned as is, so adopting a value this render already showed re-renders nothing.
+    const put = (k, v) => setDecSt((d) => (d.nonce === nonce && d.map[k] === v ? d : { nonce, map: { ...(d.nonce === nonce ? d.map : {}), [k]: v } }));
     Object.entries(value).forEach(([cid, ch]) => {
       if (!ch?.enc) return;
       const k = channelCacheKey(sid, cid, ch.enc);
-      if (peekPlain(k) !== undefined) return;
+      // The shared cache may have been filled between this render and this effect (another component
+      // decrypted the same channel, e.g. the notifier right after a server is created). Adopt it:
+      // skipping it here left the channel blank until something else re-rendered the list.
+      const hit = peekPlain(k);
+      if (hit !== undefined) {
+        put(k, hit);
+        return;
+      }
       decryptChannel(sid, cid, ch.enc).then(
         (v) => alive && put(k, v),
         () => alive && put(k, { failed: true }),

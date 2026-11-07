@@ -30,7 +30,12 @@ function useChannelInfo(me, sid, cid) {
   const [dec, setDec] = useState({ k: null, name: null, failed: false });
   const k = ch?.enc ? channelCacheKey(sid, cid, ch.enc) : null;
   useEffect(() => {
-    if (!k || peekPlain(k) !== undefined) return undefined;
+    if (!k) return undefined;
+    const hit = peekPlain(k); // filled after this render read it: adopt it (see layout/hooks.js useChannels)
+    if (hit !== undefined) {
+      setDec((d) => (d.k === k && d.name === hit.name ? d : { k, name: hit.name, failed: false }));
+      return undefined;
+    }
     let alive = true;
     decryptChannel(sid, cid, ch.enc).then(
       (v) => alive && setDec({ k, name: v.name, failed: false }),
